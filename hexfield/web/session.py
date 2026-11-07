@@ -57,7 +57,10 @@ def board_geometry(b):
     return {
         "hexes": hexes,
         "vertices": [{"x": x, "y": y, "desc": b.describe_vertex(v),
-                      "pips": b.vertex_total_pips[v]} for v, (x, y) in enumerate(vxy)],
+                      "pips": b.vertex_total_pips[v], "hexes": list(b.vertex_hexes[v]),
+                      "port": (None if b.vertex_port[v] is None else
+                               "any" if b.vertex_port[v] == "any" else RES_NAMES[b.vertex_port[v]])}
+                     for v, (x, y) in enumerate(vxy)],
         "edges": [list(pr) for pr in b.edge_vertices],
         "ports": ports,
         "radius": HEX_R,

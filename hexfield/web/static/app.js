@@ -23,6 +23,46 @@ const pc = (p) => `var(--p${p})`;
 const icon = (id, cls = "") => `<svg class="${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
 const resIcon = (r, cls = "ri") => `<svg class="${cls} r-${RES[r]}" aria-hidden="true"><use href="#i-${RES[r]}"/></svg>`;
 
+// "2 wheat, ore" / "wheat, wheat, ore" -> [0,0,0,2,1]
+function parseCards(msg) {
+  const c = [0, 0, 0, 0, 0];
+  for (const m of msg.matchAll(/(?:(\d+) )?(wood|brick|sheep|wheat|ore)\b/g)) c[RES.indexOf(m[2])] += Number(m[1] || 1);
+  return c;
+}
+
+// Expected production of player p: pips per resource (cards per 36 rolls),
+// the dice numbers that pay out, and what the robber is currently blocking.
+function production(p) {
+  const pips = [0, 0, 0, 0, 0], blocked = [0, 0, 0, 0, 0], nums = [[], [], [], [], []];
+  S.v_owner.forEach((o, v) => {
+    if (o !== p) return;
+    const lv = S.v_level[v];
+    for (const h of B.vertices[v].hexes || []) {
+      const hx = B.hexes[h];
+      if (!hx.res) continue;
+      const r = RES.indexOf(hx.res);
+      if (h === S.robber) { blocked[r] += hx.pips * lv; continue; }
+      pips[r] += hx.pips * lv;
+      nums[r].push({ n: hx.num, lv, pips: hx.pips });
+    }
+  });
+  return { pips, blocked, nums, total: pips.reduce((a, b) => a + b, 0) };
+}
+
+// engine notation -> readable line: "road -> road -> road -> city [..]" => "3 roads → city [..]"
+function human(s) {
+  const out = [];
+  for (const part of plain(s).replace(/\s*\(eval [^)]*\)/g, "").split(/\s*->\s*/)) {
+    const last = out.at(-1);
+    if (last && part === "road" && last.t === "road") last.n++;
+    else out.push({ t: part, n: 1 });
+  }
+  return out.map((o) => (o.n > 1 ? `${o.n} roads` : o.t)).join(" → ");
+}
+
+// the move only, without the engine's explanation after the dash
+const short = (s) => human(String(s).split(" — ")[0]);
+
 function svg(tag, attrs = {}, parent) {
   const el = document.createElementNS(SVGNS, tag);
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
@@ -132,6 +172,7 @@ function apply(st, initial = false) {
   evCount = st.ev_total;
   appendLog(fresh);
   if (!initial) effects(fresh);
+  recapTurn(fresh, initial);
   if (mode && !(S.legal[mode] || []).length) mode = null;
   const key = `${S.turn}|${S.phase}|${S.actor}|${S.ev_total}`;
   if (hintKey && key !== hintKey) { $("#coach-out").replaceChildren(); hintKey = null; clearGlow(); }
@@ -287,6 +328,7 @@ function buildBoard() {
   els.robber = svg("g", { class: "robber" }, board);
   els.robber.innerHTML = `<path d="M0-17a7 7 0 0 1 7 7c0 2.6-1.4 4.6-3.3 5.8C7.6-2.6 10 1.8 10 7v6c0 2-1.5 3-4 3H-6c-2.5 0-4-1-4-3V7c0-5.2 2.4-9.6 6.3-11.2A6.8 6.8 0 0 1-7-10a7 7 0 0 1 7-7z" filter="url(#shadow)"/><circle class="eye" cx="-2.4" cy="-10" r="1.2"/><circle class="eye" cx="2.4" cy="-10" r="1.2"/>`;
   els.targets = svg("g", { class: "targets" }, board);
+  els.keys = svg("g", { class: "keys" }, board);
   els.glow = svg("g", { class: "glow" }, board);
   els.fx = svg("g", { class: "fx" }, board);
   els.roadEls = {};
@@ -345,12 +387,14 @@ function render() {
   if ($("#dlg-trade").open) renderTrade();
   renderPieces();
   renderTargets();
+  renderKeys();
   renderPlayers();
   renderHand();
   renderActions();
   renderStatus(pumping ? S.actor : null);
   renderDice(false);
   renderBank();
+  renderEcon();
   renderReviews();
   $("#seed").textContent = `seed ${S.seed}`;
   $("#btn-undo").disabled = !S.can_undo || pumping || busy;
@@ -433,8 +477,103 @@ function renderTargets() {
     const p = B.vertices[v];
     const tg = svg("g", { class: `v-target k-${kind}`, "data-v": v, "data-kind": kind }, g);
     svg("circle", { class: "hit", cx: p.x, cy: p.y, r: 16 }, tg);
-    svg("circle", { class: "ring", cx: p.x, cy: p.y, r: kind === "city" ? 16 : 8 }, tg);
+    if (kind === "settle") {
+      // label each spot with its pip total; hotter spots read brighter
+      tg.style.setProperty("--heat", Math.min(1, p.pips / 13).toFixed(2));
+      svg("circle", { class: "ring scored", cx: p.x, cy: p.y, r: 11 }, tg);
+      const tx = svg("text", { class: "v-pips", x: p.x, y: p.y + 3.6 }, tg);
+      tx.textContent = p.pips;
+    } else {
+      svg("circle", { class: "ring", cx: p.x, cy: p.y, r: 16 }, tg);
+    }
   }
+}
+
+// The single table of global keys. Board spot letters are built from whatever
+// letters this table leaves free, so a key can never mean two things.
+const SHORTCUTS = {
+  r: () => can("roll") && act(["roll"]),
+  e: () => can("end") && (mode = null, act(["end"])),
+  d: () => can("buy_dev") && act(["buy_dev"]),
+  t: () => openTrade(),
+  h: () => showHint(),
+  1: () => toggleMode("road"),
+  2: () => toggleMode("settle"),
+  3: () => toggleMode("city"),
+  "?": () => showHelp(),
+};
+
+// ---- keyboard picking: every clickable spot gets a letter (or two) on the board.
+const KEY_ABC = [..."abcdefghijklmnopqrstuvwxyz"].filter((c) => !(c in SHORTCUTS)).join("");
+let keyBuf = "";
+let keyMap = []; // [{code, x, y} + one of v/kind, e, hex]
+
+function keyTargets() {
+  if (!myDecision()) return [];
+  const t = targetsNow();
+  const labelled = mode || ["setup_settlement", "setup_road", "road_building", "move_robber"].includes(S.phase);
+  if (!labelled) return [];
+  if (t.h.length) {
+    // the robber uses the hex letters printed on the board (they never clash with a shortcut)
+    return t.h.map((h) => ({ code: B.hexes[h].label.toLowerCase(), hex: h, x: B.hexes[h].x, y: B.hexes[h].y - 26 }));
+  }
+  const items = [
+    ...t.v.map(([v, kind]) => ({ v, kind, x: B.vertices[v].x, y: B.vertices[v].y })),
+    ...t.e.map((e) => {
+      const [a, b] = B.edges[e].map((v) => B.vertices[v]);
+      return { e, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    }),
+  ];
+  // reading order: top to bottom, then left to right, so codes are easy to find
+  items.sort((a, b) => Math.round(a.y / 20) - Math.round(b.y / 20) || a.x - b.x);
+  const two = items.length > KEY_ABC.length;
+  items.forEach((it, i) => {
+    it.code = two ? KEY_ABC[Math.floor(i / KEY_ABC.length)] + KEY_ABC[i % KEY_ABC.length] : KEY_ABC[i];
+  });
+  return items;
+}
+
+function renderKeys() {
+  const g = els.keys;
+  if (!g) return;
+  g.replaceChildren();
+  keyMap = keyTargets();
+  if (keyBuf && !keyMap.some((k) => k.code.startsWith(keyBuf))) keyBuf = "";
+  for (const k of keyMap) {
+    const on = keyBuf && k.code.startsWith(keyBuf);
+    const kg = svg("g", { class: `key-tag ${on ? "on" : keyBuf ? "dim" : ""}`, transform: `translate(${k.x.toFixed(1)} ${(k.v !== undefined ? k.y - 20 : k.y).toFixed(1)})` }, g);
+    const w = 8 + 7 * k.code.length;
+    svg("rect", { x: -w / 2, y: -8, width: w, height: 15, rx: 4 }, kg);
+    const tx = svg("text", { y: 3.5 }, kg);
+    tx.textContent = k.code.toUpperCase();
+  }
+}
+
+function pickKey(ch) {
+  if (!keyMap.length) return false;
+  const next = keyBuf + ch;
+  const hits = keyMap.filter((k) => k.code.startsWith(next));
+  if (!hits.length) return false;
+  const exact = hits.find((k) => k.code === next);
+  if (exact && hits.length === 1) {
+    keyBuf = "";
+    renderKeys();
+    if (exact.hex !== undefined) {
+      const vics = S.legal.robber[exact.hex] || [];
+      if (vics.length <= 1) act(["robber", exact.hex, vics.length ? vics[0] : -1]);
+      else {
+        const box = $("#board").getBoundingClientRect(), vb = $("#board").viewBox.baseVal;
+        const s = Math.min(box.width / vb.width, box.height / vb.height);
+        const cx = box.left + box.width / 2 + exact.x * s, cy = box.top + box.height / 2 + exact.y * s;
+        chooseVictim(exact.hex, vics, { clientX: cx, clientY: cy });
+      }
+    } else if (exact.v !== undefined) act([exact.kind === "city" ? "city" : "settle", exact.v]);
+    else act(["road", exact.e]);
+    return true;
+  }
+  keyBuf = next;
+  renderKeys();
+  return true;
 }
 
 function renderPlayers() {
@@ -456,13 +595,17 @@ function renderPlayers() {
     if (S.longest === p) badges.push(`<span class="badge">${icon("i-longest")}Longest road</span>`);
     if (S.army === p) badges.push(`<span class="badge">${icon("i-army")}Largest army</span>`);
     const owe = S.discards_pending[p] ? ` · discarding ${S.discards_pending[p]}` : "";
+    const inc = production(p).total;
+    const race = Array.from({ length: 10 }, (_, k) => `<i class="${k < pl.vp ? "on" : ""}"></i>`).join("");
     const html = `
       <div class="p-head">
         <span class="p-name">${esc(pl.name)}</span>
         <span class="p-tag">${pl.bot ? esc(S.level) : "you"}</span>
         <span class="p-vp">${hid}<b>${pl.vp}</b><small>VP</small></span>
       </div>
+      <div class="p-race" title="${pl.vp} of 10 victory points${pl.bot ? " (hidden VP cards not shown)" : ""}">${race}</div>
       <div class="p-stats">
+        <span title="Income: ${inc} pips — about ${(inc / 36).toFixed(2)} cards per roll${p === S.human ? "" : " (from their buildings)"}">${icon("i-dice")}${inc}</span>
         <span title="Resource cards${pl.cards > 7 ? " — over 7, exposed to a 7" : ""}" class="${pl.cards > 7 ? "warn" : ""}">${icon("i-card")}${pl.cards}</span>
         <span title="Development cards">${icon("i-dev")}${pl.devs}</span>
         <span title="Knights played">${icon("i-knight")}${pl.knights}</span>
@@ -494,6 +637,8 @@ function renderHand() {
     c.classList.toggle("zero", n === 0);
     c.title = `${n} ${r}`;
   });
+  const size = S.hand.reduce((a, b) => a + b, 0);
+  hand.dataset.warn = size > 7 ? `${size} cards — a 7 costs you ${Math.floor(size / 2)}` : "";
   const dh = $("#devhand");
   const cards = [];
   DEVS.forEach((d, k) => {
@@ -543,7 +688,18 @@ function renderActions() {
   for (const [id, kind] of [["#btn-road", "road"], ["#btn-settle", "settle"], ["#btn-city", "city"], ["#btn-dev", "buy_dev"]]) {
     $(id).classList.toggle("ready", main && can(kind));
   }
+  // costs: one icon per card, dimmed where your hand comes up short
+  for (const [id, key] of [["#btn-road", "road"], ["#btn-settle", "settle"], ["#btn-city", "city"], ["#btn-dev", "dev"]]) {
+    const b = $(id);
+    let c = b.querySelector(".cost");
+    if (!c) { c = document.createElement("span"); c.className = "cost"; b.append(c); }
+    const html = COSTS[key].flatMap((n, r) => Array.from({ length: n }, (_, k) => resIcon(r, `ri ${k < S.hand[r] ? "" : "miss"}`))).join("");
+    if (c.dataset.html !== html) { c.dataset.html = html; c.innerHTML = html; }
+  }
+  // Roll and End turn share one slot: the next step is always in the same place
+  roll.hidden = !pre;
   const end = $("#btn-end");
+  end.hidden = pre;
   end.disabled = !can("end") || busy;
   end.classList.toggle("pulse", main && (S.legal.kinds || []).every((k) => k === "end" || k === "bank"));
 }
@@ -560,12 +716,12 @@ function renderStatus(thinker) {
   } else if (S.actor === S.human) {
     mine = true; p = S.human;
     switch (S.phase) {
-      case "setup_settlement": text = `Place your ${S.setup_idx < S.n ? "first" : "second"} settlement`; break;
-      case "setup_road": text = "Place a road next to it"; break;
+      case "setup_settlement": text = `Place your ${S.setup_idx < S.n ? "first" : "second"} settlement — click or type its letters`; break;
+      case "setup_road": text = "Place a road next to it — click or type its letter"; break;
       case "pre_roll": text = (L.kinds || []).length > 1 ? "Roll the dice — or play a development card first" : "Roll the dice"; break;
-      case "main": text = mode ? `Showing only ${mode === "settle" ? "settlements" : mode === "city" ? "cities" : "roads"} · Esc to show everything` : (["road", "settle", "city"].some(can) ? "Click a glowing spot to build — or trade, buy a card, end turn" : "Trade, buy a card, or end your turn"); break;
+      case "main": text = mode ? `${mode === "settle" ? "Settlement" : mode === "city" ? "City" : "Road"}: click a spot or type its letter · Esc to cancel` : (["road", "settle", "city"].some(can) ? "Click a glowing spot to build (or press 1 · 2 · 3 for keys)" : "Trade, buy a card, or end your turn"); break;
       case "discard": text = `Discard ${S.discard_owed} cards`; break;
-      case "move_robber": text = "Move the robber — click a hex"; break;
+      case "move_robber": text = "Move the robber — click a hex or type its letter"; break;
       case "road_building": text = `Place a free road (${S.free_roads} left)`; break;
       default: text = S.phase;
     }
@@ -601,15 +757,25 @@ function renderBank() {
   if (b.dataset.html !== html) { b.dataset.html = html; b.innerHTML = html; }
 }
 
-function renderCosts() {
-  const row = (label, cost) => `<div class="cost-row"><span>${label}</span><span class="res-icons">${cost.flatMap((n, r) => Array(n).fill(resIcon(r))).join("")}</span></div>`;
-  $("#costs").innerHTML = row("Road", COSTS.road) + row("Settlement", COSTS.settle) + row("City", COSTS.city) + row("Dev card", COSTS.dev) +
-    `<div class="cost-row muted" style="font-size:12px">1 VP · 2 VP for a city · first to 10 wins</div>`;
-  for (const [id, key] of [["#btn-road", "road"], ["#btn-settle", "settle"], ["#btn-city", "city"], ["#btn-dev", "dev"]]) {
-    const b = $(id);
-    const chips = COSTS[key].flatMap((n, r) => Array(n).fill(`<i style="background:var(--${RES[r]})"></i>`)).join("");
-    b.insertAdjacentHTML("beforeend", `<span class="cost">${chips}</span>`);
-  }
+// Your economy at a glance: what each resource earns, on which numbers, and your trade rate.
+function renderEcon() {
+  const pr = production(S.human);
+  const top = Math.max(10, ...pr.pips.map((n, r) => n + pr.blocked[r]));
+  const rows = RES.map((r, i) => {
+    const n = pr.pips[i], bl = pr.blocked[i];
+    const nums = pr.nums[i].sort((a, b) => b.pips - a.pips).map((x) => `<span class="ec-num ${x.n === 6 || x.n === 8 ? "hot" : ""}">${x.n}${x.lv > 1 ? "<sup>×2</sup>" : ""}</span>`).join("");
+    const ratio = S.ratios[i];
+    return `<div class="ec-row ${n ? "" : "none"}" title="${r}: ${n} pips${bl ? ` (+${bl} blocked by the robber)` : ""} · trade ${ratio}:1">
+      ${resIcon(i)}
+      <span class="ec-bar"><i style="width:${(100 * n) / top}%;background:var(--${r})"></i>${bl ? `<i class="bl" style="width:${(100 * bl) / top}%"></i>` : ""}</span>
+      <span class="ec-n">${n || "—"}</span>
+      <span class="ec-nums">${nums || (bl ? `<span class="muted">blocked</span>` : `<span class="muted">no income</span>`)}</span>
+      <span class="ec-ratio ${ratio < 4 ? "port" : ""}">${ratio}:1</span></div>`;
+  }).join("");
+  const html = rows + `<div class="ec-foot">Pips = cards per 36 rolls · numbers you collect on · trade rate</div>`;
+  const box = $("#econ");
+  if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; }
+  $("#econ-sum").textContent = `≈ ${(pr.total / 36).toFixed(1)} cards / roll`;
 }
 
 // ------------------------------------------------------------------ log
@@ -629,8 +795,8 @@ function appendLog(evs) {
       if (/road/.test(msg)) li.dataset.e = id; else li.dataset.v = id;
       msg = msg.replace(/ at \d+/, "").replace(/upgrades? \d+ to/, (s) => s.replace(/ \d+/, ""));
     }
-    const rm = msg.match(/robber to ([A-S])$/);
-    if (rm) li.dataset.h = rm[1].charCodeAt(0) - 65;
+    const rm = msg.match(/robber to ([A-Z])$/);
+    if (rm) { const h = B.hexes.findIndex((x) => x.label === rm[1]); if (h >= 0) li.dataset.h = h; }
     if (e.kind === "turn") {
       li.textContent = msg.replace(/^-+ | -+$/g, "");
     } else {
@@ -656,11 +822,11 @@ function effects(evs) {
       }
     }
     if (e.kind === "produce" || e.kind === "discard") {
-      const n = [...e.msg.matchAll(/(\d+) (wood|brick|sheep|wheat|ore)/g)];
-      const total = n.reduce((a, m) => a + Number(m[1]), 0);
+      const c = parseCards(e.msg);
+      const total = c.reduce((a, b) => a + b, 0);
       if (e.p !== null && total) floatDelta(e.p, e.kind === "discard" ? -total : total);
       if (e.p === S.human && e.kind === "produce") {
-        for (const m of n) flash($("#hand").children[RES.indexOf(m[2])], "bump", 500);
+        c.forEach((n, r) => { if (n) cardDelta(r, n); });
       }
     }
     if (e.kind === "steal" || e.kind === "private_steal") {
@@ -674,12 +840,77 @@ function effects(evs) {
   }
 }
 
+// "While you waited": what changed for you and what the others did since your last turn.
+// Your card changes come from comparing hands (so steals, discards, monopolies and
+// accepted offers all count); the others' actions come from the log.
+let recapBuf = [];
+let recapTurnSeen = null;
+let recapHand = null; // your hand as your last turn ended
+function recapTurn(fresh, initial) {
+  const mineNow = S.current === S.human;
+  if (initial) { recapBuf = []; recapTurnSeen = mineNow ? S.turn : null; recapHand = S.hand.slice(); return; }
+  recapBuf.push(...fresh);
+  if (!mineNow || S.phase.startsWith("setup") || recapTurnSeen === S.turn) {
+    if (mineNow) recapHand = S.hand.slice();
+    return;
+  }
+  recapTurnSeen = S.turn;
+  const before = recapHand || S.hand;
+  recapHand = S.hand.slice();
+  const evs = recapBuf.filter((e) => e.turn < S.turn);
+  recapBuf = recapBuf.filter((e) => e.turn >= S.turn);
+  const me = S.players[S.human].name;
+  const diff = S.hand.map((n, r) => n - before[r]);
+  const got = diff.map((d) => Math.max(0, d)), lost = diff.map((d) => Math.max(0, -d));
+  const acts = new Map(); // player -> list of things they did
+  const did = (p, s) => { if (p === null || p === S.human) return; if (!acts.has(p)) acts.set(p, []); acts.get(p).push(s); };
+  let robbedBy = null;
+  for (const e of evs) {
+    const m = e.msg;
+    if (e.kind === "steal" && m.endsWith(`from ${me}`)) robbedBy = e.p;
+    else if (e.kind === "build") did(e.p, /road/.test(m) ? "road" : /city/.test(m) ? "city" : "settlement");
+    else if (e.kind === "dev") did(e.p, /buys/.test(m) ? "dev card" : m.replace(/^\S+ plays? /, "played ").replace(/ \(.*\)$/, ""));
+    else if (e.kind === "robber" && e.p !== S.human) did(e.p, `robber → ${m.slice(-1)}`);
+    else if (e.kind === "trade") did(e.p, /bank/.test(m) ? "bank trade" : "trade");
+  }
+  const cards = (c, sign) => c.map((n, r) => (n ? `<span class="rc-chip ${sign < 0 ? "neg" : ""}">${resIcon(r)}${sign < 0 ? "−" : "+"}${n}</span>` : "")).join("");
+  const count = (list) => {
+    const m = new Map();
+    for (const x of list) m.set(x, (m.get(x) || 0) + 1);
+    return [...m].map(([k, n]) => (n > 1 ? `${n} ${k === "city" ? "cities" : k + "s"}` : k)).join(", ");
+  };
+  const lines = [...acts].map(([p, l]) => `<div class="rc-line"><span class="dot" style="background:${pc(p)}"></span><b>${esc(S.players[p].name)}</b> ${esc(count(l))}</div>`);
+  const mine = cards(got, 1) + cards(lost, -1);
+  if (!mine && !lines.length && robbedBy === null) return;
+  recap(`${mine ? `<div class="rc-mine">${mine}</div>` : `<div class="rc-mine muted">No cards for you this round</div>`}${robbedBy !== null ? `<div class="rc-line warn">${esc(S.players[robbedBy].name)} robbed you</div>` : ""}${lines.join("")}`);
+}
+
+function recap(html) {
+  const box = $("#recap");
+  box.innerHTML = `<div class="rc-head">While you waited<button class="t-x" aria-label="Dismiss">✕</button></div>${html}`;
+  box.querySelector(".t-x").onclick = () => box.classList.remove("show");
+  box.classList.remove("show"); void box.offsetWidth; box.classList.add("show");
+  clearTimeout(recap.t);
+  recap.t = setTimeout(() => box.classList.remove("show"), 9000);
+}
+
 function flash(el, cls, ms) {
   if (!el) return;
   el.classList.remove(cls);
   void el.getBoundingClientRect();
   el.classList.add(cls);
   setTimeout(() => el.classList.remove(cls), ms);
+}
+
+function cardDelta(r, n) {
+  const card = $("#hand").children[r];
+  if (!card) return;
+  flash(card, "bump", 500);
+  const d = document.createElement("span");
+  d.className = "delta card-delta" + (n < 0 ? " neg" : "");
+  d.textContent = (n > 0 ? "+" : "") + n;
+  card.appendChild(d);
+  setTimeout(() => d.remove(), 1400);
 }
 
 function floatDelta(p, n) {
@@ -722,13 +953,13 @@ function newReviews() {
   const busyDialog = document.querySelector("dialog[open]");
   for (const r of busyDialog ? [] : scored(revs.slice(reviewsSeen))) {
     const big = r.delta >= 0.2;
-    toast(`${symbol(r.verdict)} ${r.verdict}${big ? `  −${r.delta.toFixed(2)}` : ""}`, big ? `You: ${plain(r.label)}\nEngine: ${plain(r.best)}` : plain(r.label), VERDICT_COLORS[r.verdict], big ? 7000 : 2600);
+    toast(`${symbol(r.verdict)} ${r.verdict}${big ? `  −${r.delta.toFixed(2)}` : ""}`, big ? `You: ${short(r.label)}\nBetter: ${short(r.best)}` : short(r.label), VERDICT_COLORS[r.verdict], big ? 7000 : 2600);
   }
   reviewsSeen = revs.length;
 }
 const plain = (s) => String(s).replace(/vertex \d+ ?/g, "").replace(/\b(road|settlement at|city at) \d+/g, "$1").replace(/settlement at \[/g, "settlement [").replace(/city at \[/g, "city [");
 const symbol = (v) => ({ forced: "·", best: "✓", good: "✓", inaccuracy: "?!", mistake: "?", blunder: "??" })[v];
-const engineLine = (r) => r.forced ? "no real choice" : r.delta < 0.05 ? "engine agrees" : `engine: ${plain(r.best)}`;
+const engineLine = (r) => r.forced ? "no real choice" : r.delta < 0.05 ? "engine agrees" : `better: ${short(r.best)}`;
 const scored = (revs) => revs.filter((r) => !r.forced);
 
 function renderReviews() {
@@ -748,10 +979,11 @@ function renderReviews() {
 }
 
 function reviewItem(r) {
-  return `<li class="rev ${r.forced ? "forced" : ""}" ${r.action ? `data-a='${JSON.stringify(r.action)}'` : ""} ${r.best_action ? `data-b='${JSON.stringify(r.best_action)}'` : ""}>
-    <span class="vd vd-${r.verdict}">${symbol(r.verdict)} ${r.verdict}</span>
-    <span>${esc(plain(r.label))}${r.delta >= 0.05 ? ` <span class="loss-n">−${r.delta.toFixed(2)}</span>` : ""}</span>
-    <span class="best-line">${esc(engineLine(r))}</span></li>`;
+  return `<li class="rev v-${r.verdict}" ${r.action ? `data-a='${JSON.stringify(r.action)}'` : ""} ${r.best_action ? `data-b='${JSON.stringify(r.best_action)}'` : ""}>
+    <span class="vd vd-${r.verdict}" title="${r.verdict}">${symbol(r.verdict)}</span>
+    <span class="rev-move">${esc(short(r.label))}</span>
+    <span class="loss-n">${r.delta >= 0.05 ? "−" + r.delta.toFixed(2) : ""}</span>
+    ${r.delta >= 0.05 ? `<span class="best-line">${esc(engineLine(r))}</span>` : ""}</li>`;
 }
 
 function showFullReview() {
@@ -765,7 +997,7 @@ function showFullReview() {
       <td>${esc(plain(r.label))}</td>
       <td><span class="vd vd-${r.verdict}">${symbol(r.verdict)} ${r.verdict}</span></td>
       <td class="num">${r.forced ? "" : r.delta < 0.005 ? "0" : "−" + r.delta.toFixed(2)}</td>
-      <td class="muted">${r.forced ? "—" : r.delta < 0.05 ? "same as yours" : esc(plain(r.best))}</td></tr>`).join("");
+      <td class="muted">${r.forced ? "—" : r.delta < 0.05 ? "same as yours" : esc(human(r.best))}</td></tr>`).join("");
   openInfo("Every move, rated", `
     <p class="muted">Each of your decisions compared with the engine's best line, in VP-equivalents lost. Forced moves (only one sensible choice) are listed but not scored.</p>
     <div class="vcounts">${["best", "good", "inaccuracy", "mistake", "blunder"].map((k) => `<span class="vd vd-${k}">${symbol(k)} ${k} ${counts[k] || 0}</span>`).join("")}</div>
@@ -785,8 +1017,8 @@ async function showHint() {
     const h = st.hint;
     hintKey = `${S.turn}|${S.phase}|${S.actor}|${S.ev_total}`;
     if (!h.options.length) { out.innerHTML = `<p class="coach-note">Nothing to decide here.</p>`; return; }
-    out.innerHTML = `<p class="coach-note">Engine's top options (${h.secs.toFixed(1)}s) — hover to see them on the board</p><ol class="opts">${h.options.map((o, i) => `
-      <li class="opt" data-i="${i}"><span class="loss ${i === 0 ? "best" : o.loss < 0.5 ? "near" : "far"}">${i === 0 ? "best" : "−" + o.loss.toFixed(2)}</span><span>${esc(plain(o.text))}</span>${playableHint(o.action) ? `<button class="btn do" data-i="${i}" title="Play this move">Play</button>` : "<span></span>"}</li>`).join("")}</ol>`;
+    out.innerHTML = `<p class="coach-note"><button class="co-x" aria-label="Close" title="Back to your move reviews">✕</button>Engine's top options (${h.secs.toFixed(1)}s) — hover to see them on the board</p><ol class="opts">${h.options.map((o, i) => `
+      <li class="opt" data-i="${i}"><span class="loss ${i === 0 ? "best" : o.loss < 0.5 ? "near" : "far"}">${i === 0 ? "best" : o.loss < 0.005 ? "≈ best" : "−" + o.loss.toFixed(2)}</span><span>${esc(human(o.text))}</span>${playableHint(o.action) ? `<button class="btn do" data-i="${i}" title="Play this move">Play</button>` : "<span></span>"}</li>`).join("")}</ol>`;
     out._opts = h.options;
   } catch (e) {
     out.innerHTML = `<p class="coach-note">${esc(e.message)}</p>`;
@@ -818,7 +1050,7 @@ async function showEval() {
     const rows = st.eval.rows;
     const top = Math.max(1, ...rows.map((r) => r.value));
     hintKey = `${S.turn}|${S.phase}|${S.actor}|${S.ev_total}`;
-    out.innerHTML = `<p class="coach-note">Engine evaluation from your point of view (VP-equivalents). Pips = expected cards per 36 rolls.</p><div class="evals">${rows.map((r) => `
+    out.innerHTML = `<p class="coach-note"><button class="co-x" aria-label="Close" title="Back to your move reviews">✕</button>Engine evaluation from your point of view (VP-equivalents). Pips = expected cards per 36 rolls.</p><div class="evals">${rows.map((r) => `
       <div class="ev-row" style="--pc:${pc(r.p)}"><b>${esc(S.players[r.p].name)}</b><span class="bar"><i style="width:${Math.max(2, (100 * r.value) / top)}%"></i></span><span>${r.value.toFixed(2)}</span>
       <span class="pips">${r.pips.map((n, i) => `<span>${resIcon(i)}${Math.round(n)}</span>`).join("")}<span>Σ${Math.round(r.pips.reduce((a, b) => a + b, 0))}</span></span></div>`).join("")}</div>`;
   } catch (e) {
@@ -868,7 +1100,7 @@ function onBoardClick(ev) {
 
 function chooseVictim(hex, vics, ev) {
   const pop = $("#victims");
-  pop.innerHTML = `<h3>Steal from…</h3>` + vics.map((q) => `<button class="btn ghost" data-q="${q}" style="--pc:${pc(q)}"><span class="dot"></span>${esc(S.players[q].name)} <span class="muted">${S.players[q].cards} cards · ${S.players[q].vp} VP</span></button>`).join("");
+  pop.innerHTML = `<h3>Steal from…</h3>` + vics.map((q, i) => `<button class="btn ghost" data-q="${q}" style="--pc:${pc(q)}"><kbd>${i + 1}</kbd><span class="dot"></span>${esc(S.players[q].name)} <span class="muted">${S.players[q].cards} cards · ${S.players[q].vp} VP</span></button>`).join("");
   pop.style.left = `${Math.min(ev.clientX + 8, innerWidth - 240)}px`;
   pop.style.top = `${Math.min(ev.clientY + 8, innerHeight - 160)}px`;
   pop.onclick = (e) => {
@@ -878,6 +1110,7 @@ function chooseVictim(hex, vics, ev) {
     act(["robber", hex, Number(b.dataset.q)]);
   };
   pop.showPopover();
+  pop.querySelector("button")?.focus();
 }
 
 function onBoardHover(ev) {
@@ -888,7 +1121,11 @@ function onBoardHover(ev) {
   if (v) {
     const vx = B.vertices[Number(v.dataset.v)];
     const what = { settle: "Build a settlement", city: "Upgrade to a city" }[v.dataset.kind];
-    html = `${what ? `<b style="color:var(--accent)">${what}</b><br>` : ""}<b>${vx.desc || "coast"}</b><br><span class="muted">${vx.pips} pips total</span>`;
+    const lines = (vx.hexes || []).map((h) => B.hexes[h]).filter((h) => h.res)
+      .map((h) => `<span class="tt-line">${resIcon(RES.indexOf(h.res))}<b>${h.num}</b> ${h.res} <span class="tt-pips">${"•".repeat(h.pips)}</span></span>`).join("");
+    const port = vx.port ? `<span class="tt-line muted">⚓ ${vx.port === "any" ? "3:1 port" : `2:1 ${vx.port} port`}</span>` : "";
+    const gain = what ? `<span class="muted">+${vx.pips} pips to your income</span>` : `<span class="muted">${vx.pips} pips</span>`;
+    html = `${what ? `<b style="color:var(--accent)">${what}</b><br>` : ""}${lines || "<span class='muted'>coast</span>"}${port}${gain}`;
   } else if (ev.target.closest(".e-target")) {
     html = `<b style="color:var(--accent)">Build a road</b><br><span class="muted">wood + brick</span>`;
   } else if (hx) {
@@ -1015,21 +1252,22 @@ function openTrade() {
 function renderTrade() {
   const live = myDecision() && S.phase === "main";
   trade.give = trade.give.map((n, r) => Math.min(n, S.hand[r]));
-  handStrip($("#trade-hand"));
+  $("#trade-count").textContent = `· ${S.hand.reduce((a, b) => a + b, 0)} cards in hand`;
 
-  $("#bank-trade").innerHTML = `<div class="bt-row bt-head"><span>You give</span><span class="bt-get">for 1 of</span></div>` + RES.map((r, i) => {
+  $("#bank-trade").innerHTML = `<div class="bt-row bt-head"><span>You give · rate</span><span class="bt-get">for 1 of <span class="muted">(number = cards you hold)</span></span></div>` + RES.map((r, i) => {
     const ratio = S.ratios[i];
     const ok = live && S.hand[i] >= ratio;
     const gets = RES.map((g, j) => j === i ? `<span class="bt-self" aria-hidden="true">·</span>` :
-      `<button class="btn res-btn" data-give="${i}" data-get="${j}" ${ok && S.bank[j] > 0 ? "" : "disabled"} title="Give ${ratio} ${r}, get 1 ${g}" aria-label="Give ${ratio} ${r} for 1 ${g}">${resIcon(j)}</button>`).join("");
-    return `<div class="bt-row ${ok ? "" : "off"}"><div class="bt-give">${resIcon(i)}<b>${ratio}:1</b><small>${S.hand[i]}/${ratio}</small></div>${gets}</div>`;
+      `<button class="btn res-btn" data-give="${i}" data-get="${j}" ${ok && S.bank[j] > 0 ? "" : "disabled"} title="Give ${ratio} ${r} (${S.hand[i]} → ${S.hand[i] - ratio}), get 1 ${g} (${S.hand[j]} → ${S.hand[j] + 1})${S.bank[j] ? "" : " — bank is out"}" aria-label="Give ${ratio} ${r} for 1 ${g}">${resIcon(j)}<span class="bt-cnt">${S.hand[j]}</span></button>`).join("");
+    const short = ok ? "" : `<small class="bt-need">need ${ratio - S.hand[i]} more</small>`;
+    return `<div class="bt-row ${ok ? "" : "off"}"><div class="bt-give">${resIcon(i)}<b class="bt-have">${S.hand[i]}</b><span class="bt-rate ${ratio < 4 ? "port" : ""}">${ratio}:1</span>${short}</div>${gets}</div>`;
   }).join("");
 
   const tile = (side, r) => {
     const n = trade[side][r];
     const max = side === "give" ? S.hand[r] : 9;
     return `<div class="pick ${n ? "on" : ""} r-${RES[r]}">
-      <button class="pick-add" data-side="${side}" data-r="${r}" ${live && n < max ? "" : "disabled"} title="${side === "give" ? "Give" : "Ask for"} one more ${RES[r]}">${icon("i-" + RES[r])}<span class="n">${n || ""}</span></button>
+      <button class="pick-add" data-side="${side}" data-r="${r}" ${live && n < max ? "" : "disabled"} title="${side === "give" ? "Give" : "Ask for"} one more ${RES[r]} (you have ${S.hand[r]})">${icon("i-" + RES[r])}${n ? `<span class="n">×${n}</span>` : ""}<span class="have">${n ? `${S.hand[r]} → <b>${S.hand[r] + (side === "give" ? -n : n)}</b>` : `have ${S.hand[r]}`}</span></button>
       <button class="pick-sub" data-side="${side}" data-r="${r}" data-d="-1" ${n ? "" : "hidden"} aria-label="one fewer ${RES[r]}">−</button></div>`;
   };
   $("#offer-give").innerHTML = RES.map((_, r) => tile("give", r)).join("");
@@ -1167,7 +1405,7 @@ function showHelp() {
     <div class="help-grid">
       ${k(["R"], "Roll the dice")}${k(["1"], "Build a road — then click a highlighted edge")}${k(["2"], "Build a settlement")}${k(["3"], "Upgrade a settlement to a city")}
       ${k(["D"], "Buy a development card")}${k(["T"], "Trade with the bank, ports or players")}${k(["E"], "End your turn")}
-      ${k(["H"], "Coach: engine's top options")}${k(["Ctrl", "Z"], "Undo your last decision (the dice stay the same)")}${k(["Esc"], "Cancel build mode")}
+      ${k(["H"], "Coach: engine's top options")}${k(["Ctrl", "Z"], "Undo your last decision (the dice stay the same)")}${k(["Esc"], "Cancel build mode")}${k(["A", "…", "Z"], "Pick the board spot with that letter (shown in build modes, setup and robber moves; never R, E, D, T or H)")}${k(["1", "2", "3"], "Choose who to rob, when the robber touches several players")}${k(["⌫"], "Undo a typed letter")}
     </div>
     <p>First to <b>10 VP</b> on their own turn wins. Settlements are worth 1, cities 2, Longest Road (5+) and Largest Army (3+ knights) 2 each, and hidden victory-point cards 1.</p>
     <p>On a 7 everyone holding more than 7 cards discards half, then the robber moves and steals a card. You can play one development card per turn, never on the turn you bought it — knights may be played before rolling.</p>
@@ -1190,7 +1428,7 @@ function showGameOver() {
     rev = `<h3 style="margin-top:18px">Your decisions</h3>
       <div class="vcounts">${Object.entries(sm.counts).map(([k, n]) => `<span class="vd vd-${k}">${symbol(k)} ${k} ${n}</span>`).join("")}</div>
       <p>Accuracy <b>${Math.round(sm.accuracy)}%</b> · total value lost <b>${sm.lost.toFixed(2)}</b> VP-eq · ${sm.turns} turns · <button class="btn ghost" id="over-all" style="padding:2px 8px">every move…</button></p>
-      ${sm.worst.length ? `<h3>Biggest misses</h3><ul class="misses">${sm.worst.map((w) => `<li><span class="vd vd-${w.verdict}">−${w.delta.toFixed(2)}</span> ${w.turn ? `turn ${w.turn}` : "setup"}: ${esc(plain(w.label))}<br><span class="eng">engine: ${esc(plain(w.best))}</span></li>`).join("")}</ul>` : ""}`;
+      ${sm.worst.length ? `<h3>Biggest misses</h3><ul class="misses">${sm.worst.map((w) => `<li><span class="vd vd-${w.verdict}">−${w.delta.toFixed(2)}</span> ${w.turn ? `turn ${w.turn}` : "setup"}: ${esc(plain(w.label))}<br><span class="eng">better: ${esc(human(w.best))}</span></li>`).join("")}</ul>` : ""}`;
   }
   $("#over-body").innerHTML = `<table class="info-table"><thead><tr><th>Player</th><th>VP</th><th>Settl.</th><th>Cities</th><th></th></tr></thead><tbody>${rows}</tbody></table>${rev}`;
   modal($("#dlg-over"));
@@ -1223,7 +1461,6 @@ function syncSeat4() {
 
 // ------------------------------------------------------------------ wiring
 function wireUI() {
-  renderCosts();
   const board = $("#board");
   board.addEventListener("click", onBoardClick);
   board.addEventListener("pointermove", onBoardHover);
@@ -1264,6 +1501,7 @@ function wireUI() {
   });
   $("#coach-out").addEventListener("pointerleave", clearGlow);
   $("#coach-out").addEventListener("click", (e) => {
+    if (e.target.closest(".co-x")) { $("#coach-out").replaceChildren(); hintKey = null; clearGlow(); return; }
     const b = e.target.closest(".do");
     const opts = $("#coach-out")._opts;
     if (!b || !opts) return;
@@ -1369,22 +1607,22 @@ function onKey(e) {
   const k = e.key.toLowerCase();
   if ((e.metaKey || e.ctrlKey) && k === "z") { e.preventDefault(); undo(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  const map = {
-    r: () => can("roll") && act(["roll"]),
-    e: () => can("end") && (mode = null, act(["end"])),
-    d: () => can("buy_dev") && act(["buy_dev"]),
-    t: () => openTrade(),
-    h: () => showHint(),
-    1: () => toggleMode("road"),
-    2: () => toggleMode("settle"),
-    3: () => toggleMode("city"),
-    "?": () => showHelp(),
-  };
+  const pop = $("#victims");
+  if (pop.matches(":popover-open")) {
+    const b = pop.querySelectorAll("[data-q]")[Number(k) - 1];
+    if (b) { e.preventDefault(); b.click(); }
+    return;
+  }
+  if (k === "backspace" && keyBuf) { e.preventDefault(); keyBuf = keyBuf.slice(0, -1); renderKeys(); return; }
+  if (k.length === 1 && /[a-z]/.test(k) && !busy && pickKey(k)) { e.preventDefault(); return; }
+  // halfway through a two-letter spot code, any other key just cancels the code
+  if (keyBuf && k !== "escape") { e.preventDefault(); keyBuf = ""; renderKeys(); return; }
   if (k === "escape") {
+    if (keyBuf) { e.preventDefault(); keyBuf = ""; renderKeys(); return; }
     if (mode) { e.preventDefault(); mode = null; render(); }
     return;
   }
-  if (map[k]) { e.preventDefault(); map[k](); }
+  if (SHORTCUTS[k]) { e.preventDefault(); SHORTCUTS[k](); }
 }
 
 boot();

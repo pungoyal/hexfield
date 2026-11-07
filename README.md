@@ -30,6 +30,16 @@ selectable speed. Keys: `R` roll, `1/2/3` road/settlement/city, `D` dev card,
 `T` trade, `E` end turn, `H` hint, `Ctrl+Z` undo, `?` help. Reloading the page resumes
 the game.
 
+Everything can be done from the keyboard. In setup, in a build mode and when moving the
+robber, every clickable spot shows a letter (two letters when there are many), and typing it
+picks the spot. Hexes are named with letters that never clash with a command (no B, D, E,
+H, Q, R or T), so a key always means one thing, in the browser and in the terminal.
+
+The left panel shows **your income**: pips per resource, the numbers you collect on, what
+the robber blocks, and your trade rate. Settlement spots are labelled with their pip value,
+and when your turn starts a **While you waited** card summarises your card changes and what
+each bot did.
+
 ### Terminal
 
 The board plus side panel needs a terminal about **132 columns × 40 rows**. In a narrower

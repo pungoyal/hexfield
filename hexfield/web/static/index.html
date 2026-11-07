@@ -59,19 +59,20 @@
 
   <aside class="left">
     <section class="players" id="players" aria-label="Players"></section>
-    <section class="card bank" aria-label="Bank">
-      <h2>Bank</h2>
-      <div class="bank-row" id="bank"></div>
+    <section class="card econ" aria-label="Your income">
+      <h2>Your income <span class="h-sub" id="econ-sum"></span></h2>
+      <div id="econ"></div>
     </section>
-    <section class="card costs" aria-label="Building costs">
-      <h2>Building costs</h2>
-      <div id="costs"></div>
+    <section class="card bank" aria-label="Bank">
+      <h2>Bank <span class="h-sub">cards left</span></h2>
+      <div class="bank-row" id="bank"></div>
     </section>
   </aside>
 
   <main class="board-wrap" id="board-wrap">
     <svg id="board" class="board" role="img" aria-label="Game board"></svg>
     <div class="dice" id="dice" aria-label="Last roll"></div>
+    <div class="recap" id="recap" role="status" aria-live="polite"></div>
     <div class="victims" id="victims" popover></div>
     <div class="tip" id="tip" role="tooltip"></div>
   </main>
@@ -84,7 +85,7 @@
         <label class="switch" title="Show the bots' reasoning in the log"><input type="checkbox" id="reason-on" checked><span>Bot reasoning</span></label>
       </div>
       <div class="coach-actions">
-        <button class="btn" id="btn-hint" title="Engine's top options (H)"><svg><use href="#i-bulb"/></svg>Hint</button>
+        <button class="btn" id="btn-hint" data-key="H" title="Engine's top options (H)"><svg><use href="#i-bulb"/></svg>Hint</button>
         <button class="btn ghost" id="btn-eval" title="Engine evaluation of every player"><svg><use href="#i-chart"/></svg>Evaluate</button>
         <button class="btn ghost" id="btn-review" title="Every move you made, rated, with the engine's best alternative" disabled><svg><use href="#i-help"/></svg>All moves</button>
         <span class="reviewing" id="reviewing" hidden>reviewing…</span>
@@ -103,17 +104,17 @@
     <div class="hand" id="hand" aria-label="Your resource cards"></div>
     <div class="devhand" id="devhand" aria-label="Your development cards"></div>
     <div class="actions" id="actions">
-      <button class="btn big primary" id="btn-roll" title="Roll the dice (R)"><svg><use href="#i-dice"/></svg>Roll</button>
+      <button class="btn big primary" id="btn-roll" data-key="R" title="Roll the dice (R)"><svg><use href="#i-dice"/></svg>Roll</button>
       <div class="build">
-        <button class="btn tool" id="btn-road" data-mode="road" title="Build a road (1)"><svg><use href="#i-road"/></svg><span>Road</span></button>
-        <button class="btn tool" id="btn-settle" data-mode="settle" title="Build a settlement (2)"><svg><use href="#i-settle"/></svg><span>Settlement</span></button>
-        <button class="btn tool" id="btn-city" data-mode="city" title="Upgrade to a city (3)"><svg><use href="#i-city"/></svg><span>City</span></button>
-        <button class="btn tool" id="btn-dev" title="Buy a development card (D)"><svg><use href="#i-dev"/></svg><span>Dev card</span></button>
-        <button class="btn tool" id="btn-trade" title="Trade with the bank or players (T)"><svg><use href="#i-trade"/></svg><span>Trade</span></button>
+        <button class="btn tool" id="btn-road" data-key="1" data-mode="road" title="Build a road (1)"><svg><use href="#i-road"/></svg><span>Road</span></button>
+        <button class="btn tool" id="btn-settle" data-key="2" data-mode="settle" title="Build a settlement (2)"><svg><use href="#i-settle"/></svg><span>Settlement</span></button>
+        <button class="btn tool" id="btn-city" data-key="3" data-mode="city" title="Upgrade to a city (3)"><svg><use href="#i-city"/></svg><span>City</span></button>
+        <button class="btn tool" id="btn-dev" data-key="D" title="Buy a development card (D)"><svg><use href="#i-dev"/></svg><span>Dev card</span></button>
+        <button class="btn tool" id="btn-trade" data-key="T" title="Trade with the bank or players (T)"><svg><use href="#i-trade"/></svg><span>Trade</span></button>
       </div>
       <button class="btn big primary pulse" id="btn-discard" title="Choose the cards to discard" hidden>Discard…</button>
       <button class="btn big primary pulse" id="btn-answer" title="Answer the trade offer" hidden>Answer offer…</button>
-      <button class="btn big primary" id="btn-end" title="End your turn (E)">End turn</button>
+      <button class="btn big primary" id="btn-end" data-key="E" title="End your turn (E)">End turn</button>
     </div>
   </footer>
 </div>
@@ -163,10 +164,9 @@
 
 <dialog id="dlg-trade" class="trade" aria-labelledby="trade-title" closedby="any">
   <div class="dlg-head">
-    <h2 id="trade-title">Trade</h2>
+    <h2 id="trade-title">Trade <span class="trade-count" id="trade-count"></span></h2>
     <form method="dialog"><button class="btn ghost icon-only" aria-label="Close">✕</button></form>
   </div>
-  <div class="trade-hand" id="trade-hand" aria-label="Your hand"></div>
   <div class="trade-cols">
     <section class="trade-col" aria-labelledby="bank-h">
       <h3 id="bank-h">Bank &amp; ports <span class="muted">· one click per trade</span></h3>

@@ -516,7 +516,7 @@ class Game:
                 continue
             h = s.board.hex_from_label(cmd)
             if h is None or h == s.robber:
-                self.warn("give a hex letter A-S (not the robber's current hex)")
+                self.warn("give a hex letter from the board (not the robber's current hex)")
                 continue
             vics = s.robber_targets(self.human, h)
             victim = -1

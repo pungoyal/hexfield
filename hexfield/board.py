@@ -30,6 +30,12 @@ def axial_coords():
     return coords
 
 
+# Hex names skip every single-key command, so typing a hex letter can never be
+# read as something else: B/H/Q in the terminal (board, hint, quit) and
+# D/E/H/R/T in the browser (dev card, end turn, hint, roll, trade).
+HEX_LETTERS = "ACFGIJKLMNOPSUVWXYZ"
+
+
 class Board:
     """Immutable (after generation) topology + tile layout."""
 
@@ -180,13 +186,12 @@ class Board:
         self.scarcity = [max(0.8, min(1.35, (avg / t) ** 0.5 if t else 1.35)) for t in tot]
 
     def hex_label(self, h):
-        return chr(ord("A") + h)
+        return HEX_LETTERS[h]
 
     def hex_from_label(self, s):
         s = s.strip().upper()
-        if len(s) == 1 and "A" <= s <= chr(ord("A") + self.H - 1):
-            return ord(s) - ord("A")
-        return None
+        i = HEX_LETTERS.find(s) if len(s) == 1 else -1
+        return i if 0 <= i < self.H else None
 
     def describe_vertex(self, v):
         parts = []
