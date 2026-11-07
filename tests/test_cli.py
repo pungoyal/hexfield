@@ -9,7 +9,7 @@ import unittest
 from hexfield import cli
 from hexfield.ai import AIPlayer
 from hexfield.constants import RES_NAMES
-from hexfield.game import MAIN, OVER, ROAD_BUILD, SETUP_ROAD, SETUP_SETTLE
+from hexfield.game import DISCARD, MAIN, OVER, ROAD_BUILD, ROBBER, SETUP_ROAD, SETUP_SETTLE, IllegalAction
 
 
 def to_command(game, a):
@@ -52,6 +52,8 @@ def scripted_game(seed, opponents=2, color=False):
             return rnd.choice(["y", "n", "hint"])
         if "really quit" in prompt:
             return "n"
+        if "steal from whom?" in prompt:  # an answer is required: the first name offered
+            return prompt.split("whom? ")[1].split(" ")[0]
         if "whom" in prompt or "blank to cancel" in prompt:
             return ""
         x = rnd.random()
@@ -87,6 +89,116 @@ class CLITests(unittest.TestCase):
             self.assertTrue(game.reviews)
             self.assertNotIn("review unavailable", text)
             self.assertIn("Final scores", text)
+
+
+def make_game(seed=7, seat=3):
+    args = argparse.Namespace(opponents=3, level="hard", seed=seed, seat=seat, name="You",
+                              no_color=True, no_review=False, no_reasoning=False, fast=True,
+                              delay=0, autoroll=True)
+    return cli.Game(args)
+
+
+def scripted(game, answers):
+    """Feed `answers` to the game's prompts; fail if it asks for more."""
+    answers = list(answers)
+
+    def ask(prompt):
+        if not answers:
+            raise AssertionError(f"unexpected prompt: {prompt}")
+        return answers.pop(0)
+    game.ask = ask
+    return answers
+
+
+def to_my_main(game):
+    """Let bots play (for every seat) until it's the human's main phase."""
+    s = game.s
+    pilot = AIPlayer(s.board, "medium", seed=1)
+    while not (s.actor() == game.human and s.phase == MAIN):
+        a, _ = pilot.decide(s)
+        s.apply(("end",) if a[0] == "propose" else a)
+    game.printed = len(s.events)
+
+
+def run_quiet(fn, *args):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        fn(*args)
+    return out.getvalue()
+
+
+class CLIInputTests(unittest.TestCase):
+    def test_out_of_range_road_is_rejected(self):
+        game = make_game()
+        to_my_main(game)
+        s = game.s
+        s.hands[game.human] = [5, 5, 0, 0, 0]
+        before = (list(s.roads[game.human]), s.hands[game.human][:])
+        scripted(game, ["rd 999", "s abc", "e"])
+        text = run_quiet(game.human_turn_step)  # warns twice, then ends the turn
+        self.assertIn("no edge 999", text)
+        self.assertIn("isn't a vertex id", text)
+        self.assertEqual((s.roads[game.human], s.hands[game.human]), before)
+        with self.assertRaises(IllegalAction):  # the engine checks too
+            s.clone(sim=False).apply(("road", 999))
+
+    def test_repeated_trade_is_all_or_nothing_and_one_undo_step(self):
+        game = make_game()
+        to_my_main(game)
+        s, me = game.s, game.human
+        ratio = s.trade_ratio(me, 0)
+        s.hands[me] = [2 * ratio + 1, 0, 0, 0, 0]
+        start = s.hands[me][:]
+        scripted(game, ["t wood ore 3", "t wood ore 2"])
+        text = run_quiet(game.human_turn_step) + run_quiet(game.flush_events)
+        self.assertIn(f"3 trades need {3 * ratio} wood", text)
+        self.assertEqual(s.hands[me], [1, 0, 0, 0, 2])  # both trades, after nothing for 3
+        self.assertEqual(len(game.reviews), 1)
+        self.assertEqual(text.count("◆"), 1)
+        scripted(game, ["undo"])
+        run_quiet(game.human_turn_step)
+        self.assertEqual(game.s.hands[me], start)
+        self.assertEqual(game.s.phase, MAIN)  # back before the trades, not past the roll
+
+    def test_discard_reads_cards_before_commands(self):
+        game = make_game()
+        to_my_main(game)
+        s, me = game.s, game.human
+        s.hands[me] = [3, 2, 1, 1, 1]
+        s.phase, s.discards = DISCARD, {me: 3}
+        scripted(game, ["b w w"])
+        text = run_quiet(game.human_turn_step)
+        self.assertEqual(s.hands[me], [1, 1, 1, 1, 1])
+        self.assertNotIn("ROBBER", text)  # no board redraw
+
+    def robber_game(self):
+        game = make_game()
+        s = game.s
+        game.show = lambda *a, **k: None
+        h = s.board.hex_from_label("U")
+        vs = s.board.hex_vertices[h]
+        for q, v in ((0, vs[0]), (1, vs[3])):
+            s.v_owner[v], s.v_level[v] = q, 1
+            s.settlements[q].append(v)
+            s.hands[q] = [1, 1, 0, 0, 0]
+        s.phase, s.current = ROBBER, game.human
+        s.robber_return = MAIN
+        return game, s
+
+    def test_steal_prompt_needs_a_name(self):
+        game, s = self.robber_game()
+        second = s.names[1]
+        left = scripted(game, ["U", "", "zz", "hint", second.lower()])
+        text = run_quiet(game.human_turn_step)
+        self.assertFalse(left)
+        self.assertIn("Engine options", text)
+        self.assertIn(f"steals a card from {second}", s.events[-2][3])
+
+    def test_steal_prompt_accepts_undo(self):
+        game, s = self.robber_game()
+        scripted(game, ["U", "undo"])
+        with self.assertRaises(cli.Undo):
+            run_quiet(game.human_robber)
 
 
 if __name__ == "__main__":

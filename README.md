@@ -32,8 +32,10 @@ the game.
 
 Everything can be done from the keyboard. In setup, in a build mode and when moving the
 robber, every clickable spot shows a letter (two letters when there are many), and typing it
-picks the spot. Hexes are named with letters that never clash with a command (no B, D, E,
-H, Q, R or T), so a key always means one thing, in the browser and in the terminal.
+picks the spot. Hexes are named with letters that never clash with a browser shortcut or a
+terminal command that works at every prompt (no B, D, E, H, Q, R or T). In the terminal,
+`c`, `k` and `s` are main-turn commands as well as hexes C, K and S; at the robber prompt
+only hex letters and victim names mean anything, so there is no clash.
 
 The left panel shows **your income**: pips per resource, the numbers you collect on, what
 the robber blocks, and your trade rate. Settlement spots are labelled with their pip value
@@ -47,7 +49,12 @@ that would block you are outlined in red. A player within two points of winning 
 ### Terminal
 
 The board plus side panel needs a terminal about **132 columns × 40 rows**. In a narrower
-window the panel moves below the board. The game uses 256-colour ANSI and works in
+window the panel moves below the board. Before each move a status line says what you can
+build now, or how many bank/port trades away the nearest build is. Placing a settlement
+lists the open spots with the most pips. Moving the robber first shows a table of hexes:
+whom each blocks (pips), whom you can rob, and which ones would block you. A bot's offer
+shows your hand before and after and what the trade unlocks or gives up (`y/N`; Enter
+declines). Hints show the command to type next to each option, e.g. `→ t sheep brick`. The game uses 256-colour ANSI and works in
 iTerm2, Terminal.app, kitty, Alacritty and VS Code. `--no-color` (or `NO_COLOR=1`) turns
 colour off.
 
@@ -79,16 +86,18 @@ colour off.
 | `rd 41` / `rd` | road on edge 41 (bare `rd` shows the legal edge ids) |
 | `d` | buy a development card |
 | `k`, `rb`, `mono ore`, `yop wheat ore` | play development cards |
-| `t wood ore` | bank/port trade at your best ratio (`t wood ore 2` repeats it) |
+| `t wood ore` / `t wood ore 3` | bank/port trade at your best ratio; the number is how many trades (all or none) |
 | `offer 2 wood for ore` | offer a trade to the bots |
 | `e` | end turn |
 | `h` / `hint` | the engine's top 5 options for the current decision, with reasons |
 | `eval` | engine evaluation of every player plus production (pips per resource) |
-| `review on/off`, `reason on/off` | post-move review / bot reasoning |
+| `review on/off`, `reason on/off` | post-move review / bot reasoning (bare `review` shows the setting) |
 | `undo` | take back your last decision. Dice and the deck stay the same, so you can try another line |
 | `b`, `ids`, `log 30`, `stats`, `cost`, `help`, `q` | view and help commands |
 
-Hexes are lettered for the robber (letters skip every command key), e.g. `F` or `F vera`.
+Hexes are lettered for the robber, e.g. `F` or `F vera`. At the robber prompt a letter is
+always a hex (C, K and S mean city, knight and settlement only at the main prompt). At the
+discard prompt card names come first: `b w w` discards brick, wood, wood (`board` redraws).
 
 ## Coaching
 

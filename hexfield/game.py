@@ -403,6 +403,8 @@ class GameState:
             self._update_longest()
 
     def _do_road(self, p, e):
+        if not 0 <= e < self.board.E:
+            raise IllegalAction(f"there is no edge {e}")
         if self.e_owner[e] != -1:
             raise IllegalAction("edge already has a road")
         if self.phase == SETUP_ROAD:

@@ -6,7 +6,7 @@ import re
 import shutil
 from itertools import zip_longest
 
-from .constants import (DEV_NAMES, KNIGHT, MONOPOLY, PIPS, RES_NAMES, ROAD_BUILDING,
+from .constants import (COSTS, DEV_NAMES, KNIGHT, MONOPOLY, PIPS, RES_NAMES, ROAD_BUILDING,
                         VP_CARD, YEAR_OF_PLENTY, MAX_ROADS, MAX_SETTLEMENTS, MAX_CITIES)
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -53,6 +53,31 @@ def visible_len(s):
 
 def pad(s, width):
     return s + " " * max(0, width - visible_len(s))
+
+
+def clip(text, width):
+    """Shorten plain text to `width` characters with an ellipsis."""
+    return text if len(text) <= width else text[:max(0, width - 1)] + "…"
+
+
+def term_width():
+    return shutil.get_terminal_size((140, 50)).columns
+
+
+def plural(n, word, many=None):
+    return f"{n} {word if n == 1 else many or word + 's'}"
+
+
+# what you can build, in the web's order: (label, cost, command)
+BUILDS = (("road", COSTS["road"], "rd"), ("settlement", COSTS["settlement"], "s"),
+          ("city", COSTS["city"], "c"), ("dev card", COSTS["dev"], "d"))
+
+
+def trades_short(hand, cost, ratios):
+    """Bank/port trades needed before `hand` covers `cost` (None if spare cards can't make it)."""
+    miss = sum(max(0, c - h) for h, c in zip(hand, cost))
+    spare = sum(max(0, h - c) // q for h, c, q in zip(hand, cost, ratios))
+    return miss if spare >= miss else None
 
 
 def use_color_default():
@@ -315,10 +340,44 @@ class Renderer:
             return st(f" {icon} {msg}", fg=226, bold=True)
         return " " + st(icon, fg=col, bold=True) + " " + msg
 
+    def buildable(self, p, hand=None):
+        """Labels of the builds `hand` pays for and that have a legal spot."""
+        s = self.s
+        hand = s.hands[p] if hand is None else hand
+        return [name for name, cost, _ in BUILDS
+                if all(h >= c for h, c in zip(hand, cost)) and self._has_spot(p, name)]
+
+    def _has_spot(self, p, name):
+        s = self.s
+        return bool({"road": s.legal_roads, "settlement": s.legal_settlements,
+                     "city": s.legal_cities}.get(name, lambda q: s.deck_size() > 0)(p))
+
+    def build_status(self, p):
+        """'Can build: city [c] · settlement 1 trade away [t]' for the main phase."""
+        s, st = self.s, self.st
+        ready = self.buildable(p)
+        txt = "Can build: " + (", ".join(f"{n} [{c}]" for n, _, c in BUILDS if n in ready) or "nothing")
+        near = [(k, n) for n, cost, _ in BUILDS if n not in ready and self._has_spot(p, n)
+                and (k := trades_short(s.hands[p], cost, s.ratios(p)))]
+        if near:
+            k, n = min(near, key=lambda x: x[0])
+            txt += f" · {n} {plural(k, 'trade')} away [t]"
+        return st("  " + txt, fg=151)
+
+    def hand_change(self, before, after, p):
+        """'unlocks city · gives up road' for a change of hand."""
+        gain = [n for n in self.buildable(p, after) if n not in self.buildable(p, before)]
+        lost = [n for n in self.buildable(p, before) if n not in self.buildable(p, after)]
+        parts = ([f"unlocks {', '.join(gain)}"] if gain else []) + ([f"gives up {', '.join(lost)}"] if lost else [])
+        return " · ".join(parts) or "doesn't change what you can build"
+
+    def hand_chips(self, hand):
+        return " ".join(self.chip(r, hand[r]) for r in range(5))
+
     # ---------------------------------------------------------------- layout
     def screen(self, vertex_ids=None, edge_ids=None, highlight=None):
         board = self.board_lines(vertex_ids, edge_ids, highlight=highlight)
-        term_w = shutil.get_terminal_size((140, 50)).columns
+        term_w = term_width()
         panel_w = 52
         panel = self.panel_lines(width=panel_w, log_lines=max(6, len(board) - 26))
         bw = self.b.width
@@ -336,12 +395,18 @@ _VERBS = {"builds": "build", "rolls": "roll", "receives": "receive", "collects":
 
 
 def second_person(msg, human_name):
-    """'You builds' -> 'You build' when the human kept the default name."""
+    """'You builds' -> 'You build', 'steals from You' -> 'steals from you' when the human
+    kept the default name."""
     if human_name != "You":
         return msg
     msg = msg.replace("You's turn", "Your turn").replace("You starts", "You start")
     words = msg.split(" ")
+    subject = False
     for i in range(len(words) - 1):
-        if words[i] in ("You", "(You") and words[i + 1] in _VERBS:
+        if words[i] in ("You", "(You"):
+            subject = True
+        # 'You play Monopoly on ore and takes 5': the verb after 'and' is yours too
+        if (words[i] in ("You", "(You") or (subject and words[i] == "and")) and words[i + 1] in _VERBS:
             words[i + 1] = _VERBS[words[i + 1]]
-    return " ".join(words)
+    # 'You' as an object, not at the start of a sentence
+    return re.sub(r"(?<![.!?] )(?<= )You\b", "you", " ".join(words))
