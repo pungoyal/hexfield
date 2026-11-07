@@ -349,12 +349,18 @@ class AIPlayer:
 
     @staticmethod
     def view(s, viewer):
-        """Simulation copy of `s` as `viewer` sees it (opponents' hands = beliefs)."""
+        """Simulation copy of `s` as `viewer` sees it: opponents' hands are beliefs and
+        their development cards are face down (only the count is known)."""
         t = s.clone()
-        if s.belief is not None:
-            for q in range(s.n):
-                if q != viewer:
-                    t.hands[q] = s.belief[viewer][q][:]
+        for q in range(s.n):
+            if q == viewer:
+                continue
+            if s.belief is not None:
+                t.hands[q] = s.belief[viewer][q][:]
+            for devs in (t.devs, t.new_devs):
+                n = sum(devs[q])
+                devs[q] = [0] * len(devs[q])
+                devs[q][UNKNOWN_DEV] = n
         return t
 
     # ---------------------------------------------------------- dispatch

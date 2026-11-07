@@ -338,6 +338,19 @@ class TradeTests(unittest.TestCase):
         self.assertEqual(s.hands[0], [0, 0, 0, 0, 1])
         self.assertEqual(s.hands[1], [2, 0, 0, 0, 0])
 
+    def test_invalid_trades_are_rejected(self):
+        s = GameState(3, seed=2)
+        to_main(s)
+        s.hands[0] = [2, 0, 0, 0, 0]
+        s.hands[1] = [0, 0, 0, 0, 1]
+        for partner, give, get in ((1, (-3, 0, 0, 0, 0), (0, 0, 0, 0, 0)),   # cards from nothing
+                                   (1, (1, 0, 0, 0, 0), (0, 0, 0, 0, 0)),    # a gift
+                                   (0, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1)),    # yourself
+                                   (5, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1))):   # nobody
+            with self.assertRaises(IllegalAction):
+                s.apply(("trade", partner, give, get))
+        self.assertEqual(s.hands[0], [2, 0, 0, 0, 0])
+
     def test_parse_cards(self):
         self.assertEqual(parse_cards("2 wood ore".split()), [2, 0, 0, 0, 1])
         self.assertEqual(parse_cards("w w o".split()), [2, 0, 0, 0, 1])
@@ -381,6 +394,22 @@ class AITests(unittest.TestCase):
 
 
 class HiddenInfoTests(unittest.TestCase):
+    def test_offer_judged_without_the_proposers_hidden_cards(self):
+        """A bot judging an offer sees only how many dev cards the proposer holds."""
+        gains = []
+        for hidden in (VP_CARD, KNIGHT):
+            s = GameState(3, seed=5)
+            to_main(s, 0)
+            for v in (0, 9, 20, 30):
+                put_settlement(s, 0, v)
+            s.devs[0][hidden] = 4          # 5 public VP + 4 VP cards would be a win
+            s.hands[0] = [0, 0, 1, 2, 2]
+            s.hands[1] = [0, 0, 0, 0, 2]
+            s.belief = [[[float(x) for x in s.hands[q]] for q in range(3)] for _ in range(3)]
+            ai = AIPlayer(s.board, "hard", seed=1)
+            gains.append(ai.evaluate_offer(s, 1, 0, (0, 0, 1, 0, 0), (0, 0, 0, 0, 1))[1])
+        self.assertAlmostEqual(gains[0], gains[1], places=6)
+
     def test_public_events_are_tracked_exactly(self):
         s, _ = play_headless(3, ["hard"] * 3, max_turns=30)
         # beliefs always sum to the (public) hand size

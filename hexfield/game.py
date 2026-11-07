@@ -650,8 +650,10 @@ class GameState:
     def _do_trade(self, p, partner, give, get):
         if self.phase != MAIN:
             raise IllegalAction("trade after rolling")
-        if partner == p:
-            raise IllegalAction("can't trade with yourself")
+        if partner == p or not 0 <= partner < self.n:
+            raise IllegalAction("pick another player to trade with")
+        if min(*give, *get) < 0 or not any(give) or not any(get):
+            raise IllegalAction("a trade needs cards on both sides")
         if not self.can_afford(p, give):
             raise IllegalAction("you don't have those cards")
         if not self.can_afford(partner, get):
