@@ -21,13 +21,10 @@
   --sheep: #93c95a;
   --wheat: #e9b934;
   --ore: #8d99ae;
-  --desert: #d8c294;
   --p0: #ef4f5a;
   --p1: #3d8ef8;
   --p2: #f79a2b;
   --p3: #eceef2;
-  --ocean-1: #13456b;
-  --ocean-2: #0b2a45;
   --radius: 14px;
   --shadow: 0 10px 30px rgb(0 0 0 / .35), 0 2px 6px rgb(0 0 0 / .25);
   --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -119,7 +116,6 @@ h3 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
 .btn.tool .cost { display: flex; gap: 1px; }
 .btn.tool .cost svg { width: 12px; height: 12px; }
 .btn.tool .cost svg.miss { opacity: .3; filter: grayscale(1); }
-.btn.tool:disabled .cost svg:not(.miss) { opacity: 1; }
 .btn.tool[aria-pressed="true"] { background: #2b3a52; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 @keyframes glow { 50% { box-shadow: 0 0 0 4px rgb(240 180 41 / .18), 0 0 22px rgb(240 180 41 / .35); } }
 
@@ -202,7 +198,6 @@ h2 .h-sub { text-transform: none; letter-spacing: 0; font-weight: 500; color: va
 .p-race i.on { background: var(--pc); }
 
 /* hand-size warning */
-.hand { position: relative; }
 .hand[data-warn]:not([data-warn=""])::before { content: attr(data-warn); position: absolute; left: 4px; top: -21px; font-size: 11px; font-weight: 700; color: #ffb3c1; background: #3a1d26; border: 1px solid #7a3446; border-radius: 999px; padding: 1px 8px; white-space: nowrap; z-index: 1; }
 .card-delta { position: absolute; left: 50%; top: -18px; right: auto; translate: -50% 0; font-size: 14px; }
 
@@ -240,7 +235,6 @@ svg.ri { fill: var(--rc); }
 .hex-tile { transition: filter .25s; }
 .hex-tile .tile { stroke: rgb(0 0 0 / .35); stroke-width: 2; }
 .hex-tile .art { opacity: .5; pointer-events: none; }
-.hex-label { font: 800 10px var(--font); fill: rgb(0 0 0 / .62); letter-spacing: .05em; text-anchor: middle; pointer-events: none; }
 .token circle.disc { fill: #f6efdc; stroke: #b9a87e; stroke-width: 1.5; filter: url(#shadow); }
 .token text { font: 800 16px var(--font); text-anchor: middle; dominant-baseline: central; fill: #2b2417; }
 .token.hot text { fill: #c42f2f; }
@@ -251,7 +245,6 @@ svg.ri { fill: var(--rc); }
 @keyframes produce { 0% { filter: brightness(1); } 25% { filter: brightness(1.55) saturate(1.2); } 100% { filter: brightness(1); } }
 .hex-tile.produce .token circle.disc { animation: tokenpop 1.1s ease-out; }
 @keyframes tokenpop { 30% { fill: #fff6cf; stroke: var(--accent); stroke-width: 4; } }
-.hex-tile.hint-glow .tile, .hex-target.hint-glow { stroke: #fff; stroke-width: 5; }
 
 .coast .shallow { fill: #2276a8; opacity: .55; stroke: #2276a8; stroke-width: 6; stroke-linejoin: round; }
 .coast .beach { fill: #d9c28d; stroke: #d9c28d; stroke-width: 4; stroke-linejoin: round; }
@@ -288,7 +281,6 @@ svg.ri { fill: var(--rc); }
 .hex-target:hover { fill: rgb(20 10 10 / .35); stroke: #ff6b6b; stroke-width: 4; stroke-dasharray: none; }
 .board.robbing .tiles { animation: robbing 2.4s ease-in-out infinite; }
 @keyframes robbing { 50% { filter: brightness(.86); } }
-.v-target.hint-glow circle.ring, .e-target.hint-glow line.vis { stroke: var(--accent); stroke-width: 5; }
 .glow-mark { fill: none; stroke: var(--accent); stroke-width: 4; animation: breathe 1.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; pointer-events: none; }
 @keyframes breathe { 50% { scale: 1.18; opacity: .7; } }
 @keyframes march { to { stroke-dashoffset: -22; } }
@@ -329,6 +321,8 @@ svg.ri { fill: var(--rc); }
 .coach-head h2 { margin: 0 auto 0 0; }
 .switch { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; }
 .switch input { accent-color: var(--accent); margin: 0; }
+.switch select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 4px; font: inherit; }
+.log-opts { margin: -4px 0 8px; }
 .coach-actions { display: flex; align-items: center; gap: 4px 6px; margin: 10px 0 6px; flex-wrap: wrap; }
 .left, .right, .coach, .log-card, .dock, .actions { min-width: 0; }
 .reviewing { font-size: 12px; color: var(--muted); margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
@@ -356,20 +350,17 @@ svg.ri { fill: var(--rc); }
 .accuracy b { color: var(--text); }
 .reviews { flex: 1 1 auto; list-style: none; margin: 6px 0 0; padding: 0; overflow: auto; scrollbar-width: thin; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
 .rev { font-size: 12.5px; display: grid; grid-template-columns: 22px 1fr auto; gap: 2px 6px; padding: 5px 4px; border-top: 1px solid var(--line); align-items: baseline; }
-.rev .vd { font-weight: 800; text-align: center; }
+.rev .vd { text-align: center; }
 .rev-move { min-width: 0; }
-.rev .loss-n { font-weight: 700; }
+.rev .loss-n { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
 .rev.v-mistake .loss-n, .rev.v-blunder .loss-n { color: var(--worst); }
 .rev.v-inaccuracy .loss-n { color: var(--warn); }
 .rev .best-line { grid-column: 2 / -1; color: var(--muted); font-size: 12px; }
 /* a hint or evaluation takes the panel; the review list is one click away in "All moves" */
 .coach:has(.coach-out:not(:empty)) .reviews { display: none; }
 .coach:has(.coach-out:not(:empty)) .coach-out { max-height: none; flex: 1 1 auto; }
-.rev[data-a]:hover, .rev[data-b]:hover { background: rgb(255 255 255 / .03); }
 .vd { font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
 .vd-forced { color: var(--faint); }
-.rev.forced { opacity: .6; }
-.rev .loss-n { color: var(--muted); font-variant-numeric: tabular-nums; }
 .rev:hover { background: rgb(255 255 255 / .03); }
 dialog.wide { width: min(900px, calc(100vw - 32px)); }
 .table-scroll { max-height: min(60dvh, 560px); overflow: auto; scrollbar-width: thin; margin-top: 8px; }
@@ -404,11 +395,10 @@ dialog.wide { width: min(900px, calc(100vw - 32px)); }
   border: 1px solid var(--line); border-radius: 18px; padding: 10px 14px;
   box-shadow: 0 -6px 30px rgb(0 0 0 / .25);
 }
-.hand { display: flex; gap: 8px; }
+.hand { position: relative; display: flex; gap: 8px; }
 .rcard {
-  --rc: var(--muted);
   position: relative; width: 58px; height: 78px; border-radius: 10px;
-  background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 100%, #fff 18%), color-mix(in srgb, var(--rc) 80%, #000 30%));
+  background: linear-gradient(160deg, color-mix(in srgb, var(--rc, var(--muted)) 100%, #fff 18%), color-mix(in srgb, var(--rc, var(--muted)) 80%, #000 30%));
   border: 1px solid rgb(255 255 255 / .18);
   box-shadow: 0 4px 12px rgb(0 0 0 / .35), inset 0 1px 0 rgb(255 255 255 / .25);
   display: grid; place-items: center;
@@ -507,8 +497,6 @@ fieldset.seg legend { font-size: 12px; color: var(--muted); font-weight: 600; ma
 .res-btn svg { width: 20px; height: 20px; }
 .bt-row .res-btn { width: 100%; flex-direction: column; justify-content: center; gap: 1px; padding: 4px 2px 3px; min-width: 0; }
 .res-btn .bt-cnt { font-size: 11px; line-height: 1; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
-@media (max-width: 480px) { .bt-row { grid-template-columns: 96px repeat(5, minmax(0, 1fr)); } .bt-need { display: none; } }
-.stepper.zero { opacity: .45; }
 .trade-hand { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 8px 0 2px; padding: 8px 12px; border-radius: 12px; background: #0e141d; border: 1px solid var(--line); }
 .trade-hand .th-label { font-size: 12px; color: var(--muted); font-weight: 600; margin-right: 2px; }
 .trade-hand .th-res { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
@@ -520,8 +508,8 @@ fieldset.seg legend { font-size: 12px; color: var(--muted); font-weight: 600; ma
 .trade-hand .th-res.down b { color: var(--worst); }
 .trade-hand .th-total { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 dialog:not(.trade) .trade-hand { margin-top: 14px; }
-.replies { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
-.reply { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); }
+.replies { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; height: 152px; overflow: auto; align-content: start; }
+.reply { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); }
 .reply .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--pc); }
 .reply .ans { margin-left: auto; font-weight: 700; }
 .reply .ans.yes { color: var(--good); }
@@ -606,7 +594,6 @@ kbd { font: 700 11.5px var(--mono); background: #0e141d; border: 1px solid var(-
   .bank { display: none; }
   .player { padding: 8px 10px 8px 14px; }
   .p-stats { margin-top: 4px; }
-  .brand-sub { display: none; }
   .top-actions .btn span { display: none; }
   .toasts { inset: auto 14px 130px auto; }
   .rcard { width: 50px; height: 68px; }
@@ -645,8 +632,7 @@ kbd { font: 700 11.5px var(--mono); background: #0e141d; border: 1px solid var(-
 @media (max-width: 560px) {
   .dock { position: sticky; bottom: 8px; z-index: 5; }
   .app { padding: 8px 10px; gap: 10px; }
-  .hand { gap: 5px; }
-  .hand { justify-content: space-between; }
+  .hand { gap: 5px; justify-content: space-between; }
   .rcard { width: 17.5vw; max-width: 60px; height: 64px; }
   .btn.tool span { display: none; }
   .btn.tool { min-width: 0; }
@@ -673,6 +659,8 @@ dialog.trade { width: min(860px, calc(100vw - 32px)); }
 .trade-col h3 { color: var(--text); font-size: 14px; }
 .trade-col h3 .muted { font-weight: 500; font-size: 12px; }
 @media (max-width: 480px) {
+  .bt-row { grid-template-columns: 96px repeat(5, minmax(0, 1fr)); }
+  .bt-need { display: none; }
   .trade-hand { gap: 8px 12px; padding: 8px 10px; }
   .trade-hand .th-label { display: none; }
 }
@@ -684,7 +672,7 @@ dialog.trade { width: min(860px, calc(100vw - 32px)); }
   border: 1px solid var(--line-2); background: color-mix(in srgb, var(--rc) 22%, var(--panel-2));
   transition: background-color .12s, border-color .12s, transform .08s;
 }
-.pick-add svg { width: 26px; height: 26px; fill: var(--rc); }
+.pick-add svg { width: 26px; height: 26px; fill: var(--rc); margin-bottom: 10px; }
 .pick-add:hover:not(:disabled) { border-color: var(--rc); background: color-mix(in srgb, var(--rc) 35%, var(--panel-2)); }
 .pick-add:active:not(:disabled) { transform: scale(.96); }
 .pick-add:disabled { opacity: .42; cursor: not-allowed; }
@@ -693,30 +681,37 @@ dialog.trade { width: min(860px, calc(100vw - 32px)); }
 .pick-add .n { position: absolute; top: 4px; right: 6px; font-weight: 800; font-size: 13px; font-variant-numeric: tabular-nums; padding: 0 5px; border-radius: 8px; background: var(--rc); color: #0d1117; }
 .pick-add .have { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 11px; font-weight: 600; color: var(--text); opacity: .8; font-variant-numeric: tabular-nums; }
 .pick-add .have b { color: var(--accent); }
-.pick-add svg { margin-bottom: 10px; }
 .trade-count { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 4px; }
 .pick-sub { position: absolute; left: 4px; top: 4px; width: 20px; height: 20px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--bg); color: var(--text); cursor: pointer; font-weight: 800; line-height: 1; padding: 0; }
 .pick-sub:hover { border-color: var(--worst); color: var(--worst); }
 .offer-bar { display: flex; align-items: center; gap: 8px; margin-top: 4px; min-height: 40px; }
 .offer-summary { flex: 1; min-width: 0; font-size: 13px; }
-.trade .replies { height: 152px; overflow: auto; margin-top: 10px; align-content: start; }
-.trade .reply { padding: 6px 10px; }
-.trade .reply .btn { padding: 4px 12px; }
+.reply .btn { padding: 4px 12px; }
 @media (max-width: 700px) {
   .trade-cols { grid-template-columns: 1fr; }
-  .trade .replies { height: auto; min-height: 60px; }
+  .replies { height: auto; min-height: 60px; }
 }
 
 .co-x { float: right; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0 2px 0 8px; }
 .co-x:hover { color: var(--text); }
 
-/* keyboard: key badges on buttons, letter tags on board targets */
-.btn[data-key] { position: relative; }
-.btn[data-key]::after { content: attr(data-key); position: absolute; top: 3px; right: 4px; font: 700 9.5px var(--mono); line-height: 1; padding: 2px 3px; border-radius: 3px; color: var(--faint); border: 1px solid var(--line-2); background: rgb(0 0 0 / .25); pointer-events: none; }
-.btn.primary[data-key]::after { color: rgb(0 0 0 / .55); border-color: rgb(0 0 0 / .25); background: rgb(255 255 255 / .2); }
-.btn.big[data-key]::after { top: 4px; right: 5px; }
-.btn:disabled[data-key]::after { opacity: .6; }
-.coach-actions .btn[data-key]::after { position: static; margin-left: 4px; }
+/* keyboard: a badge on every control that has a key, letter tags on board targets */
+/* zero specificity: never overrides a component's own positioning */
+:where([data-key]) { position: relative; }
+.kb { position: absolute; top: 3px; right: 4px; font: 700 9.5px/1 var(--mono); padding: 2px 3px; border-radius: 3px; color: var(--muted); border: 1px solid var(--line-2); background: rgb(0 0 0 / .3); pointer-events: none; white-space: nowrap; letter-spacing: 0; text-transform: none; }
+.btn.primary > .kb { color: rgb(0 0 0 / .6); border-color: rgb(0 0 0 / .25); background: rgb(255 255 255 / .22); }
+.btn.big > .kb { top: 4px; right: 5px; }
+:disabled > .kb { opacity: .55; }
+/* inline badges where a corner badge would cover text */
+.top-actions .kb, .coach-actions .kb, .switch .kb, .seg .kb, .dlg-actions .kb, .offer-bar .kb, .reply .kb, .victims .kb, #over-all .kb, .dlg-head .kb { position: static; margin-left: 6px; }
+.btn.icon-only > .kb { margin-left: 4px; }
+.stepper .btn > .kb { top: -7px; right: -7px; background: var(--bg); padding: 1px 2px; font-size: 8.5px; }
+.pick-add > .kb { top: 5px; left: 5px; right: auto; }
+.pick.on .pick-add > .kb { display: none; } /* the − button takes that corner once picked */
+.pick-sub > .kb { display: none; } /* listed in help; the tile badge already shows the key */
+.dcard > .kb { top: 4px; left: 4px; right: auto; padding: 1px 2px; font-size: 8.5px; color: #f3e9ff; border-color: rgb(255 255 255 / .35); }
+.pick-res button > .kb { top: -6px; left: -6px; right: auto; z-index: 1; background: var(--bg); }
+.res-btn > .kb { top: 2px; left: 2px; right: auto; padding: 0 2px; font-size: 8px; border: 0; background: none; color: var(--muted); }
 .key-tag { pointer-events: none; }
 .key-tag rect { fill: #0d1117; stroke: var(--accent); stroke-width: 1.2; opacity: .92; }
 .key-tag text { font: 800 10px var(--mono); fill: var(--accent); text-anchor: middle; }
@@ -725,6 +720,36 @@ dialog.trade { width: min(860px, calc(100vw - 32px)); }
 .key-tag.dim { opacity: .08; }
 .victims kbd, .help kbd { font: 700 10.5px var(--mono); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--muted); }
 
-
 /* while robbing, the key tags replace the hex letters so only one letter shows per hex */
-.board.robbing .hex-label { display: none; }
+
+/* dialogs take focus so Enter reaches their ↵ action; no ring on the panel itself */
+dialog:focus { outline: none; }
+/* status pill key hints */
+.pill kbd { font: 700 11px var(--mono); padding: 1px 5px; border-radius: 4px; border: 1px solid currentColor; opacity: .7; margin: 0 2px; }
+
+/* "can pay for" chips in dialogs and the trade summary */
+.th-builds { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.th-builds .th-label { margin-right: 4px; }
+.bchip { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; background: rgb(255 255 255 / .07); border: 1px solid var(--line); }
+.bchip.gain { color: #10151d; background: var(--good); border-color: var(--good); }
+.bchip.lost { color: var(--worst); text-decoration: line-through; opacity: .8; }
+#offer-summary .th-builds { margin-top: 6px; }
+.bt-unlock { position: absolute; bottom: 2px; left: 4px; font-style: normal; font-size: 10px; color: var(--good); }
+
+/* robber targets: who each hex would block */
+.hex-target.empty { stroke-opacity: .15; }
+.hex-target.hurts { stroke: var(--bad); }
+.rb-chip { pointer-events: none; }
+.rb-chip circle { stroke: #10151d; stroke-width: 2; }
+.rb-chip text { font: 800 10px var(--font); fill: #10151d; text-anchor: middle; }
+.rb-chip.me circle { stroke: var(--bad); stroke-width: 2.5; }
+.tt-line .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+
+/* setup spots by quality: great ones stand out, poor ones recede */
+.v-target.t-hi circle.ring.scored { stroke-width: 2.6; scale: 1.18; }
+.v-target.t-lo { opacity: .55; }
+.v-target.t-lo:hover { opacity: 1; }
+
+/* a player close to winning */
+.player.threat { box-shadow: 0 0 0 2px var(--bad), 0 0 18px rgb(255 80 80 / .25); }
+.badge.near { color: var(--bad); border-color: var(--bad); }

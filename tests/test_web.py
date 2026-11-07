@@ -11,7 +11,7 @@ from http.server import ThreadingHTTPServer
 from hexfield.ai import AIPlayer
 from hexfield.game import OVER
 from hexfield.web import server
-from hexfield.web.session import WebGame, to_json_action
+from hexfield.web.session import WebGame, public_reason
 
 
 class Client:
@@ -80,7 +80,7 @@ class WebTests(unittest.TestCase):
                 a = ("end",)
             if a[0] == "macro":
                 a = a[1][0]
-            st = c.call("act", {"action": to_json_action(a)})
+            st = c.call("act", {"action": a})
             self.assertNotIn("error", st, (a, st.get("error")))
         self.assertEqual(st["phase"], OVER)
         self.assertIn("summary", st)
@@ -142,7 +142,6 @@ class WebTests(unittest.TestCase):
         g = WebGame(2, "easy", seed=13, seat=1)
         g.pending_offer = {"from": 1, "give": [1, 0, 0, 0, 0], "get": [0, 1, 0, 0, 0], "answers": {"2": True}}
         self.assertNotIn("answers", g.view()["pending_offer"])
-        from hexfield.web.session import public_reason
         self.assertEqual(public_reason("plan: buy development card -> play Knight  (eval +0.40)"),
                          "plan: buy development card  (eval +0.40)")
 

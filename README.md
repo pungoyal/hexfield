@@ -36,9 +36,13 @@ picks the spot. Hexes are named with letters that never clash with a command (no
 H, Q, R or T), so a key always means one thing, in the browser and in the terminal.
 
 The left panel shows **your income**: pips per resource, the numbers you collect on, what
-the robber blocks, and your trade rate. Settlement spots are labelled with their pip value,
-and when your turn starts a **While you waited** card summarises your card changes and what
-each bot did.
+the robber blocks, and your trade rate. Settlement spots are labelled with their pip value
+(the best ones stand out), and when your turn starts a **While you waited** card summarises
+your card changes and what each bot did. The status line says what you can build right now,
+or how many bank trades away the nearest build is. Every dialog that changes your hand
+(discard, offers, trades, Year of Plenty) says which builds it unlocks or gives up. When you
+move the robber, each hex shows whose income it would block and by how many pips, and hexes
+that would block you are outlined in red. A player within two points of winning is flagged.
 
 ### Terminal
 
@@ -84,7 +88,7 @@ colour off.
 | `undo` | take back your last decision. Dice and the deck stay the same, so you can try another line |
 | `b`, `ids`, `log 30`, `stats`, `cost`, `help`, `q` | view and help commands |
 
-Hexes are lettered **A–S** for the robber, e.g. `F` or `F vera`.
+Hexes are lettered for the robber (letters skip every command key), e.g. `F` or `F vera`.
 
 ## Coaching
 

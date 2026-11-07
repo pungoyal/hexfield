@@ -56,6 +56,10 @@ class App:
 APP = App()
 
 
+def to_json(obj):
+    return json.dumps(obj, separators=(",", ":")).encode()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "HexfieldWeb/1.0"
 
@@ -63,12 +67,12 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     # ------------------------------------------------------------ plumbing
-    def _send(self, code, body, ctype="application/json; charset=utf-8", cache=False):
-        data = body if isinstance(body, bytes) else json.dumps(body, separators=(",", ":")).encode()
+    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+        data = body if isinstance(body, bytes) else to_json(body)
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "max-age=3600" if cache else "no-store")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
 
@@ -110,35 +114,30 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------ routes
     def _api(self, method, route, query, body):
         try:
-            if route == "new" and method == "POST":
-                g = APP.new(body)
-                with g.lock:
-                    out = g.view()
-                    out["board"] = g.geometry
-                    data = json.dumps(out, separators=(",", ":")).encode()
-                return self._send(200, data, "application/json; charset=utf-8")
-            g = APP.game
-            if g is None:
-                return self._send(200, {"nogame": True})
+            post = method == "POST"
             try:
                 since = max(0, int(query.get("since", ["0"])[0]))
             except ValueError:
                 raise IllegalAction("since must be a number")
+            new = route == "new" and post
+            g = APP.new(body) if new else APP.game
+            if g is None:
+                return self._send(200, {"nogame": True})
             with g.lock:
                 extra = {}
-                if route == "state":
-                    pass
-                elif route == "board":
+                if new or route == "board":
                     extra["board"] = g.geometry
-                elif route == "step" and method == "POST":
-                    extra["stepped"] = g.step()
-                elif route == "act" and method == "POST":
+                elif route == "state":
+                    pass
+                elif route == "step" and post:
+                    g.step()
+                elif route == "act" and post:
                     g.act(body.get("action"))
-                elif route == "respond" and method == "POST":
+                elif route == "respond" and post:
                     g.respond(bool(body.get("accept")))
-                elif route == "offer" and method == "POST":
+                elif route == "offer" and post:
                     g.offer(body.get("give", []), body.get("get", []))
-                elif route == "undo" and method == "POST":
+                elif route == "undo" and post:
                     g.undo()
                     since = 0
                     extra["reset_log"] = True
@@ -146,16 +145,14 @@ class Handler(BaseHTTPRequestHandler):
                     extra["hint"] = g.hint()
                 elif route == "eval":
                     extra["eval"] = g.evaluate()
-                elif route == "settings" and method == "POST":
+                elif route == "settings" and post:
                     if "review" in body:
                         g.review_on = bool(body["review"])
                 else:
                     return self._send(404, {"error": "unknown route"})
-                out = g.view(since)
-                out.update(extra)
                 # serialise under the lock: view() holds live lists the bots/reviewer mutate
-                data = json.dumps(out, separators=(",", ":")).encode()
-            return self._send(200, data, "application/json; charset=utf-8")
+                data = to_json({**g.view(since), **extra})
+            return self._send(200, data)
         except IllegalAction as ex:
             return self._send(400, {"error": str(ex)})
         except Exception as ex:

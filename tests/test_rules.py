@@ -26,7 +26,6 @@ def to_main(s, p=0):
     s.phase = MAIN
     s.current = p
     s.turn = 1
-    s.rolled = True
 
 
 def path_edges(b, start, n):
@@ -187,9 +186,7 @@ class LongestRoadTests(unittest.TestCase):
         # opponent builds in the middle of the road -> broken
         a, c = b.edge_vertices[path[2]]
         mid = c if c in b.edge_vertices[path[3]] else a
-        s.v_owner[mid] = 1
-        s.v_level[mid] = 1
-        s.settlements[1].append(mid)
+        put_settlement(s, 1, mid)
         s._update_longest()
         self.assertLess(s.road_len[0], 5)
         self.assertEqual(s.longest, -1)
@@ -209,7 +206,7 @@ class DiceTests(unittest.TestCase):
     def test_production_robber_and_bank_shortage(self):
         s = GameState(3, seed=9)
         b = s.board
-        h = next(i for i in range(b.H) if b.hex_number[i] not in (0,) and i != s.robber)
+        h = next(i for i in range(b.H) if b.hex_number[i] and i != s.robber)
         r = b.hex_resource[h]
         v0, v1 = b.hex_vertices[h][0], b.hex_vertices[h][3]
         put_settlement(s, 0, v0, city=True)

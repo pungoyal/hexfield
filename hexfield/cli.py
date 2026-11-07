@@ -2,15 +2,16 @@
 
 import argparse
 import random
+import re
 import time
+from collections import Counter
 
 from .ai import AIPlayer, describe
-from .constants import (KNIGHT, MONOPOLY, RES_NAMES, ROAD_BUILDING,
-                        YEAR_OF_PLENTY, parse_res, PIPS)
+from .constants import KNIGHT, MONOPOLY, PIPS, ROAD_BUILDING, YEAR_OF_PLENTY, parse_res
 from .game import (DISCARD, MAIN, OVER, PRE_ROLL, ROAD_BUILD, ROBBER, SETUP_ROAD,
                    SETUP_SETTLE, GameState, IllegalAction, fmt_cards)
 from .match import resolve_proposal
-from .render import PLAYER_COLORS, PLAYER_COLOR_NAMES, Renderer, use_color_default, visible_len
+from .render import PLAYER_COLORS, PLAYER_COLOR_NAMES, RES_ABBR, Renderer, pad, use_color_default
 
 AI_NAMES = ["Vera", "Magnus", "Kasimir", "Ingrid", "Tobias", "Selene"]
 
@@ -71,23 +72,11 @@ def parse_cards(tokens):
         if tok.isdigit():
             pending = int(tok)
             continue
-        num = None
-        i = 0
-        while i < len(tok) and tok[i].isdigit():
-            i += 1
-        if i:
-            num, tok = int(tok[:i]), tok[i:]
-        else:
-            j = len(tok)
-            while j > 0 and tok[j - 1].isdigit():
-                j -= 1
-            if j < len(tok):
-                num, tok = int(tok[j:]), tok[:j]
-        r = parse_res(tok)
+        before, name, after = re.fullmatch(r"(\d*)(.*?)(\d*)", tok).groups()
+        r = parse_res(name)
         if r is None:
             return None
-        k = num if num is not None else (pending if pending is not None else 1)
-        counts[r] += k
+        counts[r] += int(before or after or pending or 1)
         pending = None
     return counts
 
@@ -95,7 +84,6 @@ def parse_cards(tokens):
 class Game:
     def __init__(self, args):
         self.args = args
-        self.color = use_color_default() and not args.no_color
         seed = args.seed if args.seed is not None else random.randrange(1, 10 ** 6)
         self.seed = seed
         n = args.opponents + 1
@@ -110,7 +98,7 @@ class Game:
         self.agents = [None if p == seat else AIPlayer(self.s.board, args.level, seed=seed * 7 + p)
                        for p in range(n)]
         self.coach = AIPlayer(self.s.board, "hard", seed=seed)
-        self.r = Renderer(self.s, seat, self.color)
+        self.r = Renderer(self.s, seat, use_color_default() and not args.no_color)
         self.st = self.r.st
         self.printed = 0
         self.review_on = not args.no_review
@@ -157,6 +145,23 @@ class Game:
             raise Quit()
         return line.strip()
 
+    def command(self, prompt, redraw=None):
+        """Ask until the answer is more than a common command; return its words.
+        `redraw` re-shows the board for 'b' when the prompt needs ids marked on it."""
+        while True:
+            words = self.ask(prompt).split()
+            if not words:
+                continue
+            cmd = words[0].lower()
+            if redraw and cmd in ("b", "board", "map"):
+                redraw()
+            elif not self.common(cmd, words[1:]):
+                return words
+
+    def match_player(self, answer, players):
+        """The first of `players` whose name starts with `answer`, else None."""
+        return next((p for p in players if self.s.names[p].lower().startswith(answer.lower())), None)
+
     def info(self, msg):
         self.out(self.st("  " + msg, fg=110))
 
@@ -164,12 +169,16 @@ class Game:
         self.out(self.st("  ✗ " + msg, fg=203))
 
     # --------------------------------------------------------------- run
+    def replay(self):
+        return (f"python3 -m hexfield --seed {self.seed} --seat {self.human + 1} "
+                f"--opponents {self.args.opponents}")
+
     def run(self):
         st = self.st
         you = PLAYER_COLOR_NAMES[self.human]
         self.out(self.banner())
         self.out(f"  Seed {st(str(self.seed), bold=True)}  ·  replay this exact board and dice with "
-                 f"{st(f'python3 -m hexfield --seed {self.seed} --seat {self.human + 1} --opponents {self.args.opponents}', fg=117)}")
+                 f"{st(self.replay(), fg=117)}")
         order = " → ".join(self.r.pname(p) for p in range(self.s.n))
         self.out(f"  You are {st(you, fg=PLAYER_COLORS[self.human], bold=True)} (seat {self.human + 1}).  "
                  f"Turn order: {order}.  Bots: {self.args.level}.")
@@ -236,7 +245,7 @@ class Game:
                 self.info(f"engine: {'ACCEPT' if ok else 'DECLINE'} (net value for you {gain:+.2f}, "
                           f"includes what {s.names[proposer]} builds with it)")
                 continue
-            if ans in ("undo",):
+            if ans == "undo":
                 self.warn("can't undo in the middle of an offer - answer first")
                 continue
             if ans in ("y", "yes", "n", "no", ""):
@@ -276,15 +285,9 @@ class Game:
         return True
 
     # ------------------------------------------------------------ review
-    def verdict(self, delta):
-        for thr, name, col, sym in VERDICTS:
-            if delta < thr:
-                return name, col, sym
-        return VERDICTS[-1][1:]
-
     def report(self, mine, best, best_desc, label=None):
         delta = max(0.0, best - mine)
-        name, col, sym = self.verdict(delta)
+        name, col, sym = next(v[1:] for v in VERDICTS if delta < v[0])
         st = self.st
         msg = st(f"  ◆ {sym} {name}", fg=col, bold=True)
         if delta >= 0.05:
@@ -303,23 +306,19 @@ class Game:
             return len(s.legal_actions()) <= 1
         return False
 
-    def review_action(self, a, best_cache=None):
+    def review_action(self, a):
         if not self.review_on or self.trivial(a):
             return
         s = self.s
         try:
-            if best_cache is None:
-                best_sc, best_a, best_why = self.coach.best_value(s)
-            else:
-                best_sc, best_a, best_why = best_cache
+            best_sc, best_a, best_why = self.coach.best_value(s)
             if best_a is None:
                 return
-            same = a == best_a or (best_a[0] == "macro" and a == best_a[1][0])
-            if same:
+            if a == best_a or (best_a[0] == "macro" and a == best_a[1][0]):
                 mine = best_sc
             else:
                 mine = self.coach.value_of_action(s, a)
-            desc = describe(s, best_a) if best_a else ""
+            desc = describe(s, best_a)
             if s.phase == MAIN and best_why.startswith("plan:"):
                 desc = best_why[6:]
             elif best_why and s.phase in (SETUP_SETTLE, SETUP_ROAD, ROBBER):
@@ -408,7 +407,7 @@ class Game:
             d = best - sc
             tag = self.st("best", fg=46, bold=True) if i == 0 else self.st(f"−{d:.2f}", fg=220 if d < 0.5 else 208)
             text = why if s.phase == MAIN else f"{describe(s, a)} - {why}"
-            self.out(f"   {i + 1}. {pad_vis(tag, 6)} {text}")
+            self.out(f"   {i + 1}. {pad(tag, 6)} {text}")
 
     def eval_cmd(self):
         s = self.s
@@ -419,8 +418,8 @@ class Game:
             prod = self.coach.ev.production(s, p)
             bar_len = int(max(0, vals[p]) / max(top, 1) * 24)
             bar = self.st("█" * bar_len, fg=PLAYER_COLORS[p])
-            pips = " ".join(f"{RES_NAMES[r][:2].title()}{int(prod[r]):>2}" for r in range(5))
-            self.out(f"   {self.r.pname(p, 8)} {vals[p]:5.2f} {pad_vis(bar, 25)} pips/36: {pips}  (={int(sum(prod))})")
+            pips = " ".join(f"{RES_ABBR[r]}{int(prod[r]):>2}" for r in range(5))
+            self.out(f"   {self.r.pname(p, 8)} {vals[p]:5.2f} {pad(bar, 25)} pips/36: {pips}  (={int(sum(prod))})")
         self.out(self.st("   pips = expected cards per 36 rolls (robber-blocked hexes excluded)", dim=True))
 
     def stats(self):
@@ -433,179 +432,127 @@ class Game:
             bar = "█" * hist[t]
             self.out(f"   {t:>2} {hist[t]:>3} {exp:5.1f}  {self.st(bar, fg=160 if t == 7 else 75)}")
 
+    def act(self, a):
+        """Check `a` on a copy (raises IllegalAction), review it, then play it."""
+        self.s.clone(sim=False).apply(a)
+        self.review_action(a)
+        self.s.apply(a)
+
+    def pick_spot(self, prompt, spot, legal):
+        """Show the board with the legal vertex/edge ids marked; ask until one is picked."""
+        def redraw():
+            self.show(**{f"{spot}_ids": legal})
+        redraw()
+        while True:
+            cmd = self.command(prompt, redraw)[0]
+            if cmd.isdigit() and int(cmd) in legal:
+                return int(cmd)
+            self.warn(f"pick one of the highlighted {spot} ids")
+
     # setup -------------------------------------------------------------
     def human_setup_settle(self):
         s = self.s
-        legal = s.legal_settlements(self.human, setup=True)
-        self.show(vertex_ids=legal)
         which = "first" if s.setup_idx < s.n else "second"
-        while True:
-            line = self.ask(f"place your {which} settlement (vertex id)")
-            if not line:
-                continue
-            cmd, *args = line.split()
-            if self.common(cmd.lower(), args):
-                if cmd.lower() in ("b", "board", "map"):
-                    self.show(vertex_ids=legal)
-                continue
-            if cmd.isdigit() and int(cmd) in legal:
-                v = int(cmd)
-                self.info(f"vertex {v}: {s.board.describe_vertex(v)}")
-                a = ("settle", v)
-                self.review_action(a)
-                s.apply(a)
-                return
-            self.warn("pick one of the highlighted vertex ids")
+        v = self.pick_spot(f"place your {which} settlement (vertex id)", "vertex",
+                           s.legal_settlements(self.human, setup=True))
+        self.info(f"vertex {v}: {s.board.describe_vertex(v)}")
+        self.act(("settle", v))
 
     def human_setup_road(self):
+        e = self.pick_spot("place a road next to it (edge id)", "edge",
+                           self.s.legal_setup_roads(self.human))
+        self.act(("road", e))
+
+    def human_free_road(self):
         s = self.s
-        legal = s.legal_setup_roads(self.human)
-        self.show(edge_ids=legal)
-        while True:
-            line = self.ask("place a road next to it (edge id)")
-            if not line:
-                continue
-            cmd, *args = line.split()
-            if self.common(cmd.lower(), args):
-                continue
-            if cmd.isdigit() and int(cmd) in legal:
-                a = ("road", int(cmd))
-                self.review_action(a)
-                s.apply(a)
-                return
-            self.warn("pick one of the highlighted edge ids")
+        e = self.pick_spot(f"road building: place a free road ({s.free_roads} left)", "edge",
+                           s.legal_roads(self.human))
+        self.act(("road", e))
 
     # discard / robber ----------------------------------------------------
     def human_discard(self):
         s = self.s
         k = s.discards[self.human]
+        hand = s.hands[self.human]
         self.out("")
-        self.out("  " + " ".join(self.r.chip(r, s.hands[self.human][r]) for r in range(5)))
+        self.out("  " + " ".join(self.r.chip(r, hand[r]) for r in range(5)))
         while True:
-            line = self.ask(f"a 7! discard {k} cards (e.g. '2 wood ore')")
-            if not line:
-                continue
-            cmd, *args = line.split()
-            if self.common(cmd.lower(), args):
-                continue
-            counts = parse_cards(line.split())
+            counts = parse_cards(self.command(f"a 7! discard {k} cards (e.g. '2 wood ore')"))
             if counts is None:
                 self.warn("couldn't parse that - try e.g. 'wood 2 ore'")
-                continue
-            if sum(counts) != k:
+            elif sum(counts) != k:
                 self.warn(f"that's {sum(counts)} cards, need exactly {k}")
-                continue
-            if any(counts[r] > s.hands[self.human][r] for r in range(5)):
+            elif any(counts[r] > hand[r] for r in range(5)):
                 self.warn("you don't have those cards")
-                continue
-            if self.review_on:
-                (best_v, best_c), (mine_v, _) = self.coach.rank_discards(s, self.human, counts)
-                self.report(mine_v, best_v, "discard " + fmt_cards(best_c), "discard " + fmt_cards(counts))
-            s.apply(("discard", tuple(counts)))
-            return
+            else:
+                break
+        if self.review_on:
+            (best_v, best_c), (mine_v, _) = self.coach.rank_discards(s, self.human, counts)
+            self.report(mine_v, best_v, "discard " + fmt_cards(best_c), "discard " + fmt_cards(counts))
+        s.apply(("discard", tuple(counts)))
 
     def human_robber(self):
         s = self.s
         self.show()
         while True:
-            line = self.ask("move the robber: hex letter [victim name]")
-            if not line:
-                continue
-            cmd, *args = line.split()
-            if self.common(cmd.lower(), args):
-                continue
-            h = s.board.hex_from_label(cmd)
-            if h is None or h == s.robber:
-                self.warn("give a hex letter from the board (not the robber's current hex)")
-                continue
-            vics = s.robber_targets(self.human, h)
-            victim = -1
-            if vics:
-                if len(vics) == 1:
-                    victim = vics[0]
-                else:
-                    name = args[0] if args else None
-                    while victim == -1:
-                        if name is None:
-                            opts = ", ".join(f"{s.names[v]} ({s.hand_size(v)} cards)" for v in vics)
-                            name = self.ask(f"steal from whom? {opts}")
-                        for v in vics:
-                            if s.names[v].lower().startswith(name.lower()):
-                                victim = v
-                        if victim == -1:
-                            self.warn("not a valid victim")
-                            name = None
-            a = ("robber", h, victim)
-            self.review_action(a)
-            s.apply(a)
-            return
-
-    def human_free_road(self):
-        s = self.s
-        legal = s.legal_roads(self.human)
-        self.show(edge_ids=legal)
-        while True:
-            line = self.ask(f"road building: place a free road ({s.free_roads} left)")
-            if not line:
-                continue
-            cmd, *args = line.split()
-            if self.common(cmd.lower(), args):
-                continue
-            if cmd.isdigit() and int(cmd) in legal:
-                a = ("road", int(cmd))
-                self.review_action(a)
-                s.apply(a)
-                return
-            self.warn("pick one of the highlighted edge ids")
+            label, *args = self.command("move the robber: hex letter [victim name]")
+            h = s.board.hex_from_label(label)
+            if h is not None and h != s.robber:
+                break
+            self.warn("give a hex letter from the board (not the robber's current hex)")
+        vics = s.robber_targets(self.human, h)
+        victim = vics[0] if vics else -1
+        if len(vics) > 1:
+            opts = ", ".join(f"{s.names[v]} ({s.hand_size(v)} cards)" for v in vics)
+            answer = args[0] if args else self.ask(f"steal from whom? {opts}")
+            while (victim := self.match_player(answer, vics)) is None:
+                self.warn("not a valid victim")
+                answer = self.ask(f"steal from whom? {opts}")
+        self.act(("robber", h, victim))
 
     # main turn -----------------------------------------------------------
     def human_main(self):
         s = self.s
-        if s.phase == PRE_ROLL:
-            can_play = any(s.playable(self.human, c) for c in (KNIGHT, ROAD_BUILDING, MONOPOLY, YEAR_OF_PLENTY))
-            if not can_play and self.args.autoroll:
-                s.apply(("roll",))
-                self.flush_events()
-                return
+        if s.phase == PRE_ROLL and self.args.autoroll and not any(
+                s.playable(self.human, c) for c in (KNIGHT, ROAD_BUILDING, MONOPOLY, YEAR_OF_PLENTY)):
+            s.apply(("roll",))
+            self.flush_events()
+            return
+        if s.phase == PRE_ROLL or self.shown != (s.turn, s.current):
             self.show()
             self.shown = (s.turn, s.current)
-        elif self.shown != (s.turn, s.current):
-            self.show()
-            self.shown = (s.turn, s.current)
+        prompt = "roll (r) or play a knight (k)" if s.phase == PRE_ROLL else "your move"
         while True:
-            prompt = "roll (r) or play a knight (k)" if s.phase == PRE_ROLL else "your move"
-            line = self.ask(prompt)
-            if not line:
-                continue
-            parts = line.split()
-            cmd, args = parts[0].lower(), parts[1:]
-            if self.common(cmd, args):
-                continue
+            cmd, *args = self.command(prompt)
             try:
-                a = self.parse_main(cmd, args)
+                a = self.parse_main(cmd.lower(), args)
+                if a is None:
+                    continue
+                if a[0] == "offer":
+                    self.human_offer(a[1], a[2])
+                    return
+                self.act(a)
             except IllegalAction as ex:
                 self.warn(str(ex))
                 continue
-            if a is None:
-                continue
-            if a == "redo":
-                return
-            if a[0] == "offer":
-                self.human_offer(a[1], a[2])
-                return
-            # validate before reviewing
-            try:
-                t = s.clone(sim=False)
-                t.apply(a)
-            except IllegalAction as ex:
-                self.warn(str(ex))
-                continue
-            self.review_action(a)
-            s.apply(a)
             if a[0] in ("settle", "city", "road", "play_knight", "play_road") and s.phase == MAIN:
                 self.flush_events()
                 self.show()
             return
+
+    def build(self, kind, noun, legal, args, none_left):
+        """(kind, id) for a build command; with no id, mark the legal ones and ask."""
+        if self.s.phase != MAIN:
+            raise IllegalAction("roll first")
+        if not args:
+            if not legal:
+                raise IllegalAction(none_left)
+            if kind == "city" and len(legal) == 1:
+                return ("city", legal[0])
+            spot = "edge" if kind == "road" else "vertex"
+            self.show(**{f"{spot}_ids": legal})
+            args = [self.ask(f"{noun} at ({spot} id, blank to cancel)")]
+        return (kind, int(args[0])) if args[0].isdigit() else None
 
     def parse_main(self, cmd, args):
         s = self.s
@@ -615,53 +562,19 @@ class Game:
         if cmd in ("e", "end", "done", "pass"):
             return ("end",)
         if cmd in ("s", "settle", "settlement"):
-            if s.phase != MAIN:
-                raise IllegalAction("roll first")
-            legal = s.legal_settlements(p)
-            if not args:
-                if not legal:
-                    raise IllegalAction("no legal settlement spots (need a road leading to an open spot)")
-                self.show(vertex_ids=legal)
-                v = self.ask("settlement at (vertex id, blank to cancel)")
-                if not v.isdigit():
-                    return None
-                args = [v]
-            return ("settle", int(args[0])) if args[0].isdigit() else None
+            return self.build("settle", "settlement", s.legal_settlements(p), args,
+                              "no legal settlement spots (need a road leading to an open spot)")
         if cmd in ("c", "city"):
-            if s.phase != MAIN:
-                raise IllegalAction("roll first")
-            legal = s.legal_cities(p)
-            if not args:
-                if not legal:
-                    raise IllegalAction("no settlements to upgrade")
-                if len(legal) == 1:
-                    return ("city", legal[0])
-                self.show(vertex_ids=legal)
-                v = self.ask("city at (vertex id, blank to cancel)")
-                if not v.isdigit():
-                    return None
-                args = [v]
-            return ("city", int(args[0])) if args[0].isdigit() else None
+            return self.build("city", "city", s.legal_cities(p), args, "no settlements to upgrade")
         if cmd in ("rd", "road"):
-            if s.phase != MAIN:
-                raise IllegalAction("roll first")
-            legal = s.legal_roads(p)
-            if not args:
-                if not legal:
-                    raise IllegalAction("nowhere to build a road")
-                self.show(edge_ids=legal)
-                e = self.ask("road at (edge id, blank to cancel)")
-                if not e.isdigit():
-                    return None
-                args = [e]
-            return ("road", int(args[0])) if args[0].isdigit() else None
+            return self.build("road", "road", s.legal_roads(p), args, "nowhere to build a road")
         if cmd in ("d", "dev", "buy"):
             return ("buy_dev",)
         if cmd in ("k", "knight"):
             return ("play_knight",)
         if cmd in ("rb", "roadbuilding", "road_building"):
             return ("play_road",)
-        if cmd in ("play",) and args:
+        if cmd == "play" and args:
             return self.parse_main(args[0], args[1:])
         if cmd in ("mono", "monopoly"):
             r = parse_res(args[0]) if args else None
@@ -676,34 +589,22 @@ class Game:
                 raise IllegalAction("usage: yop <res> <res>")
             return ("play_yop", min(rs), max(rs))
         if cmd in ("t", "trade", "bank"):
-            if len(args) < 2:
-                raise IllegalAction("usage: t <give> <get>   e.g. t wood ore")
-            nums = [x for x in args if x.isdigit()]
             words = [x for x in args if not x.isdigit()]
             if len(words) < 2:
-                raise IllegalAction("usage: t <give> <get>")
+                raise IllegalAction("usage: t <give> <get>   e.g. t wood ore")
             give, get = parse_res(words[0]), parse_res(words[-1])
             if give is None or get is None:
                 raise IllegalAction("unknown resource")
-            times = 1
-            if len(nums) >= 2:
-                times = int(nums[-1])
-            acts = []
-            for _ in range(times):
-                acts.append(("bank", give, get))
-            if times > 1:
-                for a in acts[:-1]:
-                    t = s.clone(sim=False)
-                    t.apply(a)
-                    self.review_action(a)
-                    s.apply(a)
-                    self.flush_events()
-            return acts[-1]
+            a = ("bank", give, get)
+            # a trailing number repeats the trade: 't wood ore 2'
+            for _ in range(int(args[-1]) - 1 if args[-1].isdigit() else 0):
+                self.act(a)
+                self.flush_events()
+            return a
         if cmd == "offer":
-            text = " ".join(args).lower()
-            if " for " not in f" {text} ":
+            left, sep, right = f" {' '.join(args).lower()} ".partition(" for ")
+            if not sep:
                 raise IllegalAction("usage: offer <cards> for <cards>   e.g. offer 2 wood for ore")
-            left, right = text.split(" for ", 1) if " for " in text else ("", text[4:])
             give, get = parse_cards(left.split()), parse_cards(right.split())
             if give is None or get is None or not any(give) or not any(get):
                 raise IllegalAction("couldn't parse the offer")
@@ -726,25 +627,18 @@ class Game:
             self.out(f"     {self.r.pname(q)}: " + (st("accepts", fg=46, bold=True) if ok else st("declines", fg=203)))
             if ok:
                 accepters.append(q)
-        if not accepters:
-            self.history.pop()
-            return
-        if len(accepters) == 1:
-            q = accepters[0]
-        else:
+        q = accepters[0] if len(accepters) == 1 else None
+        if len(accepters) > 1:
             names = "/".join(s.names[q] for q in accepters)
-            q = None
             while q is None:
                 ans = self.ask(f"trade with whom? {names} (blank = nobody)")
                 if not ans:
-                    self.history.pop()
-                    return
-                for c in accepters:
-                    if s.names[c].lower().startswith(ans.lower()):
-                        q = c
-        a = ("trade", q, give, get)
-        self.review_action(a)
-        s.apply(a)
+                    break
+                q = self.match_player(ans, accepters)
+        if q is None:
+            self.history.pop()  # nothing happened: drop this decision's undo snapshot
+            return
+        self.act(("trade", q, give, get))
 
     # ---------------------------------------------------------- game over
     def game_over(self):
@@ -771,29 +665,20 @@ class Game:
         if self.reviews:
             self.out("")
             self.out(st("  Your decision review", bold=True))
-            counts = {}
-            for *_, name in self.reviews:
-                counts[name] = counts.get(name, 0) + 1
-            line = "   "
-            for thr, name, col, sym in VERDICTS:
-                line += st(f"{name} {counts.get(name, 0)}   ", fg=col, bold=True)
-            self.out(line)
+            counts = Counter(r[5] for r in self.reviews)
+            self.out("   " + "".join(st(f"{name} {counts[name]}   ", fg=col, bold=True)
+                                     for _, name, col, _ in VERDICTS))
             loss = sum(r[4] for r in self.reviews)
             acc = 100.0 * sum(1 for r in self.reviews if r[4] < 0.2) / len(self.reviews)
             self.out(f"   accuracy {acc:.0f}% of {len(self.reviews)} decisions  ·  total value lost {loss:.2f} VP-eq")
-            worst = sorted(self.reviews, key=lambda r: -r[4])[:5]
-            worst = [r for r in worst if r[4] >= 0.2]
+            worst = [r for r in sorted(self.reviews, key=lambda r: -r[4])[:5] if r[4] >= 0.2]
             if worst:
                 self.out(st("   Biggest misses:", bold=True))
                 for turn, ph, mine, best, delta, name in worst:
                     self.out(f"    turn {turn:>3} {ph.replace('_', ' '):<16} you: {mine}")
                     self.out(st(f"             −{delta:.2f}  engine: {best}", dim=True))
         self.out("")
-        self.out(f"  Replay: python3 -m hexfield --seed {self.seed} --seat {self.human + 1} --opponents {self.args.opponents}")
-
-
-def pad_vis(text, width):
-    return text + " " * max(0, width - visible_len(text))
+        self.out(f"  Replay: {self.replay()}")
 
 
 def main(argv=None):

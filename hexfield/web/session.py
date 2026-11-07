@@ -12,21 +12,22 @@ import threading
 import time
 
 from ..ai import AIPlayer, describe
+from ..cli import VERDICTS
 from ..constants import DESERT, MAX_CITIES, MAX_ROADS, MAX_SETTLEMENTS, RES_NAMES
 from ..game import (MAIN, OVER, PRE_ROLL, ROAD_BUILD, ROBBER, SETUP_ROAD, SETUP_SETTLE,
                     GameState, IllegalAction, fmt_cards)
 from ..render import second_person
 
 AI_NAMES = ["Vera", "Magnus", "Kasimir", "Ingrid", "Tobias", "Selene"]
-VERDICTS = [(0.05, "best"), (0.20, "good"), (0.50, "inaccuracy"), (1.00, "mistake"), (9e9, "blunder")]
 HEX_R = 60.0
 
 
 def verdict(delta):
-    for thr, name in VERDICTS:
-        if delta < thr:
-            return name
-    return VERDICTS[-1][1]
+    return next(v[1] for v in VERDICTS if delta < v[0])
+
+
+def port_name(kind):
+    return None if kind is None else "any" if kind == "any" else RES_NAMES[kind]
 
 
 def board_geometry(b):
@@ -49,20 +50,13 @@ def board_geometry(b):
             "res": None if r == DESERT else RES_NAMES[r],
             "num": b.hex_number[h], "pips": b.hex_pips[h], "label": b.hex_label(h),
         })
-    ports = []
-    for e, kind in b.ports:
-        a, c = b.edge_vertices[e]
-        ports.append({"edge": e, "kind": "any" if kind == "any" else RES_NAMES[kind],
-                      "ratio": 3 if kind == "any" else 2, "v": [a, c]})
     return {
         "hexes": hexes,
-        "vertices": [{"x": x, "y": y, "desc": b.describe_vertex(v),
-                      "pips": b.vertex_total_pips[v], "hexes": list(b.vertex_hexes[v]),
-                      "port": (None if b.vertex_port[v] is None else
-                               "any" if b.vertex_port[v] == "any" else RES_NAMES[b.vertex_port[v]])}
+        "vertices": [{"x": x, "y": y, "pips": b.vertex_total_pips[v], "hexes": list(b.vertex_hexes[v]),
+                      "port": port_name(b.vertex_port[v])}
                      for v, (x, y) in enumerate(vxy)],
         "edges": [list(pr) for pr in b.edge_vertices],
-        "ports": ports,
+        "ports": [{"kind": port_name(kind), "v": list(b.edge_vertices[e])} for e, kind in b.ports],
         "radius": HEX_R,
     }
 
@@ -116,19 +110,10 @@ def public_reason(why):
     return f"plan: {first}" + tail
 
 
-def to_json_action(a):
-    if a is None:
-        return None
-    if a[0] == "macro":
-        return ["macro", [list(t) for t in a[1]], a[2]]
-    return [list(x) if isinstance(x, tuple) else x for x in a]
-
-
 class WebGame:
     def __init__(self, opponents=3, level="hard", seed=None, seat=None, name="You", review=True):
         self.seed = seed if seed is not None else random.randrange(1, 10 ** 6)
         self.level = level
-        self.opponents = opponents
         n = opponents + 1
         rng = random.Random(self.seed)
         seat = (seat - 1) if seat else rng.randrange(n)
@@ -140,7 +125,7 @@ class WebGame:
         self.s = GameState(n, seed=self.seed, names=names)
         self.agents = [None if p == seat else AIPlayer(self.s.board, level, seed=self.seed * 7 + p)
                        for p in range(n)]
-        self.coach = AIPlayer(self.s.board, "hard", seed=self.seed)
+        self.coach = AIPlayer(self.s.board, "hard", seed=self.seed)  # hints; the worker has its own
         self.geometry = board_geometry(self.s.board)
         self.lock = threading.RLock()
         self.review_on = review
@@ -151,7 +136,6 @@ class WebGame:
         self.my_offer = None       # human offer + which bots accepted
         self._token = 0            # id of the newest human decision
         self.gid = f"{self.seed}-{time.time_ns()}"
-        self.started = time.time()
         self._jobs = queue.Queue()
         self._reviewer = AIPlayer(self.s.board, "hard", seed=self.seed)
         self._alive = True
@@ -168,10 +152,11 @@ class WebGame:
         h = self.human
         players = []
         for p in range(s.n):
+            shown = p == h or s.phase == OVER
             players.append({
                 "name": s.names[p],
-                "vp": s.vp(p) if p == h or s.phase == OVER else s.public_vp(p),
-                "hidden_vp": s.vp_cards(p) if p == h or s.phase == OVER else 0,
+                "vp": s.vp(p) if shown else s.public_vp(p),
+                "hidden_vp": s.vp_cards(p) if shown else 0,
                 "cards": s.hand_size(p),
                 "devs": s.dev_count(p),
                 "knights": s.knights[p],
@@ -183,8 +168,7 @@ class WebGame:
             })
         evs = []
         for i in range(since, len(s.events)):
-            e = s.events[i]
-            turn, p, kind, msg = e
+            turn, p, kind, msg = s.events[i]
             if kind == "private" and p != h:
                 continue
             if kind == "private_steal" and h not in p:
@@ -223,16 +207,15 @@ class WebGame:
         h = self.human
         if s.actor() != h or s.phase == OVER or self.pending_offer:
             return {}
-        acts = s.legal_actions()
         L = {"settle": [], "city": [], "road": [], "robber": {}, "kinds": []}
-        for a in acts:
+        for a in s.legal_actions():
             k = a[0]
             if k in ("settle", "city", "road"):
                 L[k].append(a[1])
             elif k == "robber":
-                L["robber"].setdefault(str(a[1]), [])
+                victims = L["robber"].setdefault(str(a[1]), [])
                 if a[2] != -1:
-                    L["robber"][str(a[1])].append(a[2])
+                    victims.append(a[2])
             if k not in L["kinds"]:
                 L["kinds"].append(k)
         return L
@@ -245,7 +228,7 @@ class WebGame:
                          "cities": len(s.cities[p]), "longest": s.longest == p,
                          "army": s.army == p, "vp_cards": s.vp_cards(p)})
         revs = [r for r in self.reviews if not r.get("forced")]
-        counts = {name: 0 for _, name in VERDICTS}
+        counts = {v[1]: 0 for v in VERDICTS}
         for r in revs:
             counts[r["verdict"]] += 1
         acc = 100.0 * sum(1 for r in revs if r["delta"] < 0.2) / len(revs) if revs else None
@@ -255,17 +238,14 @@ class WebGame:
 
     # ================================================================ bots
     def step(self):
-        """Advance one bot decision. Returns True if something happened."""
+        """Advance one bot decision, if it is a bot's turn."""
         s = self.s
-        if s.phase == OVER or self.pending_offer:
-            return False
         p = s.actor()
-        if p == self.human:
-            return False
+        if s.phase == OVER or self.pending_offer or p == self.human:
+            return
         a, why = self.agents[p].decide(s)
         if a[0] == "propose":
-            self._bot_propose(p, a[1], a[2], why)
-            return True
+            return self._bot_propose(p, a[1], a[2], why)
         n0 = len(s.events)
         s.apply(a)
         why = public_reason(why)
@@ -274,21 +254,18 @@ class WebGame:
                 if s.events[i][2] not in ("private", "private_steal"):
                     self.reasons[i] = why
                     break
-        return True
 
     def _bot_propose(self, p, give, get, why):
         s = self.s
         s.log(f"{s.names[p]} offers {fmt_cards(give)} for {fmt_cards(get)}", "offer", p)
         self.reasons[len(s.events) - 1] = public_reason(why)
-        answers = {}
-        for q in range(s.n):
-            if q == p or q == self.human:
-                continue
-            ok = False
-            if all(s.hands[q][i] >= get[i] for i in range(5)):
-                ok, _ = self.agents[q].evaluate_offer(s, q, p, give, get)
-            answers[q] = ok
-        if all(s.hands[self.human][i] >= get[i] for i in range(5)):
+
+        def can_pay(q):
+            return all(s.hands[q][i] >= get[i] for i in range(5))
+
+        answers = {q: can_pay(q) and self.agents[q].evaluate_offer(s, q, p, give, get)[0]
+                   for q in range(s.n) if q not in (p, self.human)}
+        if can_pay(self.human):
             # the human sees the offer from their own side: receive `give`, pay `get`
             self.pending_offer = {"from": p, "give": list(give), "get": list(get),
                                   "answers": {str(q): ok for q, ok in answers.items()}}
@@ -308,7 +285,6 @@ class WebGame:
         po = self.pending_offer
         if not po:
             raise IllegalAction("no offer to answer")
-        s = self.s
         p, give, get = po["from"], tuple(po["give"]), tuple(po["get"])
         self.snapshot()
         if self.review_on:
@@ -343,7 +319,7 @@ class WebGame:
                 self.reviews.append({"token": self._token, "turn": s.turn, "phase": s.phase,
                                      "label": label, "best": "only sensible move", "delta": 0.0,
                                      "verdict": "forced", "forced": True,
-                                     "action": to_json_action(a), "best_action": to_json_action(a)})
+                                     "action": a, "best_action": a})
             else:
                 self._queue("discard" if a[0] == "discard" else "action", a)
         self.my_offer = None
@@ -373,13 +349,10 @@ class WebGame:
 
     def trivial(self, a):
         s = self.s
-        h = self.human
-        if s.phase == PRE_ROLL:
+        if s.phase in (PRE_ROLL, SETUP_ROAD, ROAD_BUILD):
             return len(s.legal_actions()) <= 1
         if s.phase == MAIN and a[0] == "end":
             return all(x[0] == "end" for x in s.legal_actions(include_trades=True))
-        if s.phase in (SETUP_ROAD, ROAD_BUILD):
-            return len(s.legal_actions()) <= 1
         return False
 
     # ================================================================ undo
@@ -413,7 +386,7 @@ class WebGame:
         if self.pending_offer:
             po = self.pending_offer
             ok, gain = self.coach.evaluate_offer(s, self.human, po["from"], tuple(po["give"]), tuple(po["get"]))
-            return {"offer": True, "accept": bool(ok), "gain": gain, "secs": time.time() - t0}
+            return {"accept": bool(ok), "gain": gain, "secs": time.time() - t0}
         ranked = self.coach.analyze(s, top=5)
         if not ranked:
             return {"options": [], "secs": time.time() - t0}
@@ -421,7 +394,7 @@ class WebGame:
         opts = []
         for sc, a, why in ranked:
             text = why if s.phase == MAIN else f"{describe(s, a)} — {why}"
-            opts.append({"loss": best - sc, "action": to_json_action(a), "text": text})
+            opts.append({"loss": best - sc, "action": a, "text": text})
         return {"options": opts, "secs": time.time() - t0}
 
     def evaluate(self):
@@ -438,8 +411,7 @@ class WebGame:
         return any(h[2] == token for h in self.history)
 
     def _queue(self, kind, payload):
-        state = self.s.clone(sim=False)
-        self._jobs.put((self._token, kind, state, payload))
+        self._jobs.put((self._token, kind, self.s.clone(sim=False), payload))
 
     def _review_worker(self):
         while True:
@@ -461,6 +433,7 @@ class WebGame:
     def _review(self, token, kind, s, payload):
         coach = self._reviewer
         h = self.human
+        mine_a = best_a = None  # only move reviews carry actions to show on the board
         if kind == "offer":
             p, give, get, yes = payload
             ok, gain = coach.evaluate_offer(s, h, p, give, get)
@@ -473,7 +446,7 @@ class WebGame:
             (best_v, best_c), (mine, _) = coach.rank_discards(s, h, counts)
             best, best_desc, label = best_v, "discard " + fmt_cards(best_c), "discard " + fmt_cards(counts)
         else:
-            a = payload
+            a = mine_a = payload
             if a[0] == "trade":
                 # the partner accepted, so it certainly holds the cards it gives
                 b = s.belief[h][a[1]]
@@ -493,8 +466,7 @@ class WebGame:
             if a[0] == "trade":
                 label = f"trade {fmt_cards(a[2])} for {fmt_cards(a[3])} with {s.names[a[1]]}"
         delta = max(0.0, best - mine)
-        mine_a = to_json_action(payload) if kind == "action" else None
-        best_a = to_json_action(best_a) if kind == "action" else None
-        return {"token": token, "action": mine_a, "best_action": best_a, "turn": s.turn, "phase": s.phase, "label": label, "best": best_desc,
-                "delta": round(delta, 3), "verdict": verdict(delta), "forced": False}
+        return {"token": token, "action": mine_a, "best_action": best_a, "turn": s.turn, "phase": s.phase,
+                "label": label, "best": best_desc, "delta": round(delta, 3), "verdict": verdict(delta),
+                "forced": False}
 

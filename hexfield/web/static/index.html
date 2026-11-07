@@ -38,7 +38,7 @@
   <symbol id="i-help" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1.2 16h-2.4v-2.4h2.4zm2.3-7.6c-.6.9-1.5 1.3-2 1.8-.4.4-.4.8-.4 1.6h-2.3c0-1.4.2-2.1 1-2.8.8-.8 1.7-1 1.8-2 .1-.8-.5-1.5-1.6-1.5-1 0-1.6.6-1.7 1.6H8c.1-2.4 1.8-3.6 4-3.6 3.4 0 4.6 2.8 3.5 4.9z"/></symbol>
 </svg>
 
-<div class="app" id="app">
+<div class="app">
   <header class="topbar">
     <div class="brand">
       <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2l12 7v14l-12 7-12-7V9z"/></svg>
@@ -50,10 +50,10 @@
     <div class="status" id="status" aria-live="polite"></div>
     <nav class="top-actions">
       <span class="seed" id="seed" title="Seed — replays this exact board and dice"></span>
-      <button class="btn ghost" id="btn-undo" title="Undo your last decision (Ctrl+Z)"><svg><use href="#i-undo"/></svg><span>Undo</span></button>
-      <button class="btn ghost" id="btn-stats" title="Dice statistics"><svg><use href="#i-dice"/></svg><span>Dice</span></button>
-      <button class="btn ghost" id="btn-help" title="Rules and shortcuts (?)"><svg><use href="#i-help"/></svg><span>Help</span></button>
-      <button class="btn" id="btn-new" title="Start a new game"><svg><use href="#i-plus"/></svg><span>New game</span></button>
+      <button class="btn ghost" id="btn-undo" data-key="⌘Z" title="Undo your last decision (Ctrl+Z)"><svg><use href="#i-undo"/></svg><span>Undo</span></button>
+      <button class="btn ghost" id="btn-stats" data-key="⇧S" title="Dice statistics (Shift+S)"><svg><use href="#i-dice"/></svg><span>Dice</span></button>
+      <button class="btn ghost" id="btn-help" data-key="?" title="Rules and shortcuts (?)"><svg><use href="#i-help"/></svg><span>Help</span></button>
+      <button class="btn" id="btn-new" data-key="⇧N" title="Start a new game (Shift+N)"><svg><use href="#i-plus"/></svg><span>New game</span></button>
     </nav>
   </header>
 
@@ -69,7 +69,7 @@
     </section>
   </aside>
 
-  <main class="board-wrap" id="board-wrap">
+  <main class="board-wrap">
     <svg id="board" class="board" role="img" aria-label="Game board"></svg>
     <div class="dice" id="dice" aria-label="Last roll"></div>
     <div class="recap" id="recap" role="status" aria-live="polite"></div>
@@ -81,13 +81,13 @@
     <section class="card coach" aria-label="Coach">
       <div class="coach-head">
         <h2>Coach</h2>
-        <label class="switch" title="Review each of your decisions"><input type="checkbox" id="review-on" checked><span>Review</span></label>
-        <label class="switch" title="Show the bots' reasoning in the log"><input type="checkbox" id="reason-on" checked><span>Bot reasoning</span></label>
+        <label class="switch" data-key="⇧R" title="Review each of your decisions (Shift+R)"><input type="checkbox" id="review-on" checked><span>Review</span></label>
+        <label class="switch" data-key="⇧B" title="Show the bots' reasoning in the log (Shift+B)"><input type="checkbox" id="reason-on" checked><span>Bot reasoning</span></label>
       </div>
       <div class="coach-actions">
         <button class="btn" id="btn-hint" data-key="H" title="Engine's top options (H)"><svg><use href="#i-bulb"/></svg>Hint</button>
-        <button class="btn ghost" id="btn-eval" title="Engine evaluation of every player"><svg><use href="#i-chart"/></svg>Evaluate</button>
-        <button class="btn ghost" id="btn-review" title="Every move you made, rated, with the engine's best alternative" disabled><svg><use href="#i-help"/></svg>All moves</button>
+        <button class="btn ghost" id="btn-eval" data-key="⇧V" title="Engine evaluation of every player (Shift+V)"><svg><use href="#i-chart"/></svg>Evaluate</button>
+        <button class="btn ghost" id="btn-review" data-key="⇧A" title="Every move you made, rated, with the engine's best alternative (Shift+A)" disabled><svg><use href="#i-help"/></svg>All moves</button>
         <span class="reviewing" id="reviewing" hidden>reviewing…</span>
       </div>
       <div id="coach-out" class="coach-out"></div>
@@ -96,14 +96,19 @@
     </section>
     <section class="card log-card" aria-label="Game log">
       <h2>Log</h2>
+      <div class="coach-head log-opts">
+        <label class="switch" data-key="⇧F" title="Bot speed (Shift+F cycles)">Speed <select id="speed">
+          <option value="fast">fast</option><option value="normal">normal</option><option value="slow">slow</option></select></label>
+        <label class="switch" data-key="⇧O" title="Roll automatically when you have no development card to play first (Shift+O)"><input type="checkbox" id="autoroll">Auto-roll</label>
+      </div>
       <ol class="log" id="log"></ol>
     </section>
   </aside>
 
-  <footer class="dock" id="dock">
+  <footer class="dock">
     <div class="hand" id="hand" aria-label="Your resource cards"></div>
     <div class="devhand" id="devhand" aria-label="Your development cards"></div>
-    <div class="actions" id="actions">
+    <div class="actions">
       <button class="btn big primary" id="btn-roll" data-key="R" title="Roll the dice (R)"><svg><use href="#i-dice"/></svg>Roll</button>
       <div class="build">
         <button class="btn tool" id="btn-road" data-key="1" data-mode="road" title="Build a road (1)"><svg><use href="#i-road"/></svg><span>Road</span></button>
@@ -112,8 +117,8 @@
         <button class="btn tool" id="btn-dev" data-key="D" title="Buy a development card (D)"><svg><use href="#i-dev"/></svg><span>Dev card</span></button>
         <button class="btn tool" id="btn-trade" data-key="T" title="Trade with the bank or players (T)"><svg><use href="#i-trade"/></svg><span>Trade</span></button>
       </div>
-      <button class="btn big primary pulse" id="btn-discard" title="Choose the cards to discard" hidden>Discard…</button>
-      <button class="btn big primary pulse" id="btn-answer" title="Answer the trade offer" hidden>Answer offer…</button>
+      <button class="btn big primary pulse" id="btn-discard" data-key="⇧D" title="Choose the cards to discard (Shift+D)" hidden>Discard…</button>
+      <button class="btn big primary pulse" id="btn-answer" data-key="⇧Y" title="Answer the trade offer (Shift+Y)" hidden>Answer offer…</button>
       <button class="btn big primary" id="btn-end" data-key="E" title="End your turn (E)">End turn</button>
     </div>
   </footer>
@@ -125,28 +130,28 @@
     <h2 id="new-title">New game</h2>
     <p class="muted">You against machine opponents that search several moves ahead and track every card you play.</p>
     <fieldset class="seg"><legend>Opponents</legend>
-      <label><input type="radio" name="opponents" value="2">2 bots</label>
-      <label><input type="radio" name="opponents" value="3" checked>3 bots</label>
+      <label data-key="2"><input type="radio" name="opponents" value="2">2 bots</label>
+      <label data-key="3"><input type="radio" name="opponents" value="3" checked>3 bots</label>
     </fieldset>
     <fieldset class="seg"><legend>Bot strength</legend>
-      <label><input type="radio" name="level" value="easy">Easy</label>
-      <label><input type="radio" name="level" value="medium">Medium</label>
-      <label><input type="radio" name="level" value="hard" checked>Hard</label>
+      <label data-key="E"><input type="radio" name="level" value="easy">Easy</label>
+      <label data-key="M"><input type="radio" name="level" value="medium">Medium</label>
+      <label data-key="H"><input type="radio" name="level" value="hard" checked>Hard</label>
     </fieldset>
     <fieldset class="seg"><legend>Your seat</legend>
-      <label><input type="radio" name="seat" value="" checked>Random</label>
-      <label><input type="radio" name="seat" value="1">1st</label>
-      <label><input type="radio" name="seat" value="2">2nd</label>
-      <label><input type="radio" name="seat" value="3">3rd</label>
-      <label class="seat4"><input type="radio" name="seat" value="4">4th</label>
+      <label data-key="⇧0"><input type="radio" name="seat" value="" checked>Random</label>
+      <label data-key="⇧1"><input type="radio" name="seat" value="1">1st</label>
+      <label data-key="⇧2"><input type="radio" name="seat" value="2">2nd</label>
+      <label data-key="⇧3"><input type="radio" name="seat" value="3">3rd</label>
+      <label class="seat4" data-key="⇧4"><input type="radio" name="seat" value="4">4th</label>
     </fieldset>
     <div class="row2">
       <label class="field">Your name<input name="name" value="You" maxlength="14" autocomplete="nickname"></label>
       <label class="field">Seed <span class="muted">(optional)</span><input name="seed" inputmode="numeric" pattern="[0-9]*" placeholder="random"></label>
     </div>
     <div class="dlg-actions">
-      <button class="btn ghost" value="cancel" id="new-cancel" formnovalidate>Cancel</button>
-      <button class="btn primary" value="start" autofocus>Start game</button>
+      <button class="btn ghost" value="cancel" id="new-cancel" data-key="Esc" formnovalidate>Cancel</button>
+      <button class="btn primary" value="start" data-key="↵" autofocus>Start game</button>
     </div>
   </form>
 </dialog>
@@ -157,15 +162,15 @@
   <div class="trade-hand" id="discard-hand"></div>
   <div class="steppers" id="discard-steppers"></div>
   <div class="dlg-actions">
-    <button class="btn ghost" id="discard-hint"><svg><use href="#i-bulb"/></svg>Suggest</button>
-    <button class="btn primary" id="discard-ok" disabled>Discard</button>
+    <button class="btn ghost" id="discard-hint" data-key="S"><svg><use href="#i-bulb"/></svg>Suggest</button>
+    <button class="btn primary" id="discard-ok" data-key="↵" disabled>Discard</button>
   </div>
 </dialog>
 
 <dialog id="dlg-trade" class="trade" aria-labelledby="trade-title" closedby="any">
   <div class="dlg-head">
     <h2 id="trade-title">Trade <span class="trade-count" id="trade-count"></span></h2>
-    <form method="dialog"><button class="btn ghost icon-only" aria-label="Close">✕</button></form>
+    <form method="dialog"><button class="btn ghost icon-only" aria-label="Close" data-key="Esc">✕</button></form>
   </div>
   <div class="trade-cols">
     <section class="trade-col" aria-labelledby="bank-h">
@@ -180,8 +185,8 @@
       <div class="picks" id="offer-get"></div>
       <div class="offer-bar">
         <div class="offer-summary" id="offer-summary"></div>
-        <button class="btn ghost" id="offer-clear">Clear</button>
-        <button class="btn primary" id="offer-send" disabled>Offer</button>
+        <button class="btn ghost" id="offer-clear" data-key="⌫">Clear</button>
+        <button class="btn primary" id="offer-send" data-key="↵" disabled>Offer</button>
       </div>
       <div class="replies" id="offer-replies" aria-live="polite"></div>
     </section>
@@ -199,9 +204,9 @@
   <p class="bo-why muted" id="bo-why"></p>
   <p class="bo-hint" id="bo-hint"></p>
   <div class="dlg-actions">
-    <button class="btn ghost" id="bo-ask"><svg><use href="#i-bulb"/></svg>Ask coach</button>
-    <button class="btn danger" id="bo-no" autofocus>Decline</button>
-    <button class="btn primary" id="bo-yes">Accept</button>
+    <button class="btn ghost" id="bo-ask" data-key="C"><svg><use href="#i-bulb"/></svg>Ask coach</button>
+    <button class="btn danger" id="bo-no" data-key="N" autofocus>Decline</button>
+    <button class="btn primary" id="bo-yes" data-key="Y">Accept</button>
   </div>
 </dialog>
 
@@ -211,15 +216,15 @@
   <div class="pick-res" id="pick-res"></div>
   <div class="trade-hand" id="pick-hand"></div>
   <div class="dlg-actions">
-    <form method="dialog"><button class="btn ghost">Cancel</button></form>
-    <button class="btn primary" id="pick-ok" disabled>Play</button>
+    <form method="dialog"><button class="btn ghost" data-key="Esc">Cancel</button></form>
+    <button class="btn primary" id="pick-ok" data-key="↵" disabled>Play</button>
   </div>
 </dialog>
 
 <dialog id="dlg-info" aria-labelledby="info-title" closedby="any">
   <div class="dlg-head">
     <h2 id="info-title"></h2>
-    <form method="dialog"><button class="btn ghost icon-only" aria-label="Close">✕</button></form>
+    <form method="dialog"><button class="btn ghost icon-only" aria-label="Close" data-key="Esc">✕</button></form>
   </div>
   <div id="info-body"></div>
 </dialog>
@@ -228,9 +233,9 @@
   <h2 id="over-title"></h2>
   <div id="over-body"></div>
   <div class="dlg-actions">
-    <form method="dialog"><button class="btn ghost">See board</button></form>
-    <button class="btn" id="over-replay">Replay this seed</button>
-    <button class="btn primary" id="over-new">New game</button>
+    <form method="dialog"><button class="btn ghost" data-key="Esc">See board</button></form>
+    <button class="btn" id="over-replay" data-key="R">Replay this seed</button>
+    <button class="btn primary" id="over-new" data-key="N">New game</button>
   </div>
 </dialog>
 

@@ -4,6 +4,7 @@ import math
 import os
 import re
 import shutil
+from itertools import zip_longest
 
 from .constants import (DEV_NAMES, KNIGHT, MONOPOLY, PIPS, RES_NAMES, ROAD_BUILDING,
                         VP_CARD, YEAR_OF_PLENTY, MAX_ROADS, MAX_SETTLEMENTS, MAX_CITIES)
@@ -14,7 +15,7 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 TERRAIN_BG = (28, 130, 107, 178, 245, 180)          # wood brick sheep wheat ore desert
 TERRAIN_FG = (157, 223, 230, 230, 255, 94)
 TERRAIN_TXT = ("WOOD", "BRICK", "SHEEP", "WHEAT", "ORE", "DESERT")
-RES_CHIP_BG = (28, 130, 107, 178, 245)
+RES_CHIP_BG = TERRAIN_BG[:5]
 RES_CHIP_FG = (231, 231, 231, 16, 16)
 OCEAN_BG = 24
 OCEAN_FG = 31
@@ -24,24 +25,19 @@ PLAYER_COLORS = (196, 39, 208, 255)
 PLAYER_COLOR_NAMES = ("Red", "Blue", "Orange", "White")
 TOKEN_BG = 230
 DICE = "⚀⚁⚂⚃⚄⚅"
+RES_ABBR = [name[:2].title() for name in RES_NAMES]     # Wo Br Sh Wh Or
+EVENT_ICONS = {"build": "⌂", "roll": "⚄", "produce": "+", "robber": "☗", "steal": "✋",
+               "dev": "★", "trade": "⇄", "award": "♛", "discard": "−", "win": "♛"}
 
 
 class Style:
     def __init__(self, color=True):
         self.color = color
 
-    def __call__(self, text, fg=None, bg=None, bold=False, dim=False, italic=False, underline=False):
+    def __call__(self, text, fg=None, bg=None, bold=False, dim=False, italic=False):
         if not self.color:
             return text
-        codes = []
-        if bold:
-            codes.append("1")
-        if dim:
-            codes.append("2")
-        if italic:
-            codes.append("3")
-        if underline:
-            codes.append("4")
+        codes = [code for code, on in (("1", bold), ("2", dim), ("3", italic)) if on]
         if fg is not None:
             codes.append(f"38;5;{fg}")
         if bg is not None:
@@ -60,9 +56,7 @@ def pad(s, width):
 
 
 def use_color_default():
-    if os.environ.get("NO_COLOR"):
-        return False
-    return True
+    return not os.environ.get("NO_COLOR")
 
 
 class Canvas:
@@ -73,17 +67,16 @@ class Canvas:
         self.bg = [[None] * w for _ in range(h)]
         self.bold = [[False] * w for _ in range(h)]
 
-    def put(self, x, y, c, fg=None, bg=None, bold=False, keep_bg=False):
+    def put(self, x, y, c, fg=None, bg=None, bold=False):
         if 0 <= x < self.w and 0 <= y < self.h:
             self.ch[y][x] = c
             self.fg[y][x] = fg
-            if not keep_bg or bg is not None:
-                self.bg[y][x] = bg
+            self.bg[y][x] = bg
             self.bold[y][x] = bold
 
-    def text(self, x, y, s, fg=None, bg=None, bold=False, keep_bg=False):
+    def text(self, x, y, s, fg=None, bg=None, bold=False):
         for i, c in enumerate(s):
-            self.put(x + i, y, c, fg, bg, bold, keep_bg)
+            self.put(x + i, y, c, fg, bg, bold)
 
     def ctext(self, cx, y, s, **kw):
         self.text(cx - len(s) // 2, y, s, **kw)
@@ -123,7 +116,7 @@ class Renderer:
         self.st = Style(color)
 
     # ----------------------------------------------------------------- board
-    def board_lines(self, vertex_ids=None, edge_ids=None, hex_ids=False, highlight=None):
+    def board_lines(self, vertex_ids=None, edge_ids=None, highlight=None):
         s, b = self.s, self.b
         cv = Canvas(b.width, b.height)
         # ocean with sparse waves
@@ -156,14 +149,13 @@ class Renderer:
         for e, (a, c) in enumerate(b.edge_vertices):
             (x1, y1), (x2, y2) = b.vertex_xy[a], b.vertex_xy[c]
             owner = s.e_owner[e]
-            cells = self._edge_cells(x1, y1, x2, y2)
-            for x, y, ch in cells:
+            for x, y, ch in self._edge_cells(x1, y1, x2, y2):
                 if owner == -1:
                     cv.put(x, y, ch, GROUT_FG, GROUT_BG)
+                elif self.color:
+                    cv.put(x, y, "┃" if ch == "│" else ch, 16, PLAYER_COLORS[owner], bold=True)
                 else:
-                    pc = PLAYER_COLORS[owner]
-                    rc = {"│": "┃", "╱": "╱", "╲": "╲"}[ch]
-                    cv.put(x, y, rc if self.color else str(owner + 1), 16, pc, bold=True)
+                    cv.put(x, y, str(owner + 1), 16, PLAYER_COLORS[owner], bold=True)
         # ports
         cxm, cym = b.center
         for e, kind in b.ports:
@@ -176,7 +168,7 @@ class Renderer:
             if kind == "any":
                 label, fg, bg = " 3:1 ", 231, 17
             else:
-                label = f" {RES_NAMES[kind][:2].upper()} 2:1 "
+                label = f" {RES_ABBR[kind].upper()} 2:1 "
                 fg, bg = RES_CHIP_FG[kind], RES_CHIP_BG[kind]
             lx = int(round(mx + ux * 7))
             ly = int(round(my + uy * 2.6))
@@ -214,10 +206,7 @@ class Renderer:
         if x1 == x2:
             return [(x1, y, "│") for y in range(min(y1, y2) + 1, max(y1, y2))]
         mx, my = (x1 + x2) // 2, (y1 + y2) // 2
-        # going down-right?
-        if (x2 - x1) * (y2 - y1) > 0:
-            return [(mx, my, "╲")]
-        return [(mx, my, "╱")]
+        return [(mx, my, "╲" if (x2 - x1) * (y2 - y1) > 0 else "╱")]
 
     def _edge_label_xy(self, e):
         a, c = self.b.edge_vertices[e]
@@ -226,13 +215,12 @@ class Renderer:
 
     # ------------------------------------------------------------------ panel
     def chip(self, r, n):
-        st = self.st
-        txt = f" {RES_NAMES[r][:2].title()} {n} "
         if not self.color:
-            return f"{RES_NAMES[r][:2].title()}:{n}"
+            return f"{RES_ABBR[r]}:{n}"
+        txt = f" {RES_ABBR[r]} {n} "
         if n == 0:
-            return st(txt, fg=240, bg=235)
-        return st(txt, fg=RES_CHIP_FG[r], bg=RES_CHIP_BG[r], bold=True)
+            return self.st(txt, fg=240, bg=235)
+        return self.st(txt, fg=RES_CHIP_FG[r], bg=RES_CHIP_BG[r], bold=True)
 
     def pname(self, p, width=None):
         name = self.s.names[p]
@@ -266,12 +254,7 @@ class Renderer:
         hdr = f"   {'player':<9}{'VP':>3} {'cards':>5} {'dev':>3} {'kn':>3} {'road':>4}  awards"
         L.append(st(hdr, dim=True))
         for p in range(s.n):
-            vp = s.public_vp(p)
-            if p == self.human:
-                hidden = s.vp_cards(p)
-                vpt = f"{vp + hidden}" if not hidden else f"{vp + hidden}"
-            else:
-                vpt = f"{vp}"
+            vp = s.public_vp(p) + (s.vp_cards(p) if p == self.human else 0)
             awards = []
             if s.longest == p:
                 awards.append(st("LONGEST", fg=226, bold=True))
@@ -279,7 +262,7 @@ class Renderer:
                 awards.append(st("ARMY", fg=213, bold=True))
             marker = st("▶", fg=226, bold=True) if p == cur else " "
             row = (f"{marker} {self.swatch(p)}{self.pname(p, 8)}"
-                   f"{st(f'{vpt:>3}', bold=True)} {s.hand_size(p):>5} {s.dev_count(p):>3} "
+                   f"{st(f'{vp:>3}', bold=True)} {s.hand_size(p):>5} {s.dev_count(p):>3} "
                    f"{s.knights[p]:>3} {s.road_len[p]:>4}  {' '.join(awards)}")
             L.append(row)
             if p == self.human:
@@ -287,37 +270,29 @@ class Renderer:
         L.append("")
         # human detail
         h = self.human
-        if h is not None:
-            dv = s.devs[h]
-            nd = s.new_devs[h]
-            cards = []
-            for c in (KNIGHT, ROAD_BUILDING, MONOPOLY, YEAR_OF_PLENTY, VP_CARD):
-                k = dv[c] + nd[c]
-                if k:
-                    tag = f"{DEV_NAMES[c]} x{k}"
-                    if nd[c]:
-                        tag += st(f" ({nd[c]} new)", dim=True)
-                    cards.append(tag)
-            L.append(st(" Your dev cards: ", bold=True) + (", ".join(cards) if cards else st("none", dim=True)))
-            hidden_vp = s.vp_cards(h)
-            L.append(f" Pieces left: {MAX_SETTLEMENTS - len(s.settlements[h])} settl, "
-                     f"{MAX_CITIES - len(s.cities[h])} city, {MAX_ROADS - len(s.roads[h])} road"
-                     + (st(f"  (+{hidden_vp} hidden VP)", fg=213) if hidden_vp else ""))
-            rat = s.ratios(h)
-            L.append(" Trade ratios: " + " ".join(f"{RES_NAMES[r][:2].title()} {rat[r]}:1" for r in range(5)))
-        bank = " ".join(f"{RES_NAMES[r][:2].title()}{s.bank[r]}" for r in range(5))
+        dv, nd = s.devs[h], s.new_devs[h]
+        cards = []
+        for c in (KNIGHT, ROAD_BUILDING, MONOPOLY, YEAR_OF_PLENTY, VP_CARD):
+            if dv[c] + nd[c]:
+                tag = f"{DEV_NAMES[c]} x{dv[c] + nd[c]}"
+                if nd[c]:
+                    tag += st(f" ({nd[c]} new)", dim=True)
+                cards.append(tag)
+        L.append(st(" Your dev cards: ", bold=True) + (", ".join(cards) if cards else st("none", dim=True)))
+        hidden_vp = s.vp_cards(h)
+        L.append(f" Pieces left: {MAX_SETTLEMENTS - len(s.settlements[h])} settl, "
+                 f"{MAX_CITIES - len(s.cities[h])} city, {MAX_ROADS - len(s.roads[h])} road"
+                 + (st(f"  (+{hidden_vp} hidden VP)", fg=213) if hidden_vp else ""))
+        rat = s.ratios(h)
+        L.append(" Trade ratios: " + " ".join(f"{RES_ABBR[r]} {rat[r]}:1" for r in range(5)))
+        bank = " ".join(f"{RES_ABBR[r]}{s.bank[r]}" for r in range(5))
         L.append(st(f" Bank {bank}  ·  dev deck {s.deck_size()}", dim=True))
         L.append(st(" " + "─" * (width - 2), fg=240))
-        for line in self.recent_log(log_lines):
-            L.append(line)
-        return L
+        return L + self.recent_log(log_lines)
 
     def recent_log(self, k):
-        out = []
         evs = [e for e in self.s.events if self.visible_event(e)]
-        for turn, p, kind, msg in evs[-k:]:
-            out.append(self.fmt_event(p, kind, msg))
-        return out
+        return [self.fmt_event(p, kind, msg) for _, p, kind, msg in evs[-k:]]
 
     def visible_event(self, e):
         turn, p, kind, msg = e
@@ -327,15 +302,13 @@ class Renderer:
             return self.human in p
         return True
 
-    def fmt_event(self, p, kind, msg, width=None):
+    def fmt_event(self, p, kind, msg):
         st = self.st
-        msg = second_person(msg, self.s.names[self.human] if self.human is not None else None)
+        msg = second_person(msg, self.s.names[self.human])
         if kind in ("private", "private_steal"):
             return st("  " + msg, fg=213, italic=True)
         col = PLAYER_COLORS[p] if isinstance(p, int) and p >= 0 else 250
-        icon = {"build": "⌂", "roll": "⚄", "produce": "+", "robber": "☗", "steal": "✋",
-                "dev": "★", "trade": "⇄", "award": "♛", "turn": "─", "discard": "−",
-                "win": "♛", "info": "·"}.get(kind, "·")
+        icon = EVENT_ICONS.get(kind, "·")
         if kind == "turn":
             return st(f" {msg}", fg=col, bold=True)
         if kind == "win":
@@ -350,19 +323,16 @@ class Renderer:
         panel = self.panel_lines(width=panel_w, log_lines=max(6, len(board) - 26))
         bw = self.b.width
         if term_w >= bw + panel_w + 2:
-            out = []
-            for i in range(max(len(board), len(panel))):
-                left = board[i] if i < len(board) else " " * bw
-                right = panel[i] if i < len(panel) else ""
-                out.append(left + "  " + right)
-            return "\n".join(out)
+            board += [" " * bw] * (len(panel) - len(board))
+            return "\n".join(left + "  " + right for left, right in
+                             zip_longest(board, panel, fillvalue=""))
         return "\n".join(board + [""] + panel)
 
 
 _VERBS = {"builds": "build", "rolls": "roll", "receives": "receive", "collects": "collect",
           "trades": "trade", "steals": "steal", "plays": "play", "buys": "buy", "moves": "move",
           "discards": "discard", "takes": "take", "loses": "lose", "upgrades": "upgrade",
-          "offers": "offer", "WINS": "WIN", "stole": "stole"}
+          "offers": "offer", "WINS": "WIN"}
 
 
 def second_person(msg, human_name):

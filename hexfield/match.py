@@ -17,7 +17,7 @@ def resolve_proposal(s, agents, proposer, give, get, ask_human=None, on_reply=No
     for q in range(s.n):
         if q == proposer:
             continue
-        if not all(s.hands[q][i] >= get[i] for i in range(5)):
+        if not s.can_afford(q, get):
             continue
         if agents[q] is None:
             ok = bool(ask_human and ask_human(q, proposer, give, get))

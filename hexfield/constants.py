@@ -4,8 +4,6 @@ WOOD, BRICK, SHEEP, WHEAT, ORE = range(5)
 DESERT = 5
 RESOURCES = (WOOD, BRICK, SHEEP, WHEAT, ORE)
 RES_NAMES = ("wood", "brick", "sheep", "wheat", "ore")
-RES_SHORT = ("Wd", "Br", "Sh", "Wh", "Or")
-TERRAIN_NAMES = ("FOREST", "HILLS", "PASTURE", "FIELDS", "MOUNTAIN", "DESERT")
 
 COSTS = {
     "road": (1, 1, 0, 0, 0),

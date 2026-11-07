@@ -22,12 +22,7 @@ AXIAL_NEIGHBORS = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, -1), (-1, 1))
 
 
 def axial_coords():
-    coords = []
-    for r in range(-2, 3):
-        for q in range(-2, 3):
-            if abs(q) <= 2 and abs(r) <= 2 and abs(q + r) <= 2:
-                coords.append((q, r))
-    return coords
+    return [(q, r) for r in range(-2, 3) for q in range(-2, 3) if abs(q + r) <= 2]
 
 
 # Hex names skip every single-key command, so typing a hex letter can never be
@@ -88,9 +83,8 @@ class Board:
             self.vertex_edges[b].append(e)
             self.vertex_neighbors[a].append(b)
             self.vertex_neighbors[b].append(a)
-        self.edge_hexes = []
-        for a, b in self.edge_vertices:
-            self.edge_hexes.append([h for h in self.vertex_hexes[a] if h in self.vertex_hexes[b]])
+        self.edge_hexes = [[h for h in self.vertex_hexes[a] if h in self.vertex_hexes[b]]
+                           for a, b in self.edge_vertices]
 
         # hex adjacency
         index = {c: i for i, c in enumerate(self.coords)}
@@ -110,31 +104,23 @@ class Board:
             rng.shuffle(tiles)
             nums = NUMBER_BAG[:]
             rng.shuffle(nums)
-            numbers = []
             it = iter(nums)
-            for t in tiles:
-                numbers.append(0 if t == DESERT else next(it))
-            ok = True
-            for h in range(self.H):
-                if numbers[h] in (6, 8):
-                    for n in self.hex_neighbors[h]:
-                        if numbers[n] in (6, 8):
-                            ok = False
-                            break
-                if not ok:
-                    break
-                # avoid identical numbers touching (keeps boards fair & varied)
-                for n in self.hex_neighbors[h]:
-                    if numbers[h] and numbers[h] == numbers[n]:
-                        ok = False
-                        break
-                if not ok:
-                    break
-            if ok:
+            numbers = [0 if t == DESERT else next(it) for t in tiles]
+            if self._fair_numbers(numbers):
                 break
         self.hex_resource = tiles
         self.hex_number = numbers
         self.desert = tiles.index(DESERT)
+
+    def _fair_numbers(self, numbers):
+        """No 6/8 touching another 6/8, and no identical numbers touching."""
+        for h, nbrs in enumerate(self.hex_neighbors):
+            for n in nbrs:
+                if numbers[h] in (6, 8) and numbers[n] in (6, 8):
+                    return False
+                if numbers[h] and numbers[h] == numbers[n]:
+                    return False
+        return True
 
     # ------------------------------------------------------------------ ports
     def _generate_ports(self, rng):
@@ -166,21 +152,12 @@ class Board:
 
     # ------------------------------------------------------------- analytics
     def _precompute(self):
-        self.hex_pips = [PIPS[n] for n in self.hex_number]
-        # vertex_pips[v][r] = pips of resource r touching v
-        self.vertex_pips = []
-        for v in range(self.V):
-            p = [0] * 5
-            for h in self.vertex_hexes[v]:
-                if self.hex_resource[h] != DESERT:
-                    p[self.hex_resource[h]] += self.hex_pips[h]
-            self.vertex_pips.append(p)
-        self.vertex_total_pips = [sum(p) for p in self.vertex_pips]
+        self.hex_pips = [PIPS[n] for n in self.hex_number]  # the desert has 0
+        self.vertex_total_pips = [sum(self.hex_pips[h] for h in hs) for hs in self.vertex_hexes]
         tot = [0] * 5
         for h in range(self.H):
             if self.hex_resource[h] != DESERT:
                 tot[self.hex_resource[h]] += self.hex_pips[h]
-        self.resource_pips = tot
         avg = sum(tot) / 5.0
         # scarcer resources are worth more; clamp so it stays a gentle nudge
         self.scarcity = [max(0.8, min(1.35, (avg / t) ** 0.5 if t else 1.35)) for t in tot]

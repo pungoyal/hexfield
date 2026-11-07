@@ -32,15 +32,12 @@ def main():
         ap.error("need 3 or 4 levels")
     perms = list(itertools.permutations(range(len(levels))))
     wins = collections.Counter()
-    games = collections.Counter()
     turns = []
     t0 = time.time()
     for g in range(args.games):
         perm = perms[g % len(perms)]
         seats = [levels[i] for i in perm]
         s, dt = play_headless(args.seed + g, seats)
-        for i in perm:
-            games[f"{levels[i]}#{i}"] += 1
         if s.winner >= 0:
             wins[f"{levels[perm[s.winner]]}#{perm[s.winner]}"] += 1
         turns.append(s.turn)
@@ -50,9 +47,9 @@ def main():
     fair = 1 / len(levels)
     print(f"\n{args.games} games, {len(levels)} players, avg {sum(turns) / len(turns):.1f} turns, "
           f"{time.time() - t0:.0f}s")
-    for key in sorted(games):
-        rate = wins[key] / games[key]
-        print(f"  {key:<10} won {wins[key]:3d}/{games[key]:<3d}  {rate:6.1%}   (fair share {fair:.1%})")
+    for key in sorted(f"{lv}#{i}" for i, lv in enumerate(levels)):  # every seat plays every game
+        print(f"  {key:<10} won {wins[key]:3d}/{args.games:<3d}  {wins[key] / args.games:6.1%}   "
+              f"(fair share {fair:.1%})")
 
 
 if __name__ == "__main__":

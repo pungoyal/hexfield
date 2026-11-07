@@ -42,8 +42,13 @@ W_EARLY = (1.15, 1.15, 0.80, 1.00, 0.80)
 W_LATE = (0.70, 0.70, 0.70, 1.15, 1.25)
 SETUP_W = (1.10, 1.10, 0.80, 1.00, 0.87)
 DEV_VALUE = {KNIGHT: 0.33, ROAD_BUILDING: 0.42, MONOPOLY: 0.45, YEAR_OF_PLENTY: 0.55}
+# an unseen card: 56% knight, 20% VP, 8% each of the progress cards
+UNKNOWN_DEV_VALUE = (0.56 * DEV_VALUE[KNIGHT] + 0.2 * 1.0
+                     + 0.08 * (DEV_VALUE[ROAD_BUILDING] + DEV_VALUE[MONOPOLY] + DEV_VALUE[YEAR_OF_PLENTY]))
 DIST_DISC = (0.55, 0.38, 0.22)
 ROAD_SETTLE = (2, 2, 1, 1, 0)
+
+BUILD_ACTION = {"city": "city", "settlement": "settle", "road": "road", "dev": "buy_dev"}
 
 LEVELS = {
     # beam width, depth, score noise, setup lookahead
@@ -163,15 +168,11 @@ class Evaluator:
 
         free = [s.vertex_free(v) for v in range(b.V)]
         reaches = [self.reach(s, q) for q in range(n)]
-        maxk = s.knights[:]
         p7 = clamp(0.155 * (n - 1), 0.0, 0.6)
 
         out = []
         for q in range(n):
-            known = q == viewer
-            vp = est_vp[q]
-            myvp = s.public_vp(q)
-            t = clamp((myvp - 2) / 6.0, 0.0, 1.0)
+            t = clamp((s.public_vp(q) - 2) / 6.0, 0.0, 1.0)
             w = [W_EARLY[r] * (1 - t) + W_LATE[r] * t for r in range(5)]
             sett_left = MAX_SETTLEMENTS - len(s.settlements[q])
             city_left = MAX_CITIES - len(s.cities[q])
@@ -259,18 +260,17 @@ class Evaluator:
 
             # --- development cards
             dv = 0.0
-            if known:
-                for card in (KNIGHT, ROAD_BUILDING, MONOPOLY, YEAR_OF_PLENTY):
+            if q == viewer:
+                for card, val in DEV_VALUE.items():
                     c = s.devs[q][card] + s.new_devs[q][card]
                     if c:
-                        val = DEV_VALUE[card]
                         if card == ROAD_BUILDING and not has_spot:
                             val *= 0.5
                         if card == KNIGHT:
                             val += 0.012 * self.blocked_pips(s, q)
                         dv += c * val
                 unk = s.new_devs[q][UNKNOWN_DEV] + s.devs[q][UNKNOWN_DEV]
-                dv += unk * (0.56 * DEV_VALUE[KNIGHT] + 0.2 * 1.0 + 0.08 * (0.42 + 0.45 + 0.55))
+                dv += unk * UNKNOWN_DEV_VALUE
                 knights_in_hand = s.devs[q][KNIGHT] + s.new_devs[q][KNIGHT] + 0.56 * unk
             else:
                 hidden = s.dev_count(q)
@@ -279,19 +279,17 @@ class Evaluator:
 
             # --- largest army race
             av = 0.0
+            best_other = max((s.knights[o] for o in range(n) if o != q), default=0)
             if s.army != q:
                 k = s.knights[q]
-                best_other = max([maxk[o] for o in range(n) if o != q] + [0])
                 needk = max(3, best_other + 1)
                 av += 0.1 * k
                 if k + knights_in_hand >= needk:
                     av += 0.55
                 elif k + knights_in_hand + 1 >= needk:
                     av += 0.2
-            else:
-                best_other = max([maxk[o] for o in range(n) if o != q] + [0])
-                if best_other >= s.knights[q] - 1:
-                    av -= 0.3
+            elif best_other >= s.knights[q] - 1:
+                av -= 0.3
 
             # --- longest road race
             rv = 0.0
@@ -301,19 +299,16 @@ class Evaluator:
                 target = max(5, holder_len + 1)
                 if L >= 3:
                     rv += 0.75 * (min(L, target) / target) ** 3
-            else:
-                others = max([s.road_len[o] for o in range(n) if o != q] + [0])
-                if others >= L - 1:
-                    rv -= 0.3
+            elif max((s.road_len[o] for o in range(n) if o != q), default=0) >= L - 1:
+                rv -= 0.3
 
-            val = vp + prod_val + exp_val + hv + dv + av + rv
-            out.append(val)
+            out.append(est_vp[q] + prod_val + exp_val + hv + dv + av + rv)
         return out
 
-    def score(self, s, p, vals=None):
+    def score(self, s, p):
         if s.winner != -1:
             return 1000.0 if s.winner == p else -1000.0
-        vals = vals or self.values(s, p)
+        vals = self.values(s, p)
         opp = [q for q in range(s.n) if q != p]
         lead = max(opp, key=lambda q: vals[q])
         sc = vals[p]
@@ -335,20 +330,22 @@ class AIPlayer:
     def __init__(self, board, level="hard", seed=None):
         self.ev = Evaluator(board)
         self.b = board
-        self.level = level
         self.cfg = LEVELS[level]
         self.rng = random.Random(seed)
         self._proposed = None
 
     # ---------------------------------------------------------- scoring
     def score(self, s, p):
+        """Evaluation plus this level's noise (exact scores use self.ev.score)."""
         sc = self.ev.score(s, p)
         if self.cfg["noise"]:
             sc += self.rng.uniform(-self.cfg["noise"], self.cfg["noise"])
         return sc
 
-    def exact_score(self, s, p):
-        return self.ev.score(s, p)
+    def _score_after(self, s, a, p):
+        t = s.clone()
+        t.apply(a)
+        return self.ev.score(t, p)
 
     @staticmethod
     def view(s, viewer):
@@ -366,47 +363,49 @@ class AIPlayer:
         p = real.actor()
         ph = real.phase
         s = self.view(real, p)
-        if ph == SETUP_SETTLE:
-            ranked = self.rank_setup_settlements(s, p)
-            pick = self._pick(ranked)
-            return pick[1], pick[2]
-        if ph == SETUP_ROAD:
-            ranked = self.rank_setup_roads(s, p)
-            pick = self._pick(ranked)
-            return pick[1], pick[2]
         if ph == DISCARD:
             counts = self.choose_discard(s, p)
             return ("discard", tuple(counts)), "keeps the cards closest to completing a build"
-        if ph == ROBBER:
-            # beliefs may think an empty-handed player still holds a card
-            legal = set(real.legal_actions())
-            ranked = [x for x in self.rank_robber(s, p) if x[1] in legal]
-            pick = self._pick(ranked)
-            return pick[1], pick[2]
-        if ph == ROAD_BUILD:
-            pick = self.rank_simple(s, p, s.legal_actions())[0]
-            return pick[1], pick[2]
-        if ph == PRE_ROLL:
-            ranked = self.rank_preroll(s, p)
-            pick = ranked[0]
-            return pick[1], pick[2]
         if ph == MAIN:
             offer = self.maybe_propose(s, p)
             if offer is not None:
                 return offer
-            sc, plan, why = self.plan_turn(s, p)
+            _, plan, why = self.plan_turn(s, p)
             first = plan[0]
             if first[0] == "macro":
                 first = first[1][0]
             return first, why
-        raise RuntimeError("no decision in phase " + ph)
+        ranked = self._rank(s, p)
+        if ph == ROBBER:
+            # beliefs may think an empty-handed player still holds a card
+            legal = set(real.legal_actions())
+            ranked = [x for x in ranked if x[1] in legal]
+        if ph in (SETUP_SETTLE, SETUP_ROAD, ROBBER):
+            ranked = self._noisy(ranked)
+        return ranked[0][1:]
 
-    def _pick(self, ranked):
+    def _rank(self, s, p):
+        """Ranked (score, action, why) options in the single-choice phases."""
+        ph = s.phase
+        if ph == SETUP_SETTLE:
+            return self.rank_setup_settlements(s, p)
+        if ph == SETUP_ROAD:
+            return self.rank_setup_roads(s, p)
+        if ph == ROBBER:
+            return self.rank_robber(s, p)
+        if ph == PRE_ROLL:
+            return self.rank_preroll(s, p)
+        if ph == ROAD_BUILD:
+            return self.rank_simple(s, p, s.legal_actions())
+        return []
+
+    def _noisy(self, ranked):
+        """Re-rank with this level's noise (easier bots misjudge)."""
         if self.cfg["noise"] and len(ranked) > 1:
             noisy = [(sc + self.rng.uniform(-1, 1) * self.cfg["noise"], a, why) for sc, a, why in ranked]
             noisy.sort(key=lambda x: -x[0])
-            return noisy[0]
-        return ranked[0]
+            return noisy
+        return ranked
 
     # =================================================== opening placement
     def pair_value(self, s, verts):
@@ -422,14 +421,13 @@ class AIPlayer:
                 prod[r] += b.hex_pips[h]
                 numbers.append(b.hex_number[h])
         val = 0.0
+        cap = 7.0 if len(verts) > 1 else 5.0
         for r in range(5):
             x = prod[r]
-            cap = 7.0 if len(verts) > 1 else 5.0
             if x > cap:
                 x = cap + 0.6 * (x - cap)
             val += SETUP_W[r] * b.scarcity[r] * x
-        distinct = sum(1 for r in range(5) if prod[r] > 0)
-        val += 1.7 * distinct
+        val += 1.7 * sum(1 for r in range(5) if prod[r] > 0)
         if prod[0] and prod[1]:
             val += 1.4
         if prod[3] and prod[4]:
@@ -437,8 +435,7 @@ class AIPlayer:
         if prod[2] and prod[3] and prod[4]:
             val += 0.6
         # variance: duplicate numbers concentrate risk
-        dup = len(numbers) - len(set(numbers))
-        val -= 0.4 * dup
+        val -= 0.4 * (len(numbers) - len(set(numbers)))
         for v in verts:
             port = b.vertex_port[v]
             if port == "any":
@@ -471,10 +468,9 @@ class AIPlayer:
     def rank_setup_settlements(self, s, p, extra=None):
         legal = s.legal_settlements(p, setup=True)
         mine = list(s.settlements[p])
-        second_round = s.setup_idx >= s.n
         b = self.b
         ranked = []
-        if second_round:
+        if s.setup_idx >= s.n:  # second round
             for v in legal:
                 val = self._spot_value(s, p, v, mine)
                 # starting hand: wood+brick lets you road immediately
@@ -507,10 +503,13 @@ class AIPlayer:
 
     def _lookahead_first(self, s, p, v):
         """Place v, simulate everyone's greedy picks until our second pick."""
+        def place(q, x):
+            t.v_owner[x] = q
+            t.v_level[x] = 1
+            t.settlements[q].append(x)
+
         t = s.clone()
-        t.v_owner[v] = p
-        t.v_level[v] = 1
-        t.settlements[p].append(v)
+        place(p, v)
         order = t.setup_order
         i = t.setup_idx + 1
         while i < len(order) and order[i] != p:
@@ -518,10 +517,7 @@ class AIPlayer:
             legal = t.legal_settlements(q, setup=True)
             if not legal:
                 break
-            best = max(legal, key=lambda x: self._spot_value(t, q, x, t.settlements[q]))
-            t.v_owner[best] = q
-            t.v_level[best] = 1
-            t.settlements[q].append(best)
+            place(q, max(legal, key=lambda x: self._spot_value(t, q, x, t.settlements[q])))
             i += 1
         legal = t.legal_settlements(p, setup=True)
         if not legal:
@@ -571,11 +567,11 @@ class AIPlayer:
                 for y in b.vertex_neighbors[x]:
                     if y != w and s.vertex_free(y):
                         ring = max(ring, b.vertex_total_pips[y])
-            port_bonus = 0.0
-            if target is not None and b.vertex_port[target] is not None:
-                port_bonus = 0.5
-            val = best + 0.15 * ring + port_bonus
-            why = f"points toward vertex {target} ({b.describe_vertex(target)})" if target is not None else "no open spot that way"
+            if target is None:
+                val, why = best + 0.15 * ring, "no open spot that way"
+            else:
+                val = best + 0.15 * ring + (0.5 if b.vertex_port[target] is not None else 0.0)
+                why = f"points toward vertex {target} ({b.describe_vertex(target)})"
             ranked.append((val * 0.1, ("road", e), why))
         ranked.sort(key=lambda x: -x[0])
         return ranked
@@ -598,7 +594,7 @@ class AIPlayer:
                     take = min(1.0, u.hands[victim][r])
                     u.hands[victim][r] -= take
                     u.hands[p][r] += take
-                sc += prob * self.exact_score(u, p)
+                sc += prob * self.ev.score(u, p)
             ranked.append((sc, a, self._robber_reason(s, p, h, victim)))
         ranked.sort(key=lambda x: -x[0])
         return ranked
@@ -611,12 +607,7 @@ class AIPlayer:
             what = f"{label} (desert)"
         else:
             what = f"{label} ({b.hex_number[h]} {RES_NAMES[r]})"
-        hit = []
-        for v in b.hex_vertices[h]:
-            o = s.v_owner[v]
-            if o != -1 and o != p:
-                hit.append(s.names[o])
-        hit = sorted(set(hit))
+        hit = sorted({s.names[o] for o in (s.v_owner[v] for v in b.hex_vertices[h]) if o not in (-1, p)})
         txt = f"robber on {what}"
         if hit:
             txt += f" blocks {', '.join(hit)}"
@@ -655,13 +646,12 @@ class AIPlayer:
 
     # ================================================================ turns
     def rank_preroll(self, s, p):
-        base = self.exact_score(s, p)
+        base = self.ev.score(s, p)
         ranked = [(base, ("roll",), "roll the dice")]
         if s.playable(p, KNIGHT):
             sc, why = self._knight_value(s, p)
             # a knight played now also protects this roll's production
-            blocked = self.ev.blocked_pips(s, p)
-            sc += 0.03 * blocked
+            sc += 0.03 * self.ev.blocked_pips(s, p)
             ranked.append((sc, ("play_knight",), "knight before rolling: " + why))
         ranked.sort(key=lambda x: -x[0])
         return ranked
@@ -671,31 +661,20 @@ class AIPlayer:
         t.apply(("play_knight",))
         rr = self.rank_robber(t, p)
         if not rr:
-            return self.exact_score(t, p), "knight"
+            return self.ev.score(t, p), "knight"
         return rr[0][0], rr[0][2]
 
     def rank_simple(self, s, p, actions):
-        out = []
-        for a in actions:
-            t = s.clone()
-            t.apply(a)
-            out.append((self.exact_score(t, p), a, describe(s, a)))
+        out = [(self._score_after(s, a, p), a, describe(s, a)) for a in actions]
         out.sort(key=lambda x: -x[0])
         return out
 
-    MAX_NEED = (1, 1, 1, 2, 3)
+    MAX_NEED = (1, 1, 1, 2, 3)  # no bank trade for a resource we already hold this many of
 
     def _candidates(self, s, p):
-        acts = s.legal_actions(include_trades=True)
-        out = []
         h = s.hands[p]
-        for a in acts:
-            k = a[0]
-            if k == "end":
-                continue
-            if k == "bank" and h[a[2]] >= self.MAX_NEED[a[2]]:
-                continue
-            out.append(a)
+        out = [a for a in s.legal_actions(include_trades=True)
+               if a[0] != "end" and not (a[0] == "bank" and h[a[2]] >= self.MAX_NEED[a[2]])]
         if s.phase == MAIN:
             out += self._macros(s, p)
         return out
@@ -721,19 +700,14 @@ class AIPlayer:
                 continue
             spare = [max(0, h[r] - cost[r]) for r in range(5)]
             trades = []
-            ok = True
             for want in range(5):
                 for _ in range(deficit[want]):
                     opts = [r for r in range(5) if r != want and spare[r] >= ratios[r]]
-                    if not opts:
-                        ok = False
-                        break
-                    give = max(opts, key=lambda r: (spare[r] - ratios[r], -ratios[r]))
-                    spare[give] -= ratios[give]
-                    trades.append(("bank", give, want))
-                if not ok:
-                    break
-            if ok and trades:
+                    if opts:
+                        give = max(opts, key=lambda r: (spare[r] - ratios[r], -ratios[r]))
+                        spare[give] -= ratios[give]
+                        trades.append(("bank", give, want))
+            if len(trades) == sum(deficit):
                 out.append(("macro", tuple(trades), kind))
         return out
 
@@ -742,32 +716,17 @@ class AIPlayer:
         if a[0] == "macro":
             for tr in a[1]:
                 s.apply(tr)
-            best = None
-            for b in s.legal_actions(include_trades=False):
-                if (b[0] == a[2]) or (a[2] == "settlement" and b[0] == "settle") or \
-                        (a[2] == "dev" and b[0] == "buy_dev"):
-                    t = s.clone()
-                    t.apply(b)
-                    sc = self.ev.score(t, p)
-                    if best is None or sc > best[0]:
-                        best = (sc, b)
-            if best is None:
-                raise ValueError("macro target vanished")
-            s.apply(best[1])
+            # build the target where it scores best; ValueError if none is legal
+            kind = BUILD_ACTION[a[2]]
+            builds = [b for b in s.legal_actions(include_trades=False) if b[0] == kind]
+            s.apply(max(builds, key=lambda b: self._score_after(s, b, p)))
             return
         s.apply(a)
         # knight -> robber, road building -> free roads: resolve greedily
-        guard = 0
-        while s.winner == -1 and s.phase in (ROBBER, ROAD_BUILD) and s.actor() == p and guard < 4:
-            guard += 1
-            best = None
-            for b in s.legal_actions():
-                t = s.clone()
-                t.apply(b)
-                sc = self.ev.score(t, p)
-                if best is None or sc > best[0]:
-                    best = (sc, b)
-            s.apply(best[1])
+        for _ in range(4):
+            if s.winner != -1 or s.phase not in (ROBBER, ROAD_BUILD) or s.actor() != p:
+                break
+            s.apply(max(s.legal_actions(), key=lambda b: self._score_after(s, b, p)))
 
     def _sig(self, s, p):
         return (tuple(s.hands[p]), tuple(sorted(s.roads[p])), tuple(sorted(s.settlements[p])),
@@ -819,27 +778,16 @@ class AIPlayer:
     def analyze(self, s, top=5):
         """Ranked options for the acting player (used by hint / review)."""
         p = s.actor()
-        ph = s.phase
         s = self.view(s, p)
-        if ph == SETUP_SETTLE:
-            return self.rank_setup_settlements(s, p)[:top]
-        if ph == SETUP_ROAD:
-            return self.rank_setup_roads(s, p)[:top]
-        if ph == ROBBER:
-            return self.rank_robber(s, p)[:top]
-        if ph == PRE_ROLL:
-            return self.rank_preroll(s, p)[:top]
-        if ph == ROAD_BUILD:
-            return self.rank_simple(s, p, s.legal_actions())[:top]
-        if ph == DISCARD:
+        if s.phase == DISCARD:
             c = self.choose_discard(s, p)
             return [(0.0, ("discard", tuple(c)), "discard " + fmt_cards(c))]
-        if ph == MAIN:
+        if s.phase == MAIN:
             return self.rank_main(s, p, top)
-        return []
+        return self._rank(s, p)[:top]
 
     def rank_main(self, s, p, top=5):
-        base = self.exact_score(s, p)
+        base = self.ev.score(s, p)
         firsts = []
         for a in self._candidates(s, p):
             t = s.clone()
@@ -847,7 +795,7 @@ class AIPlayer:
                 self._apply_compound(t, a, p)
             except Exception:
                 continue
-            firsts.append((self.exact_score(t, p), a, t))
+            firsts.append((self.ev.score(t, p), a, t))
         firsts.sort(key=lambda x: -x[0])
         out = [(base, ("end",), "end turn, keep cards")]
         for sc0, a, t in firsts[:8]:
@@ -883,19 +831,19 @@ class AIPlayer:
                     return sc
             t = s.clone()
             self._apply_compound(t, a, p)
-            return self.exact_score(t, p)
+            return self.ev.score(t, p)
         if ph == MAIN:
             if a[0] == "end":
-                return self.exact_score(s, p)
+                return self.ev.score(s, p)
             t = s.clone()
             self._apply_compound(t, a, p)
             if t.phase == MAIN and t.winner == -1:
                 sc, _, _ = self.plan_turn(t, p, beam=max(4, self.cfg["beam"]), depth=3)  # matches best_value
-                return max(sc, self.exact_score(t, p))
-            return self.exact_score(t, p)
+                return max(sc, self.ev.score(t, p))
+            return self.ev.score(t, p)
         t = s.clone()
         t.apply(a)
-        return self.exact_score(t, p)
+        return self.ev.score(t, p)
 
     def best_value(self, s):
         p = s.actor()
@@ -914,7 +862,7 @@ class AIPlayer:
         Compares the world where the proposer then plays its best turn with vs.
         without the trade, scored from the responder's point of view.
         Returns (accept, gain)."""
-        if not all(s.hands[responder][i] >= get[i] for i in range(5)):
+        if not s.can_afford(responder, get):
             return False, -9.0
         s = self.view(s, responder)
         t = s.clone()
@@ -926,14 +874,14 @@ class AIPlayer:
             with_ = self._proposer_follow_up(t, proposer)
         else:
             without, with_ = s, t
-        gain = self.exact_score(with_, responder) - self.exact_score(without, responder)
+        gain = self.ev.score(with_, responder) - self.ev.score(without, responder)
         margin = 0.05
         if s.public_vp(proposer) >= 8:
             margin += 0.5  # never feed someone about to win
         return gain > margin, gain
 
     def _proposer_follow_up(self, s, proposer):
-        sc, plan, _ = self.plan_turn(s, proposer, beam=2, depth=2)
+        _, plan, _ = self.plan_turn(s, proposer, beam=2, depth=2)
         t = s.clone()
         for a in plan:
             if a[0] == "end" or t.phase != MAIN:
@@ -950,60 +898,43 @@ class AIPlayer:
         if self._proposed == key or s.trades_this_turn > 0:
             return None
         self._proposed = key
-        offers = self.propose_trades(s, p, max_offers=2)
+        offers = self.propose_trades(s, p)
         if not offers:
             return None
         gain, give, get = offers[0]
         return ("propose", give, get), f"offers {fmt_cards(give)} for {fmt_cards(get)} (would gain +{gain:.2f})"
 
-    def propose_trades(self, s, p, max_offers=3):
-        """Candidate 1:1 / 2:1 offers that unlock a build this turn."""
+    def propose_trades(self, s, p):
+        """1:1 / 2:1 offers that unlock a build this turn, as (gain, give, get), best first."""
         h = s.hands[p]
         base_sc, _, _ = self.plan_turn(s, p, beam=2, depth=2)
-        offers = []
+        offers = {}  # ordered set of (give, get)
         for cost_name in ("city", "settlement", "dev", "road"):
             cost = COSTS[cost_name]
             deficit = [max(0, cost[r] - h[r]) for r in range(5)]
             if sum(deficit) != 1:
                 continue
             want = deficit.index(1)
+            if not any(s.hands[q][want] > 0 for q in range(s.n) if q != p):
+                continue
+            get = tuple(int(r == want) for r in range(5))
             for give_r in range(5):
-                if give_r == want:
-                    continue
-                spare = h[give_r] - cost[give_r]
                 for n_give in (1, 2):
-                    if spare >= n_give:
-                        give = [0] * 5
-                        give[give_r] = n_give
-                        get = [0] * 5
-                        get[want] = 1
-                        offers.append((tuple(give), tuple(get)))
+                    if give_r != want and h[give_r] - cost[give_r] >= n_give:
+                        offers[tuple(n_give if r == give_r else 0 for r in range(5)), get] = None
         scored = []
-        seen = set()
         for give, get in offers:
-            if (give, get) in seen:
-                continue
-            seen.add((give, get))
-            if not any(s.hands[q][get.index(1)] > 0 for q in range(s.n) if q != p):
-                continue
             t = s.clone()
             for i in range(5):
                 t.hands[p][i] += get[i] - give[i]
             sc, _, _ = self.plan_turn(t, p, beam=2, depth=2)
-            gain = sc - base_sc
-            if gain > 0.25:
-                scored.append((gain, give, get))
-        scored.sort(key=lambda x: (-x[0], sum(x[1])))
-        # prefer cheapest version of each target resource
-        out, used = [], set()
-        for gain, give, get in sorted(scored, key=lambda x: (sum(x[1]), -x[0])):
-            key = get
-            if key in used:
-                continue
-            used.add(key)
-            out.append((gain, give, get))
-        out.sort(key=lambda x: -x[0])
-        return out[:max_offers]
+            if sc - base_sc > 0.25:
+                scored.append((sc - base_sc, give, get))
+        # keep the cheapest offer for each wanted resource
+        best = {}
+        for offer in sorted(scored, key=lambda x: (sum(x[1]), -x[0])):
+            best.setdefault(offer[2], offer)
+        return sorted(best.values(), key=lambda x: -x[0])
 
 
 # ======================================================================
@@ -1027,8 +958,7 @@ def describe(s, a):
     if k == "play_yop":
         return f"play Year of Plenty ({RES_NAMES[a[1]]}+{RES_NAMES[a[2]]})"
     if k == "bank":
-        p = s.actor()
-        return f"trade {s.trade_ratio(p, a[1])} {RES_NAMES[a[1]]} -> {RES_NAMES[a[2]]}"
+        return f"trade {s.trade_ratio(s.actor(), a[1])} {RES_NAMES[a[1]]} -> {RES_NAMES[a[2]]}"
     if k == "macro":
         trades = ", ".join(f"{s.trade_ratio(s.actor(), g)} {RES_NAMES[g]}->{RES_NAMES[w]}" for _, g, w in a[1])
         return f"bank-trade ({trades}) and build {a[2]}"

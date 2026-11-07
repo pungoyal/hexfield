@@ -29,7 +29,6 @@ class IllegalAction(Exception):
 
 class GameState:
     def __init__(self, n_players=4, seed=None, board=None, names=None):
-        self.seed = seed
         master = random.Random(seed)
         self.board = board or Board(master.randrange(1 << 30))
         b = self.board
@@ -67,7 +66,6 @@ class GameState:
         self.current = 0
         self.phase = SETUP_SETTLE
         self.turn = 0              # increments every time a turn ends
-        self.rolled = False
         self.dev_played = False
         self.discards = {}         # player -> cards owed
         self.robber_return = MAIN
@@ -102,16 +100,16 @@ class GameState:
         c.bank = self.bank[:]
         c.discards = dict(self.discards)
         c.roll_hist = self.roll_hist[:]
-        c.belief = None if sim or self.belief is None else \
-            [[b[:] for b in row] for row in self.belief]
         if sim:
             c.sim = True
+            c.belief = None
             c.events = None
             c.deck = None
-            c.deck_len = len(self.deck) if self.deck is not None else self.deck_len
+            c.deck_len = self.deck_size()
             c.dice_rng = None
             c.steal_rng = None
         else:
+            c.belief = [[b[:] for b in row] for row in self.belief]
             c.deck = self.deck[:]
             c.events = self.events[:]
             c.dice_rng = random.Random()
@@ -131,15 +129,13 @@ class GameState:
     def actor(self):
         """The player who must make the next decision."""
         if self.phase == DISCARD:
-            for p in self.discard_order():
-                return p
+            for i in range(self.n):
+                p = (self.current + i) % self.n
+                if self.discards.get(p, 0) > 0:
+                    return p
         if self.phase in (SETUP_SETTLE, SETUP_ROAD):
             return self.setup_order[self.setup_idx]
         return self.current
-
-    def discard_order(self):
-        order = [(self.current + i) % self.n for i in range(self.n)]
-        return [p for p in order if self.discards.get(p, 0) > 0]
 
     def hand_size(self, p):
         return sum(self.hands[p])
@@ -187,18 +183,11 @@ class GameState:
     # ------------------------------------------------------- placement rules
     def vertex_free(self, v):
         """Unoccupied and satisfies the distance rule."""
-        if self.v_owner[v] != -1:
-            return False
-        for w in self.board.vertex_neighbors[v]:
-            if self.v_owner[w] != -1:
-                return False
-        return True
+        return self.v_owner[v] == -1 and all(self.v_owner[w] == -1
+                                             for w in self.board.vertex_neighbors[v])
 
     def touches_own_road(self, p, v):
-        for e in self.board.vertex_edges[v]:
-            if self.e_owner[e] == p:
-                return True
-        return False
+        return any(self.e_owner[e] == p for e in self.board.vertex_edges[v])
 
     def legal_settlements(self, p, setup=False):
         if len(self.settlements[p]) >= MAX_SETTLEMENTS:
@@ -228,8 +217,7 @@ class GameState:
         return out
 
     def legal_setup_roads(self, p):
-        v = self.last_settlement
-        return [e for e in self.board.vertex_edges[v] if self.e_owner[e] == -1]
+        return [e for e in self.board.vertex_edges[self.last_settlement] if self.e_owner[e] == -1]
 
     def legal_cities(self, p):
         if len(self.cities[p]) >= MAX_CITIES:
@@ -243,6 +231,10 @@ class GameState:
             if o != -1 and o != p and self.hand_size(o) > 0:
                 vics.add(o)
         return sorted(vics)
+
+    def _bank_has_pair(self, r1, r2):
+        """Can the bank hand out one r1 and one r2 (Year of Plenty)?"""
+        return self.bank[r1] >= 1 + (r1 == r2) and self.bank[r2] >= 1
 
     def playable(self, p, card):
         return (not self.dev_played) and self.devs[p][card] > 0 and card != VP_CARD
@@ -270,12 +262,9 @@ class GameState:
         if ph == ROAD_BUILD:
             acts = [("road", e) for e in self.legal_roads(p)]
             return acts or [("end_road_building",)]
-        if ph == DISCARD:
+        if ph in (DISCARD, OVER):
             return []
-        if ph == OVER:
-            return []
-        acts = []
-        acts += self._dev_actions(p)
+        acts = self._dev_actions(p)
         if ph == PRE_ROLL:
             acts.append(("roll",))
             return acts
@@ -310,13 +299,8 @@ class GameState:
         if d[MONOPOLY]:
             acts += [("play_mono", r) for r in range(5)]
         if d[YEAR_OF_PLENTY]:
-            for a in range(5):
-                for b in range(a, 5):
-                    need = [0] * 5
-                    need[a] += 1
-                    need[b] += 1
-                    if all(self.bank[i] >= need[i] for i in range(5)):
-                        acts.append(("play_yop", a, b))
+            acts += [("play_yop", a, b) for a in range(5) for b in range(a, 5)
+                     if self._bank_has_pair(a, b)]
         return acts
 
     # --------------------------------------------------------------- apply
@@ -326,7 +310,7 @@ class GameState:
         fn = getattr(self, "_do_" + kind, None)
         if fn is None:
             raise IllegalAction(f"unknown action {a}")
-        if self.belief is None or self.sim:
+        if self.sim:
             fn(p, *a[1:])
         else:
             before = [h[:] for h in self.hands]
@@ -424,20 +408,19 @@ class GameState:
         if self.phase == SETUP_ROAD:
             if e not in self.legal_setup_roads(p):
                 raise IllegalAction("setup road must touch the settlement you just placed")
-        elif self.phase == ROAD_BUILD:
+        elif self.phase in (ROAD_BUILD, MAIN):
             if e not in self.legal_roads(p):
                 raise IllegalAction("road must connect to your network")
-        elif self.phase == MAIN:
-            if e not in self.legal_roads(p):
-                raise IllegalAction("road must connect to your network")
-            if not self.can_afford(p, COSTS["road"]):
-                raise IllegalAction("can't afford a road (wood, brick)")
-            self.pay(p, COSTS["road"])
+            if self.phase == MAIN:
+                if not self.can_afford(p, COSTS["road"]):
+                    raise IllegalAction("can't afford a road (wood, brick)")
+                self.pay(p, COSTS["road"])
         else:
             raise IllegalAction("can't build a road now")
         self.e_owner[e] = p
         self.roads[p].append(e)
         self.log(f"{self.names[p]} builds a road at {e}", "build", p)
+        self._update_longest()
         if self.phase == SETUP_ROAD:
             self.setup_idx += 1
             if self.setup_idx >= len(self.setup_order):
@@ -447,10 +430,7 @@ class GameState:
                 self.log(f"Setup complete. {self.names[0]} starts.", "turn")
             else:
                 self.phase = SETUP_SETTLE
-            self._update_longest()
-            return
-        self._update_longest()
-        if self.phase == ROAD_BUILD:
+        elif self.phase == ROAD_BUILD:
             self.free_roads -= 1
             if self.free_roads <= 0 or not self.legal_roads(p):
                 self.phase = self.robber_return
@@ -505,7 +485,6 @@ class GameState:
             d2 = rng.randint(1, 6)
             total = d1 + d2
         self.last_roll = (d1, d2, total)
-        self.rolled = True
         self.roll_hist[total] += 1
         self.log(f"{self.names[p]} rolls {total}", "roll", p)
         if total == 7:
@@ -515,10 +494,7 @@ class GameState:
                 if hs > 7:
                     self.discards[q] = hs // 2
             self.robber_return = MAIN
-            if self.discards:
-                self.phase = DISCARD
-            else:
-                self.phase = ROBBER
+            self.phase = DISCARD if self.discards else ROBBER
         else:
             self._produce(total)
             self.phase = MAIN
@@ -562,9 +538,7 @@ class GameState:
             raise IllegalAction(f"must discard exactly {self.discards[p]} cards")
         if any(counts[i] < 0 or counts[i] > self.hands[p][i] for i in range(5)):
             raise IllegalAction("you don't have those cards")
-        for i in range(5):
-            self.hands[p][i] -= counts[i]
-            self.bank[i] += counts[i]
+        self.pay(p, counts)
         del self.discards[p]
         txt = ", ".join(f"{counts[r]} {RES_NAMES[r]}" for r in range(5) if counts[r])
         self.log(f"{self.names[p]} discards {txt}", "discard", p)
@@ -648,15 +622,12 @@ class GameState:
         self.log(f"{self.names[p]} plays Monopoly on {RES_NAMES[r]} and takes {total}", "dev", p)
 
     def _do_play_yop(self, p, r1, r2):
-        need = [0] * 5
-        need[r1] += 1
-        need[r2] += 1
-        if any(self.bank[i] < need[i] for i in range(5)):
+        if not self._bank_has_pair(r1, r2):
             raise IllegalAction("bank doesn't have those resources")
         self._start_dev(p, YEAR_OF_PLENTY)
-        for i in range(5):
-            self.hands[p][i] += need[i]
-            self.bank[i] -= need[i]
+        for r in (r1, r2):
+            self.hands[p][r] += 1
+            self.bank[r] -= 1
         self.log(f"{self.names[p]} plays Year of Plenty: {RES_NAMES[r1]} + {RES_NAMES[r2]}", "dev", p)
 
     # trading --------------------------------------------------------------
@@ -681,9 +652,9 @@ class GameState:
             raise IllegalAction("trade after rolling")
         if partner == p:
             raise IllegalAction("can't trade with yourself")
-        if not all(self.hands[p][i] >= give[i] for i in range(5)):
+        if not self.can_afford(p, give):
             raise IllegalAction("you don't have those cards")
-        if not all(self.hands[partner][i] >= get[i] for i in range(5)):
+        if not self.can_afford(partner, get):
             raise IllegalAction(f"{self.names[partner]} doesn't have those cards")
         for i in range(5):
             self.hands[p][i] += get[i] - give[i]
@@ -700,7 +671,6 @@ class GameState:
         self.current = (self.current + 1) % self.n
         self.turn += 1
         self.phase = PRE_ROLL
-        self.rolled = False
         self.dev_played = False
         self.trades_this_turn = 0
         self.log(f"--- {self.names[self.current]}'s turn ---", "turn", self.current)
