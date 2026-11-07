@@ -930,6 +930,16 @@ function stepperRow(r, max, onChange, extra = "") {
   return row;
 }
 
+// "Your hand" strip shown in every decision dialog. With a delta it previews
+// the hand afterwards: changed counts show old → new.
+function handStrip(el, delta = [0, 0, 0, 0, 0], label = "Your hand") {
+  el.innerHTML = `<span class="th-label">${label}</span>` + RES.map((r, i) => {
+    const n = S.hand[i], d = delta[i] || 0, after = n + d;
+    const cls = d > 0 ? "up" : d < 0 ? "down" : "";
+    return `<span class="th-res ${after ? "" : "zero"} ${cls}" title="${n} ${r}${d ? ` → ${after}` : ""}">${resIcon(i)}<b>${d ? `<s>${n}</s>${after}` : n}</b></span>`;
+  }).join("") + `<span class="th-total">${S.hand.reduce((a, b) => a + b, 0) + delta.reduce((a, b) => a + b, 0)} cards</span>`;
+}
+
 function openDiscard() {
   const dlg = $("#dlg-discard");
   if (dlg.open || !S.discard_owed) return;
@@ -942,6 +952,7 @@ function openDiscard() {
     rows.forEach((r) => r.refresh());
     $("#discard-ok").disabled = total() !== need;
     $("#discard-ok").textContent = `Discard ${total()}/${need}`;
+    handStrip($("#discard-hand"), rows.map((r) => -r.get()), total() ? "Keeping" : "Your hand");
   };
   RES.forEach((_, r) => rows.push(stepperRow(r, () => Math.min(S.hand[r], (rows[r]?.get() ?? 0) + need - total()), sync, `<span class="have">have ${S.hand[r]}</span>`)));
   box.replaceChildren(...rows);
@@ -971,6 +982,7 @@ function openBotOffer() {
   const offerEv = [...$$("#log li.k-offer")].at(-1);
   $("#bo-why").textContent = prefs.reasons && offerEv?.querySelector(".why") ? `“${offerEv.querySelector(".why").textContent}”` : "";
   $("#bo-hint").textContent = "";
+  handStrip($("#bo-hand"), RES.map((_, r) => po.give[r] - po.get[r]), "If you accept");
   const answer = async (yes) => {
     dlg.close();
     while (busy) await sleep(40);
@@ -1003,15 +1015,14 @@ function openTrade() {
 function renderTrade() {
   const live = myDecision() && S.phase === "main";
   trade.give = trade.give.map((n, r) => Math.min(n, S.hand[r]));
-  $("#trade-hand").innerHTML = `<span class="th-label">Your hand</span>` + RES.map((r, i) =>
-    `<span class="th-res ${S.hand[i] ? "" : "zero"}" title="${S.hand[i]} ${r}">${resIcon(i)}<b>${S.hand[i]}</b></span>`).join("");
+  handStrip($("#trade-hand"));
 
-  $("#bank-trade").innerHTML = RES.map((r, i) => {
+  $("#bank-trade").innerHTML = `<div class="bt-row bt-head"><span>You give</span><span class="bt-get">for 1 of</span></div>` + RES.map((r, i) => {
     const ratio = S.ratios[i];
     const ok = live && S.hand[i] >= ratio;
-    const gets = RES.map((g, j) => j === i ? "" :
-      `<button class="btn res-btn" data-give="${i}" data-get="${j}" ${ok && S.bank[j] > 0 ? "" : "disabled"} title="Give ${ratio} ${r}, get 1 ${g}">${resIcon(j)}</button>`).join("");
-    return `<div class="bt-row ${ok ? "" : "off"}"><div class="bt-give">${resIcon(i)}<b>${ratio}:1</b><small>${S.hand[i]}/${ratio}</small></div><div class="bt-gets">${gets}</div></div>`;
+    const gets = RES.map((g, j) => j === i ? `<span class="bt-self" aria-hidden="true">·</span>` :
+      `<button class="btn res-btn" data-give="${i}" data-get="${j}" ${ok && S.bank[j] > 0 ? "" : "disabled"} title="Give ${ratio} ${r}, get 1 ${g}" aria-label="Give ${ratio} ${r} for 1 ${g}">${resIcon(j)}</button>`).join("");
+    return `<div class="bt-row ${ok ? "" : "off"}"><div class="bt-give">${resIcon(i)}<b>${ratio}:1</b><small>${S.hand[i]}/${ratio}</small></div>${gets}</div>`;
   }).join("");
 
   const tile = (side, r) => {
@@ -1105,6 +1116,7 @@ function openPick(kind) {
       return `<button data-r="${i}" aria-pressed="${n > 0}" ${off ? "disabled" : ""} title="${r}"><div class="rcard r-${r}">${icon("i-" + r)}<span class="lbl">${r}</span>${n ? `<span class="n">${n}</span>` : ""}</div></button>`;
     }).join("");
     $("#pick-ok").disabled = picks.length !== (yop ? 2 : 1);
+    handStrip($("#pick-hand"), yop ? RES.map((_, r) => picks.filter((x) => x === r).length) : undefined, yop && picks.length ? "After" : "Your hand");
   };
   box.onclick = (e) => {
     const b = e.target.closest("[data-r]");

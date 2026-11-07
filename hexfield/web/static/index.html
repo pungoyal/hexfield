@@ -153,6 +153,7 @@
 <dialog id="dlg-discard" aria-labelledby="discard-title" closedby="none">
   <h2 id="discard-title">A 7! Discard <span id="discard-n"></span> cards</h2>
   <p class="muted">Choose which cards go back to the bank.</p>
+  <div class="trade-hand" id="discard-hand"></div>
   <div class="steppers" id="discard-steppers"></div>
   <div class="dlg-actions">
     <button class="btn ghost" id="discard-hint"><svg><use href="#i-bulb"/></svg>Suggest</button>
@@ -194,6 +195,7 @@
     <div class="bo-arrow">⇄</div>
     <div><h3>You give</h3><div class="mini-cards" id="bo-give"></div></div>
   </div>
+  <div class="trade-hand" id="bo-hand"></div>
   <p class="bo-why muted" id="bo-why"></p>
   <p class="bo-hint" id="bo-hint"></p>
   <div class="dlg-actions">
@@ -207,6 +209,7 @@
   <h2 id="pick-title"></h2>
   <p class="muted" id="pick-sub"></p>
   <div class="pick-res" id="pick-res"></div>
+  <div class="trade-hand" id="pick-hand"></div>
   <div class="dlg-actions">
     <form method="dialog"><button class="btn ghost">Cancel</button></form>
     <button class="btn primary" id="pick-ok" disabled>Play</button>

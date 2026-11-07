@@ -451,6 +451,11 @@ fieldset.seg legend { font-size: 12px; color: var(--muted); font-weight: 600; ma
 .trade-hand .th-res svg { width: 20px; height: 20px; }
 .trade-hand .th-res b { font-size: 15px; }
 .trade-hand .th-res.zero { opacity: .35; }
+.trade-hand .th-res s { color: var(--muted); font-weight: 500; margin-right: 3px; }
+.trade-hand .th-res.up b { color: var(--good); }
+.trade-hand .th-res.down b { color: var(--worst); }
+.trade-hand .th-total { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+dialog:not(.trade) .trade-hand { margin-top: 14px; }
 .replies { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .reply { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); }
 .reply .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--pc); }
@@ -604,7 +609,16 @@ dialog.trade { width: min(860px, calc(100vw - 32px)); }
 .trade-col h3 { color: var(--text); font-size: 14px; }
 .trade-col h3 .muted { font-weight: 500; font-size: 12px; }
 .bank-trade { gap: 6px; }
-.bt-row { grid-template-columns: 96px 1fr; padding: 5px 8px; }
+.bt-row { grid-template-columns: 92px repeat(5, minmax(0, 1fr)); gap: 5px; padding: 5px 8px; }
+.bt-row .res-btn { width: 100%; justify-content: center; }
+.bt-self { text-align: center; color: var(--faint); }
+.bt-head { background: none; border-color: transparent; padding-block: 0; font-size: 11px; font-weight: 600; color: var(--muted); text-align: center; }
+.bt-head span:first-child { text-align: left; }
+.bt-head .bt-get { grid-column: 2 / -1; }
+@media (max-width: 480px) {
+  .trade-hand { gap: 8px 12px; padding: 8px 10px; }
+  .trade-hand .th-label { display: none; }
+}
 .bt-give { gap: 6px; font-size: 14px; }
 .bt-give small { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 .res-btn { padding: 5px 7px; }
