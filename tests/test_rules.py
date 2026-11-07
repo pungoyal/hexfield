@@ -1,8 +1,8 @@
 import unittest
 
 from hexfield.board import Board
-from hexfield.constants import (BRICK, COSTS, DESERT, KNIGHT, MONOPOLY, ORE, ROAD_BUILDING, SHEEP,
-                             VP_CARD, WHEAT, WOOD, YEAR_OF_PLENTY)
+from hexfield.constants import (BRICK, COSTS, DESERT, KNIGHT, MONOPOLY, ORE, ROAD_BUILDING,
+                             VP_CARD, WOOD, YEAR_OF_PLENTY)
 from hexfield.game import (DISCARD, MAIN, OVER, PRE_ROLL, ROAD_BUILD, ROBBER, SETUP_ROAD,
                         SETUP_SETTLE, GameState, IllegalAction, longest_road)
 from hexfield.ai import AIPlayer

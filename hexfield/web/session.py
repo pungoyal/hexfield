@@ -186,10 +186,6 @@ class WebGame:
                     L["robber"][str(a[1])].append(a[2])
             if k not in L["kinds"]:
                 L["kinds"].append(k)
-        if s.phase == MAIN:
-            # what the human could build with the right cards (for greyed-out buttons)
-            L["spots"] = {"settle": s.legal_settlements(h), "city": s.legal_cities(h),
-                          "road": s.legal_roads(h)}
         return L
 
     def summary(self):
