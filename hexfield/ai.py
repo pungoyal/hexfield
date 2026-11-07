@@ -333,6 +333,8 @@ class AIPlayer:
         self.cfg = LEVELS[level]
         self.rng = random.Random(seed)
         self._proposed = None
+        self._no_win = None  # ((turn, player), sigs from which a full win search failed)
+        self._robber_plan = None  # robber move chosen together with a pre-roll knight
 
     # ---------------------------------------------------------- scoring
     def score(self, s, p):
@@ -372,6 +374,10 @@ class AIPlayer:
         if ph == DISCARD:
             counts = self.choose_discard(s, p)
             return ("discard", tuple(counts)), "keeps the cards closest to completing a build"
+        if ph in (PRE_ROLL, MAIN, ROAD_BUILD) and real.vp(p) >= WIN_VP - 3:
+            line = self.win_line(s, p)
+            if line:
+                return line[0], self.win_reason(s, line)
         if ph == MAIN:
             offer = self.maybe_propose(s, p)
             if offer is not None:
@@ -383,12 +389,28 @@ class AIPlayer:
             return first, why
         ranked = self._rank(s, p)
         if ph == ROBBER:
+            plan, self._robber_plan = self._robber_plan, None
             # beliefs may think an empty-handed player still holds a card
             legal = set(real.legal_actions())
+            if plan is not None and plan[0] == (real.turn, p) and plan[1] in legal:
+                return plan[1], plan[2]
             ranked = [x for x in ranked if x[1] in legal]
-        if ph in (SETUP_SETTLE, SETUP_ROAD, ROBBER):
+        if ph in (SETUP_SETTLE, SETUP_ROAD):
+            ranked = self._noisy(ranked, self._setup_scale(s) / 0.1)
+        elif ph == ROBBER:
             ranked = self._noisy(ranked)
+        if ph == PRE_ROLL and ranked[0][1][0] == "play_knight":
+            # pick the robber now so the stated reason is the move that follows
+            t = s.clone()
+            t.apply(("play_knight",))
+            rr = self._noisy(self.rank_robber(t, p))
+            if rr:
+                self._robber_plan = ((real.turn, p), rr[0][1], rr[0][2])
+                return ranked[0][1], "knight before rolling: " + rr[0][2]
         return ranked[0][1:]
+
+    def win_reason(self, s, line):
+        return "winning line: " + " -> ".join(describe(s, a) for a in line)
 
     def _rank(self, s, p):
         """Ranked (score, action, why) options in the single-choice phases."""
@@ -405,10 +427,12 @@ class AIPlayer:
             return self.rank_simple(s, p, s.legal_actions())
         return []
 
-    def _noisy(self, ranked):
-        """Re-rank with this level's noise (easier bots misjudge)."""
+    def _noisy(self, ranked, scale=1.0):
+        """Re-rank with this level's noise (easier bots misjudge). `scale` keeps the noise
+        the same relative size for opening scores (see _setup_scale)."""
         if self.cfg["noise"] and len(ranked) > 1:
-            noisy = [(sc + self.rng.uniform(-1, 1) * self.cfg["noise"], a, why) for sc, a, why in ranked]
+            noise = self.cfg["noise"] * scale
+            noisy = [(sc + self.rng.uniform(-1, 1) * noise, a, why) for sc, a, why in ranked]
             noisy.sort(key=lambda x: -x[0])
             return noisy
         return ranked
@@ -471,8 +495,21 @@ class AIPlayer:
         base, _ = self.pair_value(s, existing) if existing else (0.0, None)
         return val - base + 0.22 * self.expansion_room(s, v, p)
 
+    # Opening scores are computed in pip units and scaled to VP-equivalents so the review
+    # verdicts mean the same as later in the game. The factors are fitted to how much
+    # Evaluator.score changes after the placement (tools: regress score deltas on raw deltas).
+    SETTLE_SCALE = 0.1     # second settlement
+    SETTLE_SCALE_1 = 0.066  # first settlement (the lookahead total also counts the pairing)
+    ROAD_SCALE = 0.03
+
+    def _setup_scale(self, s):
+        if s.phase == SETUP_ROAD:
+            return self.ROAD_SCALE
+        return self.SETTLE_SCALE if s.setup_idx >= s.n else self.SETTLE_SCALE_1
+
     def rank_setup_settlements(self, s, p, extra=None):
         legal = s.legal_settlements(p, setup=True)
+        k = self._setup_scale(s)
         mine = list(s.settlements[p])
         b = self.b
         ranked = []
@@ -484,7 +521,7 @@ class AIPlayer:
                 val += 0.35 * len(res)
                 if 0 in res and 1 in res:
                     val += 0.6
-                ranked.append((val * 0.1, ("settle", v), self._settle_reason(s, p, v, mine)))
+                ranked.append((val * k, ("settle", v), self._settle_reason(s, p, v, mine)))
         else:
             pre = sorted(((self._spot_value(s, p, v, []), v) for v in legal), reverse=True)
             if self.cfg["lookahead"]:
@@ -496,14 +533,14 @@ class AIPlayer:
                     why = self._settle_reason(s, p, v, [])
                     if partner is not None:
                         why += f"; plans to pair it with vertex {partner} ({b.describe_vertex(partner)})"
-                    ranked.append((total * 0.1, ("settle", v), why))
+                    ranked.append((total * k, ("settle", v), why))
                 for val, v in pre[12:]:
                     if v not in cand:
                         # not deep-searched: estimate with the single-spot value
-                        ranked.append((val * 0.1 + 0.6, ("settle", v), self._settle_reason(s, p, v, [])))
+                        ranked.append(((val + 6.0) * k, ("settle", v), self._settle_reason(s, p, v, [])))
             else:
                 for val, v in pre:
-                    ranked.append((val * 0.1, ("settle", v), self._settle_reason(s, p, v, [])))
+                    ranked.append((val * k, ("settle", v), self._settle_reason(s, p, v, [])))
         ranked.sort(key=lambda x: -x[0])
         return ranked
 
@@ -578,7 +615,7 @@ class AIPlayer:
             else:
                 val = best + 0.15 * ring + (0.5 if b.vertex_port[target] is not None else 0.0)
                 why = f"points toward vertex {target} ({b.describe_vertex(target)})"
-            ranked.append((val * 0.1, ("road", e), why))
+            ranked.append((val * self.ROAD_SCALE, ("road", e), why))
         ranked.sort(key=lambda x: -x[0])
         return ranked
 
@@ -651,14 +688,29 @@ class AIPlayer:
         return out
 
     # ================================================================ turns
+    CARD_VALUE = 0.2   # VP-eq of one resource card, for this-roll production estimates
+    SEVEN_RISK = 0.02  # small edge lost by waiting with a knight until after the roll
+
     def rank_preroll(self, s, p):
         base = self.ev.score(s, p)
-        ranked = [(base, ("roll",), "roll the dice")]
+        ranked = [None]  # roll goes first so it wins ties
         if s.playable(p, KNIGHT):
             sc, why = self._knight_value(s, p)
+            blocked = self.ev.blocked_pips(s, p)
             # a knight played now also protects this roll's production
-            sc += 0.03 * self.ev.blocked_pips(s, p)
+            sc += 0.03 * blocked
+            t = s.clone()
+            t.apply(("play_knight",))
+            if t.army == p and t.vp(p) >= WIN_VP:
+                sc = max(sc, base + self.WIN_BONUS)
+                why = "takes Largest Army and wins"
             ranked.append((sc, ("play_knight",), "knight before rolling: " + why))
+            # rolling first keeps the knight for after the roll: it only loses what the
+            # robber blocks on this roll and a small edge
+            roll = max(base, sc - blocked / 36.0 * self.CARD_VALUE - self.SEVEN_RISK)
+        else:
+            roll = base
+        ranked[0] = (roll, ("roll",), "roll the dice")
         ranked.sort(key=lambda x: -x[0])
         return ranked
 
@@ -739,6 +791,169 @@ class AIPlayer:
                 tuple(sorted(s.cities[p])), tuple(s.devs[p]), tuple(s.new_devs[p]), s.robber,
                 s.dev_played, tuple(s.knights))
 
+    # ======================================================== win-now search
+    def _winning_devs(self, s, p):
+        """(army_possible, wildcard_cards, free_roads) for each way to use this turn's dev play."""
+        free = s.free_roads if s.phase == ROAD_BUILD else 0
+        opts = [(False, 0, free)]
+        if s.dev_played or s.phase == ROAD_BUILD:
+            return opts
+        d = s.devs[p]
+        if d[KNIGHT] and s.army != p:
+            k = s.knights[p] + 1
+            if k >= 3 and (s.army == -1 or k > s.knights[s.army]):
+                opts.append((True, 0, 0))
+        if d[YEAR_OF_PLENTY]:
+            opts.append((False, 2, 0))
+        if d[MONOPOLY]:
+            opts.append((False, max(sum(int(s.hands[q][r]) for q in range(s.n) if q != p)
+                                    for r in range(5)), 0))
+        if d[ROAD_BUILDING]:
+            opts.append((False, 0, 2))
+        return opts
+
+    def _win_possible(self, s, p):
+        """Optimistic bound: could p still reach WIN_VP this turn from s? (False = certainly not)."""
+        need = WIN_VP - s.vp(p)
+        if need <= 0:
+            return True
+        b = self.b
+        h = s.hands[p]
+        ratios = s.ratios(p)
+        sett_left = MAX_SETTLEMENTS - len(s.settlements[p])
+        city_left = MAX_CITIES - len(s.cities[p])
+        road_left = 15 - len(s.roads[p])
+        # open spots by the number of roads needed to reach them
+        spots = []
+        if sett_left:
+            dist = self.ev.reach(s, p)
+            open_spots = [v for v in range(b.V) if dist[v] <= 2 and s.vertex_free(v)]
+            spots = sorted(dist[v] for v in open_spots)
+            for v in open_spots:  # a new port settlement would improve the trade ratios
+                port = b.vertex_port[v]
+                if port == "any":
+                    ratios = [min(x, 3) for x in ratios]
+                elif port is not None:
+                    ratios[port] = min(ratios[port], 2)
+        lr_roads = None
+        if s.longest != p:
+            target = max(5, max(s.road_len[o] for o in range(s.n) if o != p) + 1)
+            # a road can join two branches, so only the total road count bounds the length
+            k = max(1, target - len(s.roads[p]))
+            if k <= road_left:
+                lr_roads = k
+        for army, wild, free in self._winning_devs(s, p):
+            for lr in ((0, 1) if lr_roads is not None else (0,)):
+                for ns in range(min(sett_left, len(spots), need) + 1):
+                    for nc in range(min(city_left, len(s.settlements[p]) + ns) + 1):
+                        if ns + nc + 2 * (army + lr) < need:
+                            continue
+                        roads = max(lr * (lr_roads or 0), sum(spots[:ns]))
+                        if roads > road_left:
+                            continue
+                        paid = max(0, roads - free)
+                        cost = [ns * COSTS["settlement"][r] + nc * COSTS["city"][r] + paid * COSTS["road"][r]
+                                for r in range(5)]
+                        short = sum(max(0, cost[r] - h[r]) for r in range(5))
+                        spare = sum(int(max(0, h[r] - cost[r]) // ratios[r]) for r in range(5))
+                        if short <= wild + spare:
+                            return True
+        return False
+
+    def _win_moves(self, s, p):
+        """Goal-directed move list for the win search (dead ends are cut by _win_possible)."""
+        if s.phase == PRE_ROLL:
+            return [("play_knight",)] if any(x[0] for x in self._winning_devs(s, p)) else []
+        if s.phase == ROAD_BUILD:
+            return s.legal_actions()
+        trades, roads, devs, builds = [], [], [], []
+        lr_open = s.longest != p
+        army = any(x[0] for x in self._winning_devs(s, p))
+        for a in s.legal_actions(include_trades=True):
+            k = a[0]
+            if k in ("end", "buy_dev"):
+                continue
+            if k == "bank":
+                trades.append(a)
+            elif k == "road":
+                roads.append(a)
+            elif k == "play_knight":
+                if army:
+                    devs.append(a)
+            elif k.startswith("play_"):
+                devs.append(a)
+            else:
+                builds.append(a)
+        if not lr_open and s.legal_settlements(p):
+            roads = []  # a road can't win by itself and a spot is already open
+        return builds + devs + roads + trades
+
+    def find_win(self, s, p, cap=4000, depth=10):
+        """Breadth-first (so the shortest line is found) search for a sequence of builds, bank/port trades and dev-card plays
+        that wins *this turn*, on the view `s` (own cards exact, opponents' hands as tracked).
+        Only certain gains count: stolen cards are ignored and Monopoly counts whole cards only.
+        Returns the action list or None."""
+        if s.winner == p:
+            return []
+        if s.current != p or s.phase not in (PRE_ROLL, MAIN, ROAD_BUILD) or s.vp(p) < WIN_VP - 3:
+            return None
+        key = (s.turn, p)
+        root_sig = self._sig(s, p)
+        cache = self._no_win
+        if cache is not None and cache[0] == key and root_sig in cache[1]:
+            return None
+        root = s.clone()
+        for q in range(s.n):
+            if q != p:
+                root.hands[q] = [math.floor(x + 1e-9) for x in root.hands[q]]
+        if not self._win_possible(root, p):
+            return None
+        queue = deque([(root, [])])
+        seen = {root_sig}
+        nodes = 0
+        capped = False
+        while queue:
+            st, path = queue.popleft()
+            if len(path) >= depth:
+                capped = True
+                continue
+            for a in self._win_moves(st, p):
+                nodes += 1
+                if nodes > cap:
+                    return None
+                u = st.clone()
+                try:
+                    u.apply(a)
+                    if u.phase == ROBBER and u.winner == -1:
+                        keep = u.hands[p][:]
+                        legal = u.legal_actions()
+                        u.apply(next((x for x in legal if x[2] == -1), legal[0]))
+                        u.hands[p] = keep  # a steal is never certain
+                except Exception:
+                    continue
+                if u.winner == p:
+                    return path + [a]
+                if u.phase not in (MAIN, ROAD_BUILD):
+                    continue
+                sig = self._sig(u, p)
+                if sig in seen:
+                    continue
+                seen.add(sig)
+                if self._win_possible(u, p):
+                    queue.append((u, path + [a]))
+        if not capped:
+            if cache is None or cache[0] != key:
+                self._no_win = cache = (key, set())
+            cache[1].update(seen)
+        return None
+
+    def win_line(self, s, p):
+        """find_win guarded so it can never break a decision."""
+        try:
+            return self.find_win(s, p)
+        except Exception:
+            return None
+
     def plan_turn(self, s, p, beam=None, depth=None):
         """Beam search over in-turn action sequences. Returns (score, plan, why)."""
         beam = beam or self.cfg["beam"]
@@ -781,6 +996,46 @@ class AIPlayer:
         return "plan: " + " -> ".join(steps) + f"  (eval +{gain:.2f})"
 
     # ========================================================= main analysis
+    WIN_BONUS = 3.0  # coach scale: winning now, in VP-eq over the current position
+
+    def _coach_win(self, s, p):
+        """(value, line) if p can force a win this turn from view s, else None."""
+        if s.phase not in (MAIN, ROAD_BUILD) or s.vp(p) < WIN_VP - 3:
+            return None
+        line = self.win_line(s, p)
+        if not line:
+            return None
+        return self.ev.score(s, p) + self.WIN_BONUS, line
+
+    def _wins_after(self, s, a, p):
+        """Does taking action a in view s keep a forced win this turn?"""
+        t = s.clone()
+        try:
+            self._apply_compound(t, a, p)
+        except Exception:
+            return False
+        return t.winner == p or bool(self.win_line(t, p))
+
+    def _win_text(self, s, line):
+        return " -> ".join(describe(s, x) for x in line) + "  (wins the game)"
+
+    def _rescale_win(self, ranked, s, p, win):
+        """Coach rankings: a win is worth WIN_BONUS over the position (not the internal
+        1000), and every non-winning option ranks at least 1 VP-eq below it."""
+        W = self.ev.score(s, p) + self.WIN_BONUS if win is None else win[0]
+        out = []
+        for sc, a, why in ranked:
+            if sc >= 500 or (win is not None and a == win[1][0]):
+                sc = W
+            elif win is not None:
+                sc = min(sc, W - 1.0)
+            out.append((sc, a, why))
+        if win is not None:
+            out = [x for x in out if x[1] != win[1][0]]
+            out.append((W, win[1][0], self._win_text(s, win[1])))
+        out.sort(key=lambda x: -x[0])
+        return out
+
     def analyze(self, s, top=5):
         """Ranked options for the acting player (used by hint / review)."""
         p = s.actor()
@@ -790,10 +1045,14 @@ class AIPlayer:
             return [(0.0, ("discard", tuple(c)), "discard " + fmt_cards(c))]
         if s.phase == MAIN:
             return self.rank_main(s, p, top)
-        return self._rank(s, p)[:top]
+        ranked = self._rank(s, p)
+        if s.phase == ROAD_BUILD:
+            ranked = self._rescale_win(ranked, s, p, self._coach_win(s, p))
+        return ranked[:top]
 
     def rank_main(self, s, p, top=5):
         base = self.ev.score(s, p)
+        win = self._coach_win(s, p)
         firsts = []
         for a in self._candidates(s, p):
             t = s.clone()
@@ -811,21 +1070,30 @@ class AIPlayer:
                 sc, plan = sc0, [("end",)]
             plan = [a] + [x for x in plan if x[0] != "end"]
             out.append((max(sc, sc0), a, " -> ".join(describe(s, x) for x in plan)))
-        out.sort(key=lambda x: -x[0])
-        return out[:top]
+        return self._rescale_win(out, s, p, win)[:top]
 
     def value_of_action(self, s, a):
         """Engine value of taking action a now (continuation searched)."""
         p = s.actor()
         ph = s.phase
         s = self.view(s, p)
+        sc = self._value_of_action(s, p, ph, a)
+        if ph in (MAIN, ROAD_BUILD):
+            win = self._coach_win(s, p)
+            if win is not None:
+                return win[0] if a == win[1][0] or self._wins_after(s, a, p) else min(sc, win[0] - 1.0)
+            if sc >= 500:
+                return self.ev.score(s, p) + self.WIN_BONUS
+        return sc
+
+    def _value_of_action(self, s, p, ph, a):
         if ph in (SETUP_SETTLE, SETUP_ROAD):
             ranked = self.rank_setup_settlements(s, p, extra=a[1]) if ph == SETUP_SETTLE else self.rank_setup_roads(s, p)
             for sc, b, _ in ranked:
                 if b == a:
                     return sc
             if ph == SETUP_SETTLE:
-                return self._spot_value(s, p, a[1], list(s.settlements[p])) * 0.1 - 1.0
+                return (self._spot_value(s, p, a[1], list(s.settlements[p])) - 10.0) * self._setup_scale(s)
             return ranked[-1][0] if ranked else 0.0
         if ph == ROBBER:
             for sc, b, _ in self.rank_robber(s, p):
@@ -855,7 +1123,13 @@ class AIPlayer:
         p = s.actor()
         ph = s.phase
         if ph == MAIN:
-            sc, plan, why = self.plan_turn(self.view(s, p), p, beam=max(4, self.cfg["beam"]), depth=4)
+            v = self.view(s, p)
+            win = self._coach_win(v, p)
+            if win is not None:
+                return win[0], win[1][0], "plan: " + self._win_text(v, win[1])
+            sc, plan, why = self.plan_turn(v, p, beam=max(4, self.cfg["beam"]), depth=4)
+            if sc >= 500:
+                sc = self.ev.score(v, p) + self.WIN_BONUS
             return sc, plan[0], why
         ranked = self.analyze(s, top=1)
         if not ranked:

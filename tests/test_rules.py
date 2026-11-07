@@ -392,6 +392,119 @@ class AITests(unittest.TestCase):
         a, _ = AIPlayer(s.board).decide(s)
         self.assertEqual(a[0], "city")
 
+    def _road_win_position(self):
+        """8 VP, a 3-road chain and exactly the cards for 2 more roads: Longest Road wins."""
+        s = GameState(3, seed=6)
+        to_main(s)
+        b = s.board
+        start = next(v for v in range(b.V) if len(path_edges(b, v, 6)) == 6)
+        path = path_edges(b, start, 6)
+        put_settlement(s, 0, start)
+        for e in path[:3]:
+            put_road(s, 0, e)
+        put_settlement(s, 0, next(v for v in range(b.V) if s.vertex_free(v)))
+        s._update_longest()
+        s.devs[0][VP_CARD] = 6
+        s.hands[0] = [2, 2, 0, 0, 0]
+        return s
+
+    def test_win_search_finds_two_road_longest_road(self):
+        s = self._road_win_position()
+        ai = AIPlayer(s.board, "hard", seed=1)
+        line = ai.find_win(ai.view(s, 0), 0)
+        self.assertEqual([a[0] for a in line], ["road", "road"])
+        for level in ("easy", "medium", "hard"):
+            t = s.clone(sim=False)
+            bot = AIPlayer(t.board, level, seed=2)
+            for _ in range(2):
+                a, why = bot.decide(t)
+                self.assertEqual(a[0], "road")
+                self.assertTrue(why.startswith("winning line"), why)
+                t.apply(a)
+            self.assertEqual(t.winner, 0, level)
+
+    def test_win_search_plays_year_of_plenty(self):
+        s = GameState(3, seed=6)
+        to_main(s)
+        b = s.board
+        put_settlement(s, 0, 0)
+        e = next(e for e in b.vertex_edges[0])
+        w = [v for v in b.edge_vertices[e] if v != 0][0]
+        e2 = next(x for x in b.vertex_edges[w] if x != e)
+        put_road(s, 0, e)
+        put_road(s, 0, e2)
+        s.devs[0][VP_CARD] = 8
+        s.devs[0][YEAR_OF_PLENTY] = 1
+        s.hands[0] = [0, 0, 1, 1, 0]           # missing wood + brick for the settlement
+        self.assertTrue(s.legal_settlements(0))
+        a, why = AIPlayer(s.board, "hard", seed=1).decide(s)
+        self.assertEqual(a, ("play_yop", WOOD, BRICK), why)
+        s.apply(a)
+        a, _ = AIPlayer(s.board, "hard", seed=1).decide(s)
+        s.apply(a)
+        self.assertEqual(s.winner, 0)
+
+    def test_win_search_does_not_count_on_a_steal(self):
+        """A knight's steal is random: a line that needs the stolen card is not a forced win."""
+        s = GameState(3, seed=6)
+        to_main(s)
+        put_settlement(s, 0, 0)
+        e = s.board.vertex_edges[0][0]
+        w = [v for v in s.board.edge_vertices[e] if v != 0][0]
+        put_road(s, 0, e)
+        put_road(s, 0, next(x for x in s.board.vertex_edges[w] if x != e))
+        s.devs[0][VP_CARD] = 8
+        s.devs[0][KNIGHT] = 1
+        s.hands[0] = [1, 0, 1, 1, 0]           # one brick short
+        s.hands[1] = [0, 5, 0, 0, 0]
+        put_settlement(s, 1, next(v for v in range(s.board.V) if s.vertex_free(v)
+                                  and s.robber not in s.board.vertex_hexes[v]))
+        s.belief = [[[float(x) for x in s.hands[q]] for q in range(3)] for _ in range(3)]
+        ai = AIPlayer(s.board, "hard", seed=1)
+        self.assertIsNone(ai.find_win(ai.view(s, 0), 0))
+
+    def test_coach_rates_missing_a_win_as_blunder(self):
+        s = self._road_win_position()
+        coach = AIPlayer(s.board, "hard", seed=1)
+        best, best_a, why = coach.best_value(s)
+        self.assertEqual(best_a[0], "road")
+        self.assertIn("wins the game", why)
+        self.assertGreaterEqual(best - coach.value_of_action(s, ("end",)), 1.0)
+        self.assertAlmostEqual(coach.value_of_action(s, best_a), best)
+        self.assertLess(best, 100)             # VP-eq scale, not the internal 1000
+        self.assertEqual(coach.analyze(s, top=1)[0][1][0], "road")
+
+    def test_rolling_before_a_knight_is_not_a_mistake(self):
+        """The knight can still be played after the roll; rolling first only risks the
+        production the robber blocks this roll."""
+        for seed in range(6):
+            s = GameState(3, seed=seed)
+            to_main(s)
+            s.phase = PRE_ROLL
+            b = s.board
+            h = next(h for h in range(b.H) if b.hex_resource[h] != DESERT and h != s.robber)
+            put_settlement(s, 1, b.hex_vertices[h][0])
+            put_settlement(s, 0, next(v for v in range(b.V) if s.vertex_free(v) and s.robber not in b.vertex_hexes[v]))
+            s.hands[1] = [2, 2, 2, 2, 2]
+            s.belief = [[[float(x) for x in s.hands[q]] for q in range(3)] for _ in range(3)]
+            s.devs[0][KNIGHT] = 1
+            coach = AIPlayer(s.board, "hard", seed=1)
+            ranked = {a[0]: sc for sc, a, _ in coach.rank_preroll(coach.view(s, 0), 0)}
+            self.assertLess(ranked["play_knight"] - ranked["roll"], 0.05)
+            self.assertAlmostEqual(coach.value_of_action(s, ("roll",)), ranked["roll"])
+
+    def test_setup_scores_are_vp_equivalents(self):
+        """A different setup road is not a blunder; settlement order is unchanged by scaling."""
+        spreads = []
+        for seed in range(8):
+            s = GameState(3, seed=seed)
+            ai = AIPlayer(s.board, "hard", seed=1)
+            a, _ = ai.decide(s)
+            s.apply(a)
+            ranked = ai.rank_setup_roads(s, s.actor())
+            spreads.append(ranked[0][0] - ranked[-1][0])
+        self.assertLess(sorted(spreads)[len(spreads) // 2], 0.5)
+
 
 class HiddenInfoTests(unittest.TestCase):
     def test_offer_judged_without_the_proposers_hidden_cards(self):

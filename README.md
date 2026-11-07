@@ -113,7 +113,14 @@ discard prompt card names come first: `b w w` discards brick, wood, wood (`board
   your move with its best line. The difference is in *VP-equivalents*:
   `✓ best` < 0.05 ≤ `✓ good` < 0.2 ≤ `?! inaccuracy` < 0.5 ≤ `? mistake` < 1.0 ≤ `?? blunder`.
   It covers setup placements, roads, robber placement and victim, discards, knights
-  before rolling, builds, trades, and accepting or declining offers.
+  before rolling, builds, trades, and accepting or declining offers. Opening placements
+  are scored in pip units internally and rescaled to VP-equivalents (fitted to how much
+  the evaluation changes after the placement), so a reasonable alternative road reads as
+  `good`, not as a blunder. Rolling with a knight in hand is judged against playing the
+  knight *after* the roll: it only costs the production the robber blocks on this roll
+  plus a small edge. If you can win this turn, the hint and the review show the winning
+  line, and any move that gives the win away is a blunder (a forced win counts as
+  3 VP-eq over the position).
 * **End-of-game report.** You get an accuracy %, the total value lost, and your five
   biggest misses with the engine's preferred line.
 * **Seeds.** Board, dice, dev deck and steals each use their own random stream. The
@@ -141,12 +148,22 @@ discard prompt card names come first: `b w w` discards brick, wood, wood (`board
    trades, dev-card plays (knight + robber, monopoly, year of plenty, road building). It
    also includes *macro moves* ("trade 3 sheep→ore, trade 4 wood→wheat, build city") so
    multi-trade builds aren't pruned.
+   **Win-now search.** From 7 VP up (counting its own hidden VP cards), every bot level
+   first runs an exhaustive breadth-first search for a line that wins *this turn*: builds,
+   bank/port trades and dev plays (no dev purchases), capped at 4000 nodes. An optimistic
+   bound (cards and wildcards needed for the cheapest mix of settlements, cities, Longest
+   Road and Largest Army) cuts dead branches, so it usually costs well under a
+   millisecond. It uses only what the player knows: Monopoly counts whole cards of the
+   tracked opponent hands, and a knight's steal is never counted on. The beam search
+   alone used to miss lines like "Year of Plenty, two roads, take Longest Road". The
+   coach runs the same search for hints and reviews.
 4. **Opening.** Snake-draft lookahead. For each candidate first settlement, it simulates
    every opponent's greedy pick up to its own second pick, then takes the best pair. It
    scores resource coverage, scarcity, number diversity, port synergy and room to expand.
    Setup roads point at the best contested spot.
 5. **Robber, discards, knights, trades** all use the same evaluation. The robber
-   averages over the victim's possible cards. A bot accepts a trade only if it gains
+   averages over the victim's possible cards. When a bot plays a knight before rolling it
+   picks the robber move at the same time, so the reason it gives is the move it makes. A bot accepts a trade only if it gains
    more than the trade helps the proposer, measured by simulating the proposer's best
    turn with and without the trade. It never feeds a player at 8+ VP.
 
