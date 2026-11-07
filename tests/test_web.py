@@ -145,6 +145,39 @@ class WebTests(unittest.TestCase):
         self.assertEqual(public_reason("plan: buy development card -> play Knight  (eval +0.40)"),
                          "plan: buy development card  (eval +0.40)")
 
+    def test_playtest_view_details(self):
+        g = WebGame(3, "medium", seed=31, seat=1, name="Tester")
+        while g.s.phase.startswith("setup"):
+            if g.s.actor() == g.human:
+                g.act(list(g.s.legal_actions()[0]))
+            else:
+                g.step()
+        v = g.view()
+        self.assertEqual(v["round"], 1)
+        self.assertEqual(len(v["tracker"]), 5)
+        msgs = [e["msg"] for e in v["events"]]
+        self.assertFalse([m for m in msgs if "Tester" in m], "the human reads the log in second person")
+        self.assertTrue(any(m.startswith("You build") for m in msgs))
+        # a hand that needs one bank trade before a city: Play covers trade and build
+        g.s.phase, g.s.rolled = "main", True
+        g.s.hands[0] = [4, 1, 0, 2, 2]
+        opts = g.hint()["options"]
+        texts = [o["text"] for o in opts]
+        self.assertEqual(len(texts), len(set(texts)))
+        multi = [o for o in opts if len(o["steps"]) > 1]
+        self.assertTrue(multi)
+        self.assertEqual(multi[0]["steps"][0][0], "bank")
+        self.assertIn(multi[0]["steps"][-1][0], ("city", "settle", "road", "buy_dev"))
+        # offers come back with a reason for every refusal
+        g.s.hands[1] = [0, 0, 0, 0, 0]
+        replies = g.offer([1, 0, 0, 0, 0], [0, 0, 0, 0, 1])["replies"]
+        self.assertTrue(all(r["why"] for r in replies if not r["ok"]))
+        self.assertEqual(next(r for r in replies if r["p"] == 1)["why"], "not interested")
+        # undo names the decision it took back
+        g.act(["end"])
+        self.assertEqual(g.undo(), "end turn")
+        g.close()
+
     def test_geometry(self):
         g = WebGame(2, "easy", seed=1, seat=1)
         geo = g.geometry

@@ -82,15 +82,54 @@ function hexName(label) {
   return !h ? label : h.res ? `${h.num} ${h.res}` : "the desert";
 }
 
-// engine notation -> readable line: "road -> road -> road -> city [..]" => "3 roads → city [..]"
-function human(s) {
-  const out = [];
-  for (const part of plain(s).replace(/\s*\(eval [^)]*\)/g, "").split(/\s*->\s*/)) {
-    const last = out.at(-1);
-    if (last && part === "road" && last.t === "road") last.n++;
-    else out.push({ t: part, n: 1 });
+// a spot by what it touches: "8 wheat, 5 sheep · 3:1 port"
+function spotName(v) {
+  const vx = B.vertices[v];
+  const hs = (vx.hexes || []).map((h) => B.hexes[h]).filter((h) => h.res).sort((a, b) => b.pips - a.pips).map((h) => `${h.num} ${h.res}`);
+  const port = vx.port ? (vx.port === "any" ? "3:1 port" : `2:1 ${vx.port} port`) : "";
+  return [hs.slice(0, 2).join(", "), port].filter(Boolean).join(" · ") || "the coast";
+}
+
+// a road, or a chain of roads, by where it leads: the far end of the chain, or for a
+// single road the end that isn't already on your network
+let vEdges = null;
+function roadsToward(edges) {
+  if (!vEdges) {
+    vEdges = B.vertices.map(() => []);
+    B.edges.forEach(([a, b], e) => { vEdges[a].push(e); vEdges[b].push(e); });
   }
-  return out.map((o) => (o.n > 1 ? `${o.n} roads` : o.t)).join(" → ");
+  const [a, b] = B.edges[edges.at(-1)];
+  if (edges.length > 1) return spotName(B.edges[edges.at(-2)].includes(a) ? b : a);
+  const mine = (v) => S.v_owner[v] === S.human || vEdges[v].some((e) => e !== edges[0] && S.e_owner[e] === S.human);
+  const open = [a, b].filter((v) => !mine(v));
+  const end = open.length === 1 ? open[0] : [a, b].sort((x, y) => B.vertices[y].pips - B.vertices[x].pips)[0];
+  return spotName(end);
+}
+
+// engine notation -> readable line: "road 4 -> road 9 -> city at 12 [..]" => "2 roads toward 8 wheat → city [..]"
+function human(s) {
+  const text = String(s).replace(/\s*\(eval [^)]*\)/g, "")
+    .replace(/bank-trade \(([^)]*)\) and build (\w+)/g, (_, t, k) => `trade ${t.replace(/(\d+ \w+) ?-> ?(\w+)/g, "$1 for $2")}, build ${k}`)
+    .replace(/\b(trade \d+ \w+) -> (\w+)/g, "$1 for $2");
+  const out = [];
+  let chain = [];
+  const flush = () => {
+    if (!chain.length) return;
+    out.push(`${chain.length > 1 ? `${chain.length} roads` : "road"} toward ${B ? roadsToward(chain) : "?"}`);
+    chain = [];
+  };
+  for (const part of text.split(/\s*->\s*/)) {
+    const m = part.match(/^road (\d+)( — .*)?$/s);
+    if (m && B?.edges[Number(m[1])]) {
+      chain.push(Number(m[1]));
+      if (m[2]) { flush(); out[out.length - 1] += plain(m[2]); } // "road 4 — why" in setup
+      continue;
+    }
+    flush();
+    out.push(plain(part));
+  }
+  flush();
+  return out.join(" → ");
 }
 
 // the move only, without the engine's explanation after the dash
@@ -136,6 +175,7 @@ let holdAutoRoll = false; // set by undo so it can step back past a roll
 let pollTimer = null;
 let overShown = null;
 let hintKey = null;
+let lastRoller = null;  // who threw the dice on show
 const prefs = { speed: store("speed", "normal"), autoroll: store("autoroll", true), reasons: store("reasons", true) };
 const els = {};        // svg element caches
 
@@ -155,12 +195,14 @@ async function api(route, body) {
 }
 
 async function act(action) {
-  if (busy) return;
+  if (busy) return false;
   busy = true;
   holdAutoRoll = false;
+  let ok = false;
   try {
     const st = await api("act", { action });
     apply(st);
+    ok = true;
   } catch (e) {
     toast(e.message, "", "var(--worst)");
   } finally {
@@ -168,6 +210,7 @@ async function act(action) {
     render();
   }
   pump();
+  return ok;
 }
 
 // ------------------------------------------------------------------ boot
@@ -198,6 +241,7 @@ async function newGame(opts) {
   overShown = null;
   hintKey = null;
   $("#log").replaceChildren();
+  logStick = true;
   $("#coach-out").replaceChildren();
   buildBoard();
   apply(st, true);
@@ -211,19 +255,21 @@ function apply(st, initial = false) {
   if (st.reset_log || st.ev_total < evCount) {
     $("#log").replaceChildren();
     evCount = 0;
+    logStick = true;
     initial = true; // don't replay effects after an undo
   }
   const fresh = st.events.filter((e) => e.i >= evCount);
+  for (const e of fresh) if (e.kind === "roll") lastRoller = e.p;
   prev = S;
   S = st;
   evCount = st.ev_total;
   appendLog(fresh);
-  if (!initial) effects(fresh);
+  if (!initial) { effects(fresh); handGains(fresh); }
   recapTurn(fresh, initial);
   if (mode && !(S.legal[mode] || []).length) mode = null;
   if (hintKey && hintKey !== decisionKey()) closeCoach();
   render();
-  if (logStick) { const log = $("#log"); log.scrollTop = log.scrollHeight; }
+  pinLog();
   pollReviews();
   newReviews();
   if (S.phase === "game_over" && overShown !== S.seed) {
@@ -234,7 +280,7 @@ function apply(st, initial = false) {
 
 // the coach panel answers one decision; it closes once the game moves on
 const decisionKey = () => `${S.turn}|${S.phase}|${S.actor}|${S.ev_total}`;
-function closeCoach() { $("#coach-out").replaceChildren(); hintKey = null; clearGlow(); }
+function closeCoach() { $("#coach-out").replaceChildren(); hintKey = null; optSel = null; clearGlow(); }
 
 const myDecision = () => S && S.phase !== "game_over" && S.actor === S.human && !S.pending_offer;
 const legal = () => (myDecision() ? S.legal : {});
@@ -652,6 +698,7 @@ function renderPlayers() {
     if (close) badges.push(`<span class="badge near">${10 - pl.vp} VP from winning${pl.bot ? " (or fewer)" : ""}</span>`);
     const owe = S.discards_pending[p] ? ` · discarding ${S.discards_pending[p]}` : "";
     const inc = production(p).total;
+    const perRoll = (inc / 36).toFixed(1);
     const race = Array.from({ length: 10 }, (_, k) => `<i class="${k < pl.vp ? "on" : ""}"></i>`).join("");
     const html = `
       <div class="p-head">
@@ -661,11 +708,11 @@ function renderPlayers() {
       </div>
       <div class="p-race" title="${pl.vp} of 10 victory points${pl.bot ? " (hidden VP cards not shown)" : ""}">${race}</div>
       <div class="p-stats">
-        <span title="Income: ${inc} pips — about ${(inc / 36).toFixed(2)} cards per roll${p === S.human ? "" : " (from their buildings)"}">${icon("i-dice")}${inc}</span>
-        <span title="Resource cards${pl.cards > 7 ? " — over 7, exposed to a 7" : ""}" class="${pl.cards > 7 ? "warn" : ""}">${icon("i-card")}${pl.cards}</span>
-        <span title="Development cards">${icon("i-dev")}${pl.devs}</span>
-        <span title="Knights played">${icon("i-knight")}${pl.knights}</span>
-        <span title="Longest road length">${icon("i-longest")}${pl.road}</span>
+        <span class="st-cards ${pl.cards > 7 ? "warn" : ""}" title="Resource cards in hand${pl.cards > 7 ? " — over 7, exposed to a 7" : ""}"><b>${pl.cards}</b>&nbsp;card${pl.cards === 1 ? "" : "s"}</span>
+        <span title="Development cards held"><b>${pl.devs}</b>&nbsp;dev</span>
+        <span title="Knights played (3+ and the most wins Largest Army)"><b>${pl.knights}</b>&nbsp;kn</span>
+        <span title="Longest road (5+ and the longest wins Longest Road)">road&nbsp;<b>${pl.road}</b></span>
+        <span title="Income: ${inc} pips — about ${(inc / 36).toFixed(2)} cards per roll${p === S.human ? "" : " (from their buildings)"}"><b>${perRoll}</b>/roll</span>
       </div>
       ${badges.length || owe ? `<div class="p-badges">${badges.join("")}${owe ? `<span class="muted" style="font-size:12px">${owe}</span>` : ""}</div>` : ""}
       <div class="p-think"><div class="spinner" style="--pc:${pc(p)}"></div></div>`;
@@ -702,9 +749,22 @@ function renderHand() {
   setHTML(dh, cards.join(""));
 }
 
+// why a dev card can't be played right now (shown on the card), or "" if it can / it's not your turn
+function devBlock(d, playable, isNew) {
+  if (!d.play || playable) return "";
+  if (isNew) return "next turn";
+  if (!myDecision() || !["main", "pre_roll"].includes(S.phase)) return "";
+  if (S.dev_played) return "1 per turn";
+  if (d.key === "roadb" && !(S.legal.road || []).length) return "no road spot";
+  if (S.phase === "pre_roll") return "after roll";
+  return "not now";
+}
+
 function devCard(d, k, n, playable, isNew) {
-  const tip = isNew ? `${d.name} — bought this turn, playable next turn` : playable ? `Play ${d.name} (${d.hot})` : d.key === "vp" ? "Victory point (counts automatically)" : `${d.name}${S.dev_played ? " — one dev card per turn" : ""}`;
-  return `<button class="dcard ${d.key === "vp" ? "vp" : ""} ${playable ? "playable" : ""} ${isNew ? "new" : ""}" data-dev="${k}" ${playable ? `data-key="${d.hot}"` : "tabindex=-1"} title="${esc(tip)}">${icon(d.icon)}<span class="lbl">${d.name}</span>${n > 1 ? `<span class="n">${n}</span>` : ""}</button>`;
+  const why = devBlock(d, playable, isNew);
+  const tip = isNew ? `${d.name} — bought this turn, playable next turn` : playable ? `Play ${d.name} (${d.hot})` : d.key === "vp" ? "Victory point (counts automatically)"
+    : `${d.name}${why === "1 per turn" ? " — you already played a development card this turn" : why ? ` — ${why}` : ""}`;
+  return `<button class="dcard ${d.key === "vp" ? "vp" : ""} ${playable ? "playable" : ""} ${isNew ? "new" : ""} ${why ? "blocked" : ""}" data-dev="${k}" ${playable ? `data-key="${d.hot}"` : "tabindex=-1"} title="${esc(tip)}">${icon(d.icon)}<span class="lbl">${d.name}</span>${n > 1 ? `<span class="n">${n}</span>` : ""}${why ? `<span class="why-tag">${why}</span>` : ""}</button>`;
 }
 
 // [button, legal kind, cost, tooltip]
@@ -773,12 +833,12 @@ function renderStatus(thinker) {
   } else if (S.actor === S.human) {
     mine = true; p = S.human;
     switch (S.phase) {
-      case "setup_settlement": text = `Place your ${S.setup_idx < S.n ? "first" : "second"} settlement — click or type its letters`; break;
-      case "setup_road": text = "Place a road next to it — click or type its letter"; break;
+      case "setup_settlement": text = `Place your ${S.setup_idx < S.n ? "first" : "second"} settlement — ${TOUCH ? "tap a spot" : "click or type its letters"}`; break;
+      case "setup_road": text = `Place a road next to it — ${TOUCH ? "tap one" : "click or type its letter"}`; break;
       case "pre_roll": text = (L.kinds || []).length > 1 ? "Roll the dice — or play a development card first" : "Roll the dice"; break;
-      case "main": text = mode ? `${BUILD_NAMES[mode]}: click a spot or type its letter · Esc to cancel` : mainStatus(); break;
+      case "main": text = mode ? `${BUILD_NAMES[mode]}: ${TOUCH ? "tap a spot · tap the button again to cancel" : "click a spot or type its letter · Esc to cancel"}` : mainStatus(); break;
       case "discard": text = `Discard ${S.discard_owed} cards`; break;
-      case "move_robber": text = "Move the robber — click a hex or type its letter"; break;
+      case "move_robber": text = `Move the robber — ${TOUCH ? "tap a hex" : "click a hex or type its letter"}`; break;
       case "road_building": text = `Place a free road (${S.free_roads} left)`; break;
       default: text = S.phase;
     }
@@ -787,9 +847,13 @@ function renderStatus(thinker) {
     spin = thinker !== null && thinker !== undefined;
     text = S.phase === "discard" ? `${name(p)} is discarding…` : S.phase.startsWith("setup") ? `${name(p)} is placing…` : `${name(p)} is thinking…`;
   }
-  const html = `<div class="pill ${mine ? "mine" : ""}" style="--pc:${pc(p)}">${spin ? `<span class="spinner"></span>` : `<span class="dot"></span>`}<span>${text}</span><span class="muted" style="font-weight:500">· turn ${S.turn}</span></div>`;
+  const html = `<div class="pill ${mine ? "mine" : ""}" style="--pc:${pc(p)}">${spin ? `<span class="spinner"></span>` : `<span class="dot"></span>`}<span>${text}</span><span class="muted" style="font-weight:500">· ${roundName()}</span></div>`;
   setHTML($("#status"), html);
 }
+
+// a touch-only device: no hover, no keyboard badges, "tap" in the copy
+const TOUCH = matchMedia("(hover: none) and (pointer: coarse)").matches;
+const roundName = () => (S.round ? `round ${S.round}` : "setup");
 
 const PIP_LAYOUT = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
 function renderDice(animate) {
@@ -798,7 +862,11 @@ function renderDice(animate) {
   if (!r) { box.replaceChildren(); return; }
   const [d1, d2, total] = r;
   const die = (n, red) => `<div class="die ${red ? "red" : ""}">${Array.from({ length: 9 }, (_, i) => `<i class="${(PIP_LAYOUT[n] || []).includes(i) ? "on" : ""}"></i>`).join("")}</div>`;
-  const html = (d1 ? die(d1, false) + die(d2, true) : "") + `<span class="total ${total === 7 ? "seven" : ""}">${total}</span>`;
+  const who = lastRoller === null || lastRoller === undefined ? "" : lastRoller === S.human ? "You rolled" : `${esc(S.players[lastRoller].name)} rolled`;
+  const html = (who ? `<span class="d-who">${who}</span>` : "") + (d1 ? die(d1, false) + die(d2, true) : "") + `<span class="total ${total === 7 ? "seven" : ""}">${total}</span>`;
+  // before a roll the dice on show are the previous player's
+  box.classList.toggle("stale", S.phase === "pre_roll" || S.phase.startsWith("setup"));
+  box.title = box.classList.contains("stale") ? `Last roll: ${who.replace(" rolled", "")} — not yours this turn` : "";
   // fresh dice elements replay the tumble animation
   if (animate) { box.dataset.html = ""; box.classList.add("rolling"); }
   setHTML(box, html);
@@ -831,9 +899,24 @@ function renderEcon() {
 }
 
 // ------------------------------------------------------------------ log
+// The log follows the newest line unless you scrolled up yourself; scrolling back to
+// the bottom re-pins it. Only scrolls you make count, so the box shrinking (e.g. while
+// the coach panel grows) never unpins it.
+let logTouched = 0;
+function pinLog() { if (logStick) { const log = $("#log"); log.scrollTop = log.scrollHeight; } }
+function wireLog() {
+  const log = $("#log");
+  const touch = () => { logTouched = Date.now(); };
+  for (const t of ["wheel", "touchstart", "touchmove", "pointerdown", "keydown"]) log.addEventListener(t, touch, { passive: true });
+  log.addEventListener("scroll", () => {
+    if (Date.now() - logTouched > 1500) return; // our own pinning, or a layout change
+    logStick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  });
+  new ResizeObserver(pinLog).observe(log);
+}
+
 function appendLog(evs) {
   const log = $("#log");
-  logStick = log.scrollHeight - log.scrollTop - log.clientHeight < 40 || !log.children.length;
   const frag = document.createDocumentFragment();
   for (const e of evs) {
     const li = document.createElement("li");
@@ -888,9 +971,9 @@ function effects(evs) {
       }
     }
     if (e.kind === "steal" || e.kind === "private_steal") {
-      S.players.forEach((pl, q) => {
-        if (q !== e.p && (e.msg.endsWith(pl.name) || e.msg.endsWith(pl.name + ")"))) flash($("#players").children[q], "shake", 450);
-      });
+      const tail = e.msg.replace(/\)$/, "").split(" from ").at(-1).toLowerCase();
+      const victim = e.victim ?? (tail === "you" ? S.human : S.players.findIndex((pl) => pl.name.toLowerCase() === tail));
+      if (victim >= 0) flash($("#players").children[victim], "shake", 450);
     }
     if (e.kind === "award") toast(e.msg, "", pc(e.p ?? 0));
     if (e.kind === "private" && /you drew/.test(e.msg)) toast("Development card", e.msg.replace(/[()]/g, ""), "#9c88e0");
@@ -917,7 +1000,6 @@ function recapTurn(fresh, initial) {
   recapHand = S.hand.slice();
   const evs = recapBuf.filter((e) => e.turn < S.turn);
   recapBuf = recapBuf.filter((e) => e.turn >= S.turn);
-  const me = S.players[S.human].name;
   const diff = S.hand.map((n, r) => n - before[r]);
   const got = diff.map((d) => Math.max(0, d)), lost = diff.map((d) => Math.max(0, -d));
   const acts = new Map(); // player -> list of things they did
@@ -925,10 +1007,10 @@ function recapTurn(fresh, initial) {
   let robbedBy = null;
   for (const e of evs) {
     const m = e.msg;
-    if (e.kind === "steal" && m.endsWith(`from ${me}`)) robbedBy = e.p;
+    if (e.kind === "steal" && /from you$/i.test(m)) robbedBy = e.p;
     else if (e.kind === "build") did(e.p, /road/.test(m) ? "road" : /city/.test(m) ? "city" : "settlement");
     else if (e.kind === "dev") did(e.p, /buys/.test(m) ? "dev card" : m.replace(/^\S+ plays? /, "played ").replace(/ \(.*\)$/, ""));
-    else if (e.kind === "robber" && e.p !== S.human) did(e.p, `robber → ${m.slice(-1)}`);
+    else if (e.kind === "robber" && e.p !== S.human) did(e.p, `robber → ${hexName((m.match(/robber to ([A-Z])/) || [])[1] || "?")}`);
     else if (e.kind === "trade") did(e.p, /bank/.test(m) ? "bank trade" : "trade");
   }
   const cards = (c, sign) => c.map((n, r) => (n ? `<span class="rc-chip ${sign < 0 ? "neg" : ""}">${resIcon(r)}${sign < 0 ? "−" : "+"}${n}</span>` : "")).join("");
@@ -960,6 +1042,20 @@ function flash(el, cls, ms) {
   setTimeout(() => el.classList.remove(cls), ms);
 }
 
+// Monopoly, Year of Plenty and steals change your hand outside production: float the
+// change off each card (production already animates itself)
+function handGains(evs) {
+  if (!prev || !evs.some((e) => e.kind === "private_steal" || (e.kind === "dev" && /Monopoly|Year of Plenty/.test(e.msg)))) return;
+  const produced = [0, 0, 0, 0, 0];
+  for (const e of evs) if (e.kind === "produce" && e.p === S.human) parseCards(e.msg).forEach((n, r) => { produced[r] += n; });
+  S.hand.forEach((n, r) => {
+    const d = n - prev.hand[r] - produced[r];
+    if (!d) return;
+    flash($("#hand").children[r], "bump", 500);
+    delta($("#hand").children[r], d, "card-delta");
+  });
+}
+
 // a "+2" / "−1" that floats up off a card
 function delta(card, n, cls = "") {
   if (!card) return;
@@ -981,10 +1077,20 @@ function modal(dlg) {
 function raiseToasts() {
   const b = $("#toasts");
   try { if (b.matches(":popover-open")) b.hidePopover(); b.showPopover(); } catch { /* unsupported */ }
+  placeToasts();
+}
+// on wide screens toasts sit in the board's lower-left corner (open sea), off the panels you read
+function placeToasts() {
+  const b = $("#toasts");
+  if (innerWidth < 900) { b.style.inset = ""; b.style.width = ""; return; }
+  const r = $(".board-wrap").getBoundingClientRect();
+  b.style.inset = `auto auto ${Math.max(8, innerHeight - r.bottom + 8)}px ${r.left + 6}px`;
+  b.style.width = `${Math.min(340, r.width * 0.55)}px`;
 }
 function toast(title, sub = "", color = "var(--accent)", ms = 4200) {
   const box = $("#toasts");
   if (!box.matches(":popover-open") || $("dialog[open]")) raiseToasts();
+  else placeToasts();
   const t = document.createElement("div");
   t.className = "toast";
   t.style.setProperty("--tc", color);
@@ -1000,9 +1106,9 @@ function toast(title, sub = "", color = "var(--accent)", ms = 4200) {
 function newReviews() {
   const revs = S.reviews;
   if (revs.length < reviewsSeen) reviewsSeen = revs.length;
-  for (const r of $("dialog[open]") ? [] : scored(revs.slice(reviewsSeen))) {
-    const big = r.delta >= 0.2;
-    toast(`${symbol(r.verdict)} ${r.verdict}${big ? `  −${r.delta.toFixed(2)}` : ""}`, big ? `You: ${short(r.label)}\nBetter: ${short(r.best)}` : short(r.label), VERDICT_COLORS[r.verdict], big ? 7000 : 2600);
+  // only real slips get a toast; best and good moves are listed in the coach panel
+  for (const r of $("dialog[open]") ? [] : scored(revs.slice(reviewsSeen)).filter((x) => x.delta >= 0.2)) {
+    toast(`${symbol(r.verdict)} ${r.verdict}  −${r.delta.toFixed(2)}`, `You: ${short(r.label)}\nBetter: ${short(r.best)}`, VERDICT_COLORS[r.verdict], 7000);
   }
   reviewsSeen = revs.length;
 }
@@ -1061,11 +1167,71 @@ async function showHint() {
     const st = await api("hint");
     apply(st);
     const h = st.hint;
-    if (!h.options.length) return `<p class="coach-note">Nothing to decide here.</p>`;
-    out._opts = h.options;
-    return `<p class="coach-note">${CLOSE_COACH}Engine's top options (${h.secs.toFixed(1)}s) — hover to see them on the board</p><ol class="opts">${h.options.map((o, i) => `
-      <li class="opt" data-i="${i}"><span class="loss ${i === 0 ? "best" : o.loss < 0.5 ? "near" : "far"}">${i === 0 ? "best" : o.loss < 0.005 ? "≈ best" : "−" + o.loss.toFixed(2)}</span><span>${esc(human(o.text))}</span>${playableHint(o.action) ? `<button class="btn do" data-i="${i}" title="Play this move">Play</button>` : "<span></span>"}</li>`).join("")}</ol>`;
+    // lines that read the same are the same move for you: keep the better one
+    const seen = new Set();
+    const opts = h.options.filter((o) => { const t = human(o.text); if (seen.has(t)) return false; seen.add(t); return true; });
+    if (!opts.length) return `<p class="coach-note">Nothing to decide here.</p>`;
+    out._opts = opts;
+    optSel = null;
+    const how = matchMedia("(hover: hover)").matches ? "hover or select one" : "tap one";
+    return `<p class="coach-note">${CLOSE_COACH}Engine's top options (${h.secs.toFixed(1)}s) — ${how} to see it on the board</p><ol class="opts">${opts.map((o, i) => `
+      <li class="opt" data-i="${i}" tabindex="0"><span class="loss ${i === 0 ? "best" : o.loss < 0.5 ? "near" : "far"}">${i === 0 ? "best" : o.loss < 0.005 ? "≈ best" : "−" + o.loss.toFixed(2)}</span><span>${esc(human(o.text))}</span>${playButton(o, i)}</li>`).join("")}</ol>`;
   });
+  // on a phone the coach sits below the board: bring the answer into view
+  if (!onScreen($("#coach-out"))) $("#coach-out").scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+// "Play" carries out the whole line when it can (bank trades plus the build they pay for);
+// a longer plan plays its first step and says so
+function playButton(o, i) {
+  const steps = o.steps || [o.action];
+  if (!steps.every(playableHint)) return "<span></span>";
+  const what = steps.map((a) => human(describeStep(a))).join(", then ");
+  return `<button class="btn do" data-i="${i}" data-key="⇧${i + 1}" title="${esc(`Plays: ${what}${o.more ? " — ask again for the rest" : ""}`)}">${o.more ? "Play step 1" : "Play"}</button>`;
+}
+
+// enough of the engine's notation for human() to read a single step
+function describeStep(a) {
+  switch (a[0]) {
+    case "bank": return `trade ${S.ratios[a[1]]} ${RES[a[1]]} -> ${RES[a[2]]}`;
+    case "road": return `road ${a[1]}`;
+    case "settle": return `settlement [${spotName(a[1])}]`;
+    case "city": return `city [${spotName(a[1])}]`;
+    case "buy_dev": return "buy development card";
+    case "robber": return `robber to ${B.hexes[a[1]].label}${a[2] >= 0 ? `, rob ${S.players[a[2]].name}` : ""}`;
+    default: return a[0].replace("play_", "play ").replace("_", " ");
+  }
+}
+
+const onScreen = (el) => { const r = el.getBoundingClientRect(); return r.bottom > 40 && r.top < innerHeight - 80; };
+
+// the board spots a line would build on
+let optSel = null;
+function glowSteps(steps) {
+  clearGlow();
+  for (const a of steps || []) glowFor(a, true);
+}
+function optSteps(i) { const o = $("#coach-out")._opts?.[i]; return o ? o.steps || [o.action] : null; }
+function selectOpt(li, scroll) {
+  $$("#coach-out .opt.sel").forEach((x) => x.classList.toggle("sel", false));
+  optSel = li ? Number(li.dataset.i) : null;
+  if (!li) return clearGlow();
+  li.classList.add("sel");
+  glowSteps(optSteps(optSel));
+  if (scroll && !onScreen($("#board"))) $(".board-wrap").scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
+async function playHint(i) {
+  const steps = optSteps(i);
+  if (!steps) return;
+  glowSteps(steps);
+  // on a phone, show where it goes before it happens
+  if (!onScreen($("#board"))) {
+    $(".board-wrap").scrollIntoView({ block: "start", behavior: "smooth" });
+    await sleep(700);
+  }
+  for (const a of steps) if (!(await act(a))) break;
+  clearGlow();
 }
 
 const CLOSE_COACH = `<button class="co-x" aria-label="Close" title="Back to your move reviews (Esc)">✕</button>`;
@@ -1089,9 +1255,11 @@ function playableHint(a) {
 
 async function askCoachOffer() {
   const box = $("#bo-hint");
+  const offer = JSON.stringify(S.pending_offer);
   box.textContent = "Coach is thinking…";
   try {
     const st = await api("hint");
+    if (JSON.stringify(S.pending_offer) !== offer) return; // answered meanwhile
     const h = st.hint;
     box.innerHTML = `Engine: <b style="color:${h.accept ? "var(--good)" : "var(--worst)"}">${h.accept ? "ACCEPT" : "DECLINE"}</b> · net value for you ${h.gain >= 0 ? "+" : ""}${h.gain.toFixed(2)} VP-eq <span class="muted">(includes what they build with it)</span>`;
   } catch (e) {
@@ -1232,9 +1400,14 @@ function handStrip(el, delta = [0, 0, 0, 0, 0], label = "Your hand") {
     const n = S.hand[i], d = delta[i] || 0, after = n + d;
     const cls = d > 0 ? "up" : d < 0 ? "down" : "";
     return `<span class="th-res ${after ? "" : "zero"} ${cls}" title="${n} ${r}${d ? ` → ${after}` : ""}">${resIcon(i)}<b>${d ? `<s>${n}</s>${after}` : n}</b></span>`;
-  }).join("") + `<span class="th-total">${S.hand.reduce((a, b) => a + b, 0) + delta.reduce((a, b) => a + b, 0)} cards</span>` +
+  }).join("") + handTotal(S.hand.reduce((a, b) => a + b, 0) + delta.reduce((a, b) => a + b, 0)) +
     (delta.some(Boolean) ? `<span class="th-builds">${buildChanges(S.hand, handPlus(S.hand, delta))}</span>`
       : `<span class="th-builds"><span class="th-label">Can pay for</span>${buildChips(S.hand)}</span>`);
+}
+
+// card count, with the cost of a 7 once it's over seven
+function handTotal(n) {
+  return `<span class="th-total ${n > 7 ? "over" : ""}">${n} cards${n > 7 ? ` · a 7 would cost you ${Math.floor(n / 2)}` : ""}</span>`;
 }
 
 function openDiscard() {
@@ -1278,7 +1451,6 @@ function openBotOffer() {
   $("#bo-give").innerHTML = mini(po.get);
   const offerEv = $$("#log li.k-offer").at(-1);
   $("#bo-why").textContent = prefs.reasons && offerEv?.querySelector(".why") ? `“${offerEv.querySelector(".why").textContent}”` : "";
-  $("#bo-hint").textContent = "";
   handStrip($("#bo-hand"), RES.map((_, r) => po.give[r] - po.get[r]), "If you accept");
   const answer = async (yes) => {
     dlg.close();
@@ -1293,6 +1465,7 @@ function openBotOffer() {
   $("#bo-no").onclick = () => answer(false);
   $("#bo-ask").onclick = askCoachOffer;
   modal(dlg);
+  askCoachOffer(); // the verdict is cheap: show it straight away
 }
 
 // 20 bank cells, row by row; J K L are the reply buttons, digits the offer tiles
@@ -1321,19 +1494,22 @@ function renderTrade() {
   trade.give = trade.give.map((n, r) => Math.min(n, S.hand[r]));
   $("#trade-count").textContent = `· ${S.hand.reduce((a, b) => a + b, 0)} cards in hand`;
 
-  let cell = 0;
-  $("#bank-trade").innerHTML = `<div class="bt-row bt-head"><span>You give · rate</span><span class="bt-get">for 1 of <span class="muted">(number = cards you hold)</span></span></div>` + RES.map((r, i) => {
+  $("#bank-trade").innerHTML = `<div class="bt-row bt-head"><span>You give · rate</span><span class="bt-get">for 1 of <span class="muted">(→ how many you'd have)</span></span></div>` + RES.map((r, i) => {
     const ratio = S.ratios[i];
     const ok = live && S.hand[i] >= ratio;
+    let cell = i * 4; // fixed letters per give/get pair, whatever is affordable
+    if (!ok) {
+      // can't pay this rate: one compact line instead of a row of dead buttons
+      return `<div class="bt-row off"><div class="bt-give">${resIcon(i)}<b class="bt-have">${S.hand[i]}</b><span class="bt-rate ${ratio < 4 ? "port" : ""}">${ratio}:1</span></div><span class="bt-need">${live ? `need ${ratio - S.hand[i]} more ${r} to trade at ${ratio}:1` : "trade after you roll, on your turn"}</span></div>`;
+    }
     const unlocks = (j) => {
       const after = S.hand.map((n, k) => n + (k === j) - (k === i ? ratio : 0));
       const gain = Object.keys(COSTS).filter((k) => !covers(S.hand, COSTS[k]) && covers(after, COSTS[k]));
       return gain.length ? `<i class="bt-unlock" title="Lets you pay for: ${gain.map((k) => BUILD_NAMES[k]).join(", ")}">★</i>` : "";
     };
     const gets = RES.map((g, j) => j === i ? `<span class="bt-self" aria-hidden="true">·</span>` :
-      `<button class="btn res-btn" data-give="${i}" data-get="${j}" data-key="${BANK_KEYS[cell++]}" ${ok && S.bank[j] > 0 ? "" : "disabled"} title="Give ${ratio} ${r} (${S.hand[i]} → ${S.hand[i] - ratio}), get 1 ${g} (${S.hand[j]} → ${S.hand[j] + 1})${S.bank[j] ? "" : " — bank is out"}" aria-label="Give ${ratio} ${r} for 1 ${g}">${resIcon(j)}<span class="bt-cnt">${S.hand[j]}</span>${ok ? unlocks(j) : ""}</button>`).join("");
-    const need = ok ? "" : `<small class="bt-need">need ${ratio - S.hand[i]} more</small>`;
-    return `<div class="bt-row ${ok ? "" : "off"}"><div class="bt-give">${resIcon(i)}<b class="bt-have">${S.hand[i]}</b><span class="bt-rate ${ratio < 4 ? "port" : ""}">${ratio}:1</span>${need}</div>${gets}</div>`;
+      `<button class="btn res-btn" data-give="${i}" data-get="${j}" data-key="${BANK_KEYS[cell++]}" ${S.bank[j] > 0 ? "" : "disabled"} title="Give ${ratio} ${r} (${S.hand[i]} → ${S.hand[i] - ratio}), get 1 ${g} (${S.hand[j]} → ${S.hand[j] + 1})${S.bank[j] ? "" : " — bank is out"}" aria-label="Give ${ratio} ${r} for 1 ${g}">${resIcon(j)}<span class="bt-cnt">${S.bank[j] ? `→ ${S.hand[j] + 1}` : "out"}</span>${unlocks(j)}</button>`).join("");
+    return `<div class="bt-row"><div class="bt-give">${resIcon(i)}<b class="bt-have">${S.hand[i]}</b><span class="bt-rate ${ratio < 4 ? "port" : ""}">${ratio}:1</span><small class="bt-after">→ ${S.hand[i] - ratio}</small></div>${gets}</div>`;
   }).join("");
 
   const tile = (side, r) => {
@@ -1356,6 +1532,7 @@ function renderTrade() {
   if (trade.replies) {
     let nth = 0;
     box.innerHTML = trade.replies.map((r) => `<div class="reply" style="--pc:${pc(r.p)}"><span class="dot"></span><b>${esc(S.players[r.p].name)}</b>
+      ${r.why ? `<span class="why muted">${esc(r.why)}</span>` : ""}
       <span class="ans ${r.ok ? "yes" : "no"}">${r.ok ? "accepts" : "declines"}</span>${r.ok ? `<button class="btn primary" data-q="${r.p}" data-key="${"JKL"[nth++]}" ${live ? "" : "disabled"}>Trade</button>` : ""}</div>`).join("");
   } else {
     box.innerHTML = `<p class="coach-note">${esc(trade.note || "Every bot answers at once; you pick who to trade with.")}</p>`;
@@ -1408,17 +1585,20 @@ function openPick(kind) {
   const dlg = $("#dlg-pick");
   const yop = kind === "yop";
   $("#pick-title").textContent = yop ? "Year of Plenty" : "Monopoly";
-  $("#pick-sub").textContent = yop ? "Take any two resources from the bank (the same one twice is fine)." : "Every opponent hands you all their cards of one resource.";
+  $("#pick-sub").textContent = yop ? "Take any two resources from the bank (the same one twice is fine)." : "Every opponent hands you all their cards of one resource. ≈ is what your card tracker reckons they hold between them.";
+  const haul = (r) => Math.round(S.tracker?.[r] ?? 0);
   const picks = [];
   const box = $("#pick-res");
   const draw = () => {
     box.innerHTML = RES.map((r, i) => {
       const n = picks.filter((x) => x === i).length;
       const off = yop && S.bank[i] < 1;
-      return `<button data-r="${i}" data-key="${i + 1}" aria-pressed="${n > 0}" ${off ? "disabled" : ""} title="${r} (${i + 1})"><div class="rcard r-${r}">${icon("i-" + r)}<span class="lbl">${r}</span>${n ? `<span class="n">${n}</span>` : ""}</div></button>`;
+      const est = yop || !S.tracker ? "" : `<span class="haul" title="Your tracker: opponents hold about ${S.tracker[i]} ${r}">≈${haul(i)}</span>`;
+      return `<button data-r="${i}" data-key="${i + 1}" aria-pressed="${n > 0}" ${off ? "disabled" : ""} title="${r} (${i + 1})"><div class="rcard r-${r}">${icon("i-" + r)}<span class="lbl">${r}</span>${n ? `<span class="n">${n}</span>` : ""}</div>${est}</button>`;
     }).join("");
     $("#pick-ok").disabled = picks.length !== (yop ? 2 : 1);
-    handStrip($("#pick-hand"), yop ? RES.map((_, r) => picks.filter((x) => x === r).length) : undefined, yop && picks.length ? "After" : "Your hand");
+    if (yop) handStrip($("#pick-hand"), RES.map((_, r) => picks.filter((x) => x === r).length), picks.length ? "After" : "Your hand");
+    else handStrip($("#pick-hand"), RES.map((_, r) => (picks[0] === r ? haul(r) : 0)), picks.length ? "About" : "Your hand");
   };
   box.onclick = (e) => {
     const b = e.target.closest("[data-r]");
@@ -1466,7 +1646,19 @@ function showStats() {
 function showHelp() {
   const k = (keys, what) => `<span>${keys.map((x) => `<kbd>${x}</kbd>`).join(" ")}</span><span>${what}</span>`;
   const undoKey = $("#btn-undo").dataset.key;
+  const cost = (c) => c.flatMap((n, r) => Array.from({ length: n }, () => resIcon(r))).join("");
   openInfo("How to play", `<div class="help">
+    <p>First to <b>10 VP</b> on their own turn wins. Settlements are worth 1, cities 2, Longest Road (5+ roads) and Largest Army (3+ knights) 2 each, and hidden victory-point cards 1.</p>
+    <p>Each roll pays every settlement next to a hex with that number 1 card (a city 2), unless the robber sits on it. On a 7 everyone holding more than 7 cards discards half, then the robber moves and steals a card. You can play one development card per turn, never on the turn you bought it — knights may be played before rolling.</p>
+    <h3>Build costs</h3>
+    <div class="help-costs">
+      <span>Road</span><span>${cost(COSTS.road)}</span><span>Settlement <span class="muted">1 VP</span></span><span>${cost(COSTS.settle)}</span>
+      <span>City <span class="muted">2 VP, pays double</span></span><span>${cost(COSTS.city)}</span><span>Development card</span><span>${cost(COSTS.dev)}</span>
+    </div>
+    <p>Trade 4 of a kind with the bank for any card — 3 with a 3:1 port, 2 of that resource with a 2:1 port — or offer cards to the other players.</p>
+    <p>You only see your own cards, exactly like at a real table. Opponents show card <i>counts</i>; the bots get the same information and track your hand from public events.</p>
+    <p>The <b>coach</b> reviews every decision in VP-equivalents: ✓ best &lt; 0.05 ≤ ✓ good &lt; 0.2 ≤ ?! inaccuracy &lt; 0.5 ≤ ? mistake &lt; 1.0 ≤ ?? blunder.</p>
+    <details class="help-keys"><summary>Keyboard shortcuts</summary>
     <p class="muted">Every button with a key shows it in a small badge. A key means one thing on each screen.</p>
     <h3>Your turn</h3>
     <div class="help-grid">
@@ -1479,7 +1671,7 @@ function showHelp() {
     </div>
     <h3>Coach and game</h3>
     <div class="help-grid">
-      ${k(["H"], "Hint: the engine's top options")}${k(["⇧V"], "Evaluate every player")}${k(["⇧A"], "All your moves, rated")}
+      ${k(["H"], "Hint: the engine's top options")}${k(["⇧1–⇧5"], "Play hint option 1–5")}${k(["⇧V"], "Evaluate every player")}${k(["⇧A"], "All your moves, rated")}
       ${k([undoKey], "Undo your last decision (the dice stay the same)")}${k(["⇧S"], "Dice statistics")}${k(["⇧N"], "New game")}${k(["?"], "This help")}
       ${k(["⇧R"], "Turn move reviews on/off")}${k(["⇧B"], "Show/hide bot reasoning")}${k(["⇧F"], "Bot speed")}${k(["⇧O"], "Auto-roll on/off")}
     </div>
@@ -1490,10 +1682,7 @@ function showHelp() {
       ${k(["A", "…", "W"], "Trade: the bank or port trade with that letter")}${k(["J", "K", "L"], "Trade: accept a bot's answer")}
       ${k(["Y", "N", "C"], "Bot offer: accept, decline, ask the coach")}${k(["S"], "Discard: suggest")}${k(["↵"], "Confirm (discard, play, send offer, start game)")}${k(["⌫"], "Clear the offer")}${k(["Esc"], "Close")}
     </div>
-    <p>First to <b>10 VP</b> on their own turn wins. Settlements are worth 1, cities 2, Longest Road (5+) and Largest Army (3+ knights) 2 each, and hidden victory-point cards 1.</p>
-    <p>On a 7 everyone holding more than 7 cards discards half, then the robber moves and steals a card. You can play one development card per turn, never on the turn you bought it — knights may be played before rolling.</p>
-    <p>You only see your own cards, exactly like at a real table. Opponents show card <i>counts</i>; the bots get the same information and track your hand from public events.</p>
-    <p>The <b>coach</b> reviews every decision in VP-equivalents: ✓ best &lt; 0.05 ≤ ✓ good &lt; 0.2 ≤ ?! inaccuracy &lt; 0.5 ≤ ? mistake &lt; 1.0 ≤ ?? blunder.</p>
+    </details>
   </div>`);
 }
 
@@ -1502,18 +1691,20 @@ function showGameOver() {
   if (!sm) return;
   const won = S.winner === S.human;
   $("#over-title").innerHTML = `<div class="over-banner ${won ? "win" : ""}">${won ? "♛ You win!" : `${esc(S.players[S.winner].name)} wins`}</div>`;
-  const rows = sm.rows.map((r) => {
-    const extra = [r.longest && "longest road", r.army && "largest army", r.vp_cards && `${r.vp_cards} VP card${r.vp_cards > 1 ? "s" : ""}`].filter(Boolean).join(", ");
-    return `<tr><td><span style="color:${pc(r.p)};font-weight:700">${esc(S.players[r.p].name)}</span></td><td><b>${r.vp}</b></td><td>${r.settlements}</td><td>${r.cities}</td><td class="muted">${extra}</td></tr>`;
-  }).join("");
+  // where every point came from
+  const pts = (vp, note) => (vp ? `${vp}${note ? `<small class="muted"> ${note}</small>` : ""}` : `<span class="muted">–</span>`);
+  const rows = sm.rows.map((r) => `<tr><td><span style="color:${pc(r.p)};font-weight:700">${esc(S.players[r.p].name)}</span></td>
+    <td class="num">${pts(r.settlements, "")}</td><td class="num">${pts(2 * r.cities, r.cities ? `(${r.cities})` : "")}</td>
+    <td class="num">${pts(r.longest ? 2 : 0)}</td><td class="num">${pts(r.army ? 2 : 0)}</td><td class="num">${pts(r.vp_cards)}</td>
+    <td class="num"><b>${r.vp}</b></td></tr>`).join("");
   let rev = "";
   if (sm.accuracy !== null) {
     rev = `<h3 style="margin-top:18px">Your decisions</h3>
       <div class="vcounts">${Object.entries(sm.counts).map(([k, n]) => `<span class="vd vd-${k}">${symbol(k)} ${k} ${n}</span>`).join("")}</div>
-      <p>Accuracy <b>${Math.round(sm.accuracy)}%</b> · total value lost <b>${sm.lost.toFixed(2)}</b> VP-eq · ${sm.turns} turns · <button class="btn ghost" id="over-all" data-key="A" style="padding:2px 8px">every move…</button></p>
+      <p>Accuracy <b>${Math.round(sm.accuracy)}%</b> · total value lost <b>${sm.lost.toFixed(2)}</b> VP-eq · ${sm.rounds} round${sm.rounds === 1 ? "" : "s"} · <button class="btn ghost" id="over-all" data-key="A" style="padding:2px 8px">every move…</button></p>
       ${sm.worst.length ? `<h3>Biggest misses</h3><ul class="misses">${sm.worst.map((w) => `<li><span class="vd vd-${w.verdict}">−${w.delta.toFixed(2)}</span> ${w.turn ? `turn ${w.turn}` : "setup"}: ${esc(plain(w.label))}<br><span class="eng">better: ${esc(human(w.best))}</span></li>`).join("")}</ul>` : ""}`;
   }
-  $("#over-body").innerHTML = `<table class="info-table"><thead><tr><th>Player</th><th>VP</th><th>Settl.</th><th>Cities</th><th></th></tr></thead><tbody>${rows}</tbody></table>${rev}`;
+  $("#over-body").innerHTML = `<div class="table-x"><table class="info-table vp-table"><thead><tr><th>Player</th><th title="1 VP each">Settlements</th><th title="2 VP each (count)">Cities</th><th title="2 VP">Longest road</th><th title="2 VP">Largest army</th><th title="1 VP each">VP cards</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table></div>${rev}`;
   modal($("#dlg-over"));
 }
 
@@ -1548,7 +1739,9 @@ function wireUI() {
 
   $("#btn-roll").onclick = () => act(["roll"]);
   $("#btn-end").onclick = () => { mode = null; act(["end"]); };
-  $("#btn-undo").dataset.key = /Mac|iP/.test(navigator.platform) ? "⌘Z" : "Ctrl Z";
+  const mac = /Mac|iP/.test(navigator.platform);
+  $("#btn-undo").dataset.key = mac ? "⌘Z" : "Ctrl Z";
+  $("#btn-undo").title = `Undo your last decision (${mac ? "⌘Z" : "Ctrl+Z"})`;
   decorateKeys();
   $("#btn-dev").onclick = () => act(["buy_dev"]);
   $("#btn-trade").onclick = () => openTrade();
@@ -1576,20 +1769,19 @@ function wireUI() {
     else act([DEVS[k].play]);
   });
 
-  $("#coach-out").addEventListener("pointerover", (e) => {
+  const co = $("#coach-out");
+  co.addEventListener("pointerover", (e) => {
     const li = e.target.closest(".opt");
-    const opts = $("#coach-out")._opts;
-    if (li && opts) glowFor(opts[Number(li.dataset.i)].action);
+    if (li && e.pointerType === "mouse") glowSteps(optSteps(Number(li.dataset.i)));
   });
-  $("#coach-out").addEventListener("pointerleave", clearGlow);
-  $("#coach-out").addEventListener("click", (e) => {
+  co.addEventListener("pointerleave", () => (optSel !== null ? glowSteps(optSteps(optSel)) : clearGlow()));
+  co.addEventListener("focusin", (e) => { const li = e.target.closest(".opt"); if (li) selectOpt(li, false); });
+  co.addEventListener("click", (e) => {
     if (e.target.closest(".co-x")) return closeCoach();
     const b = e.target.closest(".do");
-    const opts = $("#coach-out")._opts;
-    if (!b || !opts) return;
-    const a = opts[Number(b.dataset.i)].action;
-    clearGlow();
-    if (playableHint(a)) act(a);
+    if (b) return playHint(Number(b.dataset.i));
+    const li = e.target.closest(".opt");
+    if (li) selectOpt(li, true);
   });
 
   $("#log").addEventListener("pointerover", (e) => {
@@ -1651,6 +1843,7 @@ function wireUI() {
   }
 
   document.addEventListener("keydown", onKey);
+  wireLog();
 }
 
 function toggleMode(m) {
@@ -1665,9 +1858,10 @@ async function undo() {
   try {
     mode = null;
     holdAutoRoll = true;
-    apply(await api("undo", {}));
+    const st = await api("undo", {});
+    apply(st);
     reviewsSeen = S.reviews.length;
-    toast("Undone", `Back to turn ${S.turn}. Same dice, different choices.`, "var(--muted)", 2200);
+    toast(`Undid: ${st.undone ? human(st.undone) : "your last decision"}`, "Same dice, different choices.", "var(--muted)", 2600);
   } catch (e) {
     toast(e.message, "", "var(--worst)");
   }

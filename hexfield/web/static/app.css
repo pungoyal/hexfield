@@ -337,6 +337,7 @@ svg.ri { fill: var(--rc); }
 .opt .loss.near { background: rgb(245 197 66 / .14); color: var(--warn); }
 .opt .loss.far { background: rgb(240 138 60 / .15); color: var(--bad); }
 .opt .do { padding: 2px 8px; font-size: 11px; }
+.opt .do > .kb { position: static; margin-left: 5px; }
 .coach-note { font-size: 12px; color: var(--muted); margin: 4px 0; }
 .evals { display: flex; flex-direction: column; gap: 7px; margin: 6px 0; }
 .ev-row { display: grid; grid-template-columns: 64px 1fr 40px; gap: 8px; align-items: center; font-size: 12.5px; }
@@ -753,3 +754,72 @@ dialog:focus { outline: none; }
 /* a player close to winning */
 .player.threat { box-shadow: 0 0 0 2px var(--bad), 0 0 18px rgb(255 80 80 / .25); }
 .badge.near { color: var(--bad); border-color: var(--bad); }
+
+/* ------------------------------------------------------------ playtest round 2 */
+/* coach options: the one you picked stays lit on the board */
+.opt { cursor: pointer; }
+.opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.opt.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel-2)); }
+
+/* dice say whose they are; before your roll they're last turn's and recede */
+.dice .d-who { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.dice.stale .die, .dice.stale .total { opacity: .45; filter: saturate(.4); }
+
+/* player stats: labelled, cards first */
+.p-stats { gap: 3px 10px; font-size: 12px; margin-top: 7px; }
+.p-stats span { display: inline; white-space: nowrap; }
+.p-stats b { color: var(--text); font-weight: 700; }
+.p-stats .st-cards b { font-size: 14px; }
+.p-stats .warn, .p-stats .warn b { color: var(--worst); }
+
+/* dev cards you can't play now: dimmed, with the reason */
+.dcard.blocked { opacity: .55; }
+.dcard.new::after { content: none; }
+.dcard .why-tag { position: absolute; top: 3px; left: 2px; right: 2px; font-size: 7.5px; font-weight: 800; line-height: 1.1; text-transform: uppercase; color: var(--accent); text-align: center; letter-spacing: .02em; }
+
+/* hand strips warn past seven cards */
+.trade-hand .th-total.over { color: #ffb3c1; font-weight: 700; }
+
+/* offer replies give a reason */
+.reply .why { font-size: 12px; font-style: italic; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* bank grid: each cell shows what you'd hold after; rows you can't pay are one line */
+.res-btn .bt-cnt { color: var(--text); }
+.bt-after { grid-column: 3; font-size: 10.5px; color: var(--faint); white-space: nowrap; }
+.bt-row.off { padding-block: 3px; opacity: .7; }
+.bt-row.off .bt-need { grid-column: 2 / -1; font-size: 12px; color: var(--faint); white-space: normal; }
+.bt-row.off .bt-give svg, .bt-row.off .bt-have { grid-row: auto; }
+.bt-row.off .bt-give { grid-template-rows: auto; }
+
+/* monopoly: the tracker's estimate under each resource */
+.pick-res .haul { display: block; margin-top: 6px; font: 700 12px var(--mono); color: var(--muted); text-align: center; }
+
+/* help: rules first, keys tucked away */
+.help-costs { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; align-items: center; font-size: 13px; margin-bottom: 8px; }
+.help-costs svg { width: 18px; height: 18px; margin-right: 2px; vertical-align: middle; }
+.help-keys { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.help-keys summary { cursor: pointer; font-weight: 700; color: var(--text); padding: 4px 0; }
+
+/* game over: where every point came from */
+.table-x { overflow-x: auto; }
+.vp-table th, .vp-table td.num { text-align: center; }
+.vp-table th:first-child { text-align: left; }
+.vp-table th { font-size: 11px; line-height: 1.2; }
+
+/* new game */
+.seg-note { font-size: 12px; margin: 6px 0 0; }
+.nowrap { white-space: nowrap; }
+
+@media (max-width: 899px) {
+  .pill { white-space: normal; text-align: left; line-height: 1.35; border-radius: 16px; }
+}
+/* touch-only devices: no keyboard, so no key badges or board letters */
+@media (hover: none) and (pointer: coarse) {
+  .kb, .key-tag, .pill kbd { display: none !important; }
+}
+/* the coach never squeezes below its own controls (it overlapped the log on short windows) */
+.coach { flex-shrink: 0; }
+@media (min-width: 900px) and (max-width: 1180px) {
+  .right { overflow: auto; scrollbar-width: thin; }
+  .coach { max-height: none; }
+}

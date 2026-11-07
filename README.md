@@ -27,8 +27,16 @@ coach panel. In the coach panel, **Hint** shows the engine's top options on the 
 **Evaluate** scores every player, and each of your decisions gets a verdict. Hover a review
 to compare your move with the engine's. Undo works as in the terminal. Bots play at a
 selectable speed. Keys: `R` roll, `1/2/3` road/settlement/city, `D` dev card,
-`T` trade, `E` end turn, `H` hint, `Ctrl+Z` undo, `?` help. Reloading the page resumes
-the game.
+`T` trade, `E` end turn, `H` hint, `Ctrl+Z` (`⌘Z` on a Mac) undo, `?` help. Reloading the
+page resumes the game.
+
+Each hint line names where it builds ("2 roads toward 8 wheat · 3:1 port"); selecting a line
+lights its spots on the board, and **Play** carries out bank trades together with the build
+they pay for (a longer plan says **Play step 1**). Only inaccuracies and worse pop up as
+toasts; every verdict is listed in the coach panel. Offers you make come back with each
+bot's reason for saying no, and a bot's offer to you opens with the coach's verdict. The
+Monopoly dialog shows your card tracker's estimate of what each resource would bring in.
+On a phone or tablet the key badges and board letters are hidden.
 
 Everything can be done from the keyboard. In setup, in a build mode and when moving the
 robber, every clickable spot shows a letter (two letters when there are many), and typing it

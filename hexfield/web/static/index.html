@@ -138,6 +138,7 @@
       <label data-key="M"><input type="radio" name="level" value="medium">Medium</label>
       <label data-key="H"><input type="radio" name="level" value="hard" checked>Hard</label>
     </fieldset>
+    <p class="seg-note muted">Easy plays its first idea and slips often · Medium looks two moves ahead · Hard searches four moves deep and never slips on purpose.</p>
     <fieldset class="seg"><legend>Your seat</legend>
       <label data-key="⇧0"><input type="radio" name="seat" value="" checked>Random</label>
       <label data-key="⇧1"><input type="radio" name="seat" value="1">1st</label>
@@ -147,7 +148,7 @@
     </fieldset>
     <div class="row2">
       <label class="field">Your name<input name="name" value="You" maxlength="14" autocomplete="nickname"></label>
-      <label class="field">Seed <span class="muted">(optional)</span><input name="seed" inputmode="numeric" pattern="[0-9]*" placeholder="random"></label>
+      <label class="field"><span class="nowrap">Seed <span class="muted">(optional)</span></span><input name="seed" inputmode="numeric" pattern="[0-9]*" placeholder="random"></label>
     </div>
     <div class="dlg-actions">
       <button class="btn ghost" value="cancel" id="new-cancel" data-key="Esc" formnovalidate>Cancel</button>

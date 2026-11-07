@@ -7,6 +7,7 @@ card *counts*, and the public log.
 
 import math
 import queue
+import re
 import random
 import threading
 import time
@@ -20,6 +21,27 @@ from ..render import second_person
 
 AI_NAMES = ["Vera", "Magnus", "Kasimir", "Ingrid", "Tobias", "Selene"]
 HEX_R = 60.0
+
+
+BUILD_STEP = {"city": "city", "settlement": "settle", "road": "road", "dev": "buy_dev"}
+
+
+def parse_step(text):
+    """One step of an engine plan ('trade 4 wood -> ore', 'city at 12 [..]', 'road 30')
+    back to an action, or None when it isn't a simple build or bank trade."""
+    text = text.strip()
+    m = re.fullmatch(r"trade \d+ (\w+) -> (\w+)", text)
+    if m and m[1] in RES_NAMES and m[2] in RES_NAMES:
+        return ["bank", RES_NAMES.index(m[1]), RES_NAMES.index(m[2])]
+    m = re.match(r"(settlement|city) at (\d+)\b", text)
+    if m:
+        return ["settle" if m[1] == "settlement" else "city", int(m[2])]
+    m = re.fullmatch(r"road (\d+)", text)
+    if m:
+        return ["road", int(m[1])]
+    if text == "buy development card":
+        return ["buy_dev"]
+    return None
 
 
 def verdict(delta):
@@ -174,13 +196,16 @@ class WebGame:
             if kind == "private_steal" and h not in p:
                 continue
             item = {"i": i, "turn": turn, "p": p if isinstance(p, int) else None, "kind": kind,
-                    "msg": second_person(msg, s.names[h])}
+                    "msg": self.you(msg)}
+            if kind == "private_steal":
+                item["thief"], item["victim"] = p
             if i in self.reasons:
-                item["why"] = self.reasons[i]
+                item["why"] = self.you(self.reasons[i])
             evs.append(item)
         out = {
             "gid": self.gid, "seed": self.seed, "level": self.level, "human": h, "n": s.n,
             "phase": s.phase, "actor": s.actor(), "current": s.current, "turn": s.turn,
+            "round": self.round(),
             "last_roll": list(s.last_roll) if s.last_roll else None,
             "robber": s.robber, "v_owner": s.v_owner, "v_level": s.v_level, "e_owner": s.e_owner,
             "players": players, "longest": s.longest, "army": s.army,
@@ -189,6 +214,7 @@ class WebGame:
             "free_roads": s.free_roads, "discard_owed": s.discards.get(h, 0),
             "discards_pending": {str(q): k for q, k in s.discards.items()},
             "ratios": s.ratios(h), "roll_hist": s.roll_hist, "setup_idx": s.setup_idx,
+            "tracker": self.tracker(),
             "legal": self.legal_for_human(),
             "events": evs, "ev_total": len(s.events),
             "reviews": sorted(self.reviews, key=lambda r: r["token"]), "review_on": self.review_on,
@@ -201,6 +227,28 @@ class WebGame:
         if s.phase == OVER:
             out["summary"] = self.summary()
         return out
+
+    def you(self, msg):
+        """The log in second person: 'Tester steals a card from Vera' -> 'You steal a card
+        from Vera', 'Vera steals a card from Tester' -> '... from you'."""
+        name = self.s.names[self.human]
+        if name != "You" and self.s.names.count(name) == 1:
+            msg = re.sub(rf"(?<![\w']){re.escape(name)}(?!\w)", "You", msg)
+        msg = second_person(msg, "You")
+        return msg.replace("You's ", "Your ").replace("you's ", "your ")
+
+    def round(self):
+        """Turn counter -> table round (every player has one turn per round); 0 in setup."""
+        s = self.s
+        return (s.turn - 1) // s.n + 1 if s.turn else 0
+
+    def tracker(self):
+        """The human's card tracker: how many of each resource the opponents hold in
+        total, as far as public events tell (the same belief the bots keep)."""
+        s, h = self.s, self.human
+        if s.belief is None:
+            return None
+        return [round(sum(s.belief[h][q][r] for q in range(s.n) if q != h), 1) for r in range(5)]
 
     def legal_for_human(self):
         s = self.s
@@ -234,7 +282,8 @@ class WebGame:
         acc = 100.0 * sum(1 for r in revs if r["delta"] < 0.2) / len(revs) if revs else None
         worst = [r for r in sorted(revs, key=lambda r: -r["delta"])[:5] if r["delta"] >= 0.2]
         return {"rows": rows, "counts": counts, "accuracy": acc,
-                "lost": sum(r["delta"] for r in revs), "worst": worst, "turns": s.turn}
+                "lost": sum(r["delta"] for r in revs), "worst": worst, "turns": s.turn,
+                "rounds": self.round()}
 
     # ================================================================ bots
     def step(self):
@@ -286,7 +335,7 @@ class WebGame:
         if not po:
             raise IllegalAction("no offer to answer")
         p, give, get = po["from"], tuple(po["give"]), tuple(po["get"])
-        self.snapshot()
+        self.snapshot(f"{'accept' if accept else 'decline'} {self.s.names[p]}'s offer")
         if self.review_on:
             self._queue("offer", (p, give, get, bool(accept)))
         answers = {int(q): ok for q, ok in po["answers"].items()}
@@ -313,7 +362,11 @@ class WebGame:
             raise IllegalAction("not a legal move right now")  # ... or a generic one
         forced = self.trivial(a)
         label = describe(s, a)
-        self.snapshot()
+        if a[0] == "trade":
+            label = f"trade {fmt_cards(a[2])} for {fmt_cards(a[3])} with {s.names[a[1]]}"
+        elif a[0] == "discard":
+            label = "discard " + fmt_cards(a[1])
+        self.snapshot(label)
         if self.review_on:
             if forced:
                 self.reviews.append({"token": self._token, "turn": s.turn, "phase": s.phase,
@@ -341,11 +394,25 @@ class WebGame:
         for q in range(s.n):
             if q == h:
                 continue
-            ok, _ = self.agents[q].evaluate_offer(s, q, h, tuple(give), tuple(get))
-            replies.append({"p": q, "ok": bool(ok)})
+            ok, gain = self.agents[q].evaluate_offer(s, q, h, tuple(give), tuple(get))
+            replies.append({"p": q, "ok": bool(ok), "why": self.reply_reason(q, get, ok, gain)})
         self.my_offer = {"give": give, "get": get, "replies": replies,
                          "accepted": [r["p"] for r in replies if r["ok"]]}
         return self.my_offer
+
+    def reply_reason(self, q, get, ok, gain):
+        """One line on why bot q answered the human's offer that way (gain is the
+        trade's value to q, from evaluate_offer)."""
+        s = self.s
+        if not s.can_afford(q, get):
+            return "not interested"  # saying why would reveal their hidden hand
+        if ok:
+            return None
+        if gain > 0.05 and s.public_vp(self.human) >= 8:
+            return "won't trade with the leader"
+        if gain < -0.05:
+            return "helps you more than them"
+        return "not worth it to them"
 
     def trivial(self, a):
         s = self.s
@@ -356,16 +423,17 @@ class WebGame:
         return False
 
     # ================================================================ undo
-    def snapshot(self):
+    def snapshot(self, label=""):
         agents = [(a.rng.getstate(), a._proposed) if a else None for a in self.agents]
         self._token += 1
         self.history.append((self.s.clone(sim=False), agents, self._token,
-                             self.pending_offer, dict(self.reasons)))
+                             self.pending_offer, dict(self.reasons), label))
 
     def undo(self):
+        """Step back one human decision; returns what that decision was."""
         if not self.history:
             raise IllegalAction("nothing to undo")
-        state, agents, token, offer, reasons = self.history.pop()
+        state, agents, token, offer, reasons, label = self.history.pop()
         self.s = state
         for a, saved in zip(self.agents, agents):
             if a:
@@ -376,6 +444,7 @@ class WebGame:
         self.pending_offer = offer
         self.my_offer = None
         self.reasons = reasons
+        return self.you(label)
 
     # ================================================================ coach
     def hint(self):
@@ -387,15 +456,67 @@ class WebGame:
             po = self.pending_offer
             ok, gain = self.coach.evaluate_offer(s, self.human, po["from"], tuple(po["give"]), tuple(po["get"]))
             return {"accept": bool(ok), "gain": gain, "secs": time.time() - t0}
-        ranked = self.coach.analyze(s, top=5)
+        ranked = self.coach.analyze(s, top=6)
         if not ranked:
             return {"options": [], "secs": time.time() - t0}
         best = ranked[0][0]
-        opts = []
+        opts, seen = [], set()
         for sc, a, why in ranked:
-            text = why if s.phase == MAIN else f"{describe(s, a)} — {why}"
-            opts.append({"loss": best - sc, "action": a, "text": text})
-        return {"options": opts, "secs": time.time() - t0}
+            if s.phase == MAIN:
+                steps, text, more = self.playable_steps(a, why)
+            else:
+                steps, text, more = [list(a)], f"{describe(s, a)} — {why}", False
+            if text in seen:  # e.g. a bank trade then a city, and the same as one macro
+                continue
+            seen.add(text)
+            opts.append({"loss": best - sc, "action": a, "steps": steps, "more": more, "text": text})
+        return {"options": opts[:5], "secs": time.time() - t0}
+
+    def playable_steps(self, a, plan):
+        """The first part of a main-phase plan that one Play click can carry out: a single
+        move, or bank trades together with the build they pay for (a macro is expanded to
+        its trades and the spot the engine would build on). Returns (steps, plan text with
+        the macro spelled out, whether the plan goes on after those steps)."""
+        s, h = self.s, self.human
+        parts = plan.split(" -> ")
+        if a[0] == "macro":
+            t = self.coach.view(s, h)
+            steps = []
+            for tr in a[1]:
+                t.apply(tr)
+                steps.append(list(tr))
+            kind = BUILD_STEP[a[2]]
+            builds = [b for b in t.legal_actions(include_trades=False) if b[0] == kind]
+            if builds:
+                steps.append(list(max(builds, key=lambda b: self.coach._score_after(t, b, h))))
+            parts = [describe(t if st[0] != "bank" else s, tuple(st)) for st in steps] + parts[1:]
+            used = len(steps)
+        else:
+            steps, used = [list(a)], 1
+            # trades followed by the build they pay for go together
+            if a[0] == "bank":
+                for part in parts[1:]:
+                    st = parse_step(part)
+                    if not st:
+                        break
+                    steps.append(st)
+                    used += 1
+                    if st[0] != "bank":
+                        break
+                if steps[-1][0] == "bank":
+                    steps, used = steps[:1], 1
+        # keep only the prefix that is legal on the real game
+        t = s.clone(sim=False)
+        ok = 0
+        for st in steps:
+            try:
+                t.apply(tuple(st))
+            except Exception:
+                break
+            ok += 1
+        if ok < len(steps):
+            steps, used = steps[:max(ok, 1)], max(ok, 1)
+        return steps, " -> ".join(parts), used < len(parts)
 
     def evaluate(self):
         s = self.s

@@ -138,7 +138,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif route == "offer" and post:
                     g.offer(body.get("give", []), body.get("get", []))
                 elif route == "undo" and post:
-                    g.undo()
+                    extra["undone"] = g.undo()
                     since = 0
                     extra["reset_log"] = True
                 elif route == "hint":
