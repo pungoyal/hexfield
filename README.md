@@ -13,6 +13,25 @@ python3 -m hexfield --fast             # no pause between bot actions
 python3 -m hexfield --no-review --no-reasoning   # play "blind"
 ```
 
+### Web interface
+
+```
+python3 -m hexfield.web                # opens http://127.0.0.1:8765 in your browser
+python3 -m hexfield.web --port 9000 --no-browser
+```
+
+The browser UI uses the same engine, bots and coach (still no dependencies: a stdlib HTTP
+server plus plain HTML/CSS/JS). It has an SVG board with clickable spots, animated dice,
+production and robber, a card dock, trade dialogs for the bank, ports and players, and a
+coach panel. In the coach panel, **Hint** shows the engine's top options on the board,
+**Evaluate** scores every player, and each of your decisions gets a verdict. Hover a review
+to compare your move with the engine's. Undo works as in the terminal. Bots play at a
+selectable speed. Keys: `R` roll, `1/2/3` road/settlement/city, `D` dev card,
+`T` trade, `E` end turn, `H` hint, `Ctrl+Z` undo, `?` help. Reloading the page resumes
+the game.
+
+### Terminal
+
 The board plus side panel needs a terminal about **132 columns × 40 rows**. In a narrower
 window the panel moves below the board. The game uses 256-colour ANSI and works in
 iTerm2, Terminal.app, kitty, Alacritty and VS Code. `--no-color` (or `NO_COLOR=1`) turns
@@ -123,7 +142,8 @@ hexfield/ai.py          evaluator, beam search, setup lookahead, trading
 hexfield/match.py       trade resolution, headless games
 hexfield/render.py      ANSI board + panel
 hexfield/cli.py         interactive game, coach, undo, reports
-tests/               rules, hidden-info, AI and scripted end-to-end CLI tests
+hexfield/web/           browser UI: session.py (game + async reviews), server.py, static/
+tests/               rules, hidden-info, AI, scripted CLI and HTTP end-to-end tests
 tools/selfplay.py    bot-vs-bot benchmark with seat rotation
 ```
 
