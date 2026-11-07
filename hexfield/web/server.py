@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from ..game import IllegalAction
 from .session import WebGame
 
+MAX_BODY = 64 * 1024
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 
@@ -28,22 +29,28 @@ class App:
         self.lock = threading.Lock()
 
     def new(self, body):
-        opp = int(body.get("opponents", 3))
+        try:
+            opp = int(body.get("opponents", 3))
+            seed = body.get("seed")
+            seed = int(seed) if seed not in (None, "") else None
+            seat = body.get("seat")
+            seat = int(seat) if seat not in (None, "", 0, "0") else None
+        except (TypeError, ValueError):
+            raise IllegalAction("opponents, seed and seat must be numbers")
         if opp not in (2, 3):
             raise IllegalAction("opponents must be 2 or 3")
         level = body.get("level", "hard")
         if level not in ("easy", "medium", "hard"):
             raise IllegalAction("unknown level")
-        seed = body.get("seed")
-        seed = int(seed) if seed not in (None, "") else None
-        seat = body.get("seat")
-        seat = int(seat) if seat not in (None, "", 0, "0") else None
         if seat is not None and not 1 <= seat <= opp + 1:
             raise IllegalAction("seat out of range")
         name = (str(body.get("name") or "You").strip() or "You")[:14]
+        game = WebGame(opp, level, seed, seat, name, review=bool(body.get("review", True)))
         with self.lock:
-            self.game = WebGame(opp, level, seed, seat, name, review=bool(body.get("review", True)))
-        return self.game
+            old, self.game = self.game, game
+        if old is not None:
+            old.close()
+        return game
 
 
 APP = App()
@@ -67,9 +74,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
+        if not 0 <= n <= MAX_BODY:
+            raise ValueError("bad Content-Length")
         if not n:
             return {}
-        return json.loads(self.rfile.read(n) or b"{}")
+        body = json.loads(self.rfile.read(n) or b"{}")
+        if not isinstance(body, dict):
+            raise ValueError("body must be a JSON object")
+        return body
 
     def do_GET(self):
         url = urlparse(self.path)
@@ -91,8 +103,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
         try:
             body = self._body()
-        except ValueError:
-            return self._send(400, {"error": "bad json"})
+        except ValueError as ex:
+            return self._send(400, {"error": f"bad request body: {ex}"})
         self._api("POST", url.path[5:], parse_qs(url.query), body)
 
     # ------------------------------------------------------------ routes
@@ -103,11 +115,15 @@ class Handler(BaseHTTPRequestHandler):
                 with g.lock:
                     out = g.view()
                     out["board"] = g.geometry
-                return self._send(200, out)
+                    data = json.dumps(out, separators=(",", ":")).encode()
+                return self._send(200, data, "application/json; charset=utf-8")
             g = APP.game
             if g is None:
                 return self._send(200, {"nogame": True})
-            since = int(query.get("since", ["0"])[0])
+            try:
+                since = max(0, int(query.get("since", ["0"])[0]))
+            except ValueError:
+                raise IllegalAction("since must be a number")
             with g.lock:
                 extra = {}
                 if route == "state":
@@ -137,7 +153,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(404, {"error": "unknown route"})
                 out = g.view(since)
                 out.update(extra)
-            return self._send(200, out)
+                # serialise under the lock: view() holds live lists the bots/reviewer mutate
+                data = json.dumps(out, separators=(",", ":")).encode()
+            return self._send(200, data, "application/json; charset=utf-8")
         except IllegalAction as ex:
             return self._send(400, {"error": str(ex)})
         except Exception as ex:

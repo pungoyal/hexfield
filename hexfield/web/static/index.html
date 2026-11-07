@@ -86,6 +86,7 @@
       <div class="coach-actions">
         <button class="btn" id="btn-hint" title="Engine's top options (H)"><svg><use href="#i-bulb"/></svg>Hint</button>
         <button class="btn ghost" id="btn-eval" title="Engine evaluation of every player"><svg><use href="#i-chart"/></svg>Evaluate</button>
+        <button class="btn ghost" id="btn-review" title="Every move you made, rated, with the engine's best alternative" disabled><svg><use href="#i-help"/></svg>All moves</button>
         <span class="reviewing" id="reviewing" hidden>reviewing…</span>
       </div>
       <div id="coach-out" class="coach-out"></div>
@@ -110,6 +111,8 @@
         <button class="btn tool" id="btn-dev" title="Buy a development card (D)"><svg><use href="#i-dev"/></svg><span>Dev card</span></button>
         <button class="btn tool" id="btn-trade" title="Trade with the bank or players (T)"><svg><use href="#i-trade"/></svg><span>Trade</span></button>
       </div>
+      <button class="btn big primary pulse" id="btn-discard" title="Choose the cards to discard" hidden>Discard…</button>
+      <button class="btn big primary pulse" id="btn-answer" title="Answer the trade offer" hidden>Answer offer…</button>
       <button class="btn big primary" id="btn-end" title="End your turn (E)">End turn</button>
     </div>
   </footer>
@@ -157,28 +160,30 @@
   </div>
 </dialog>
 
-<dialog id="dlg-trade" aria-labelledby="trade-title" closedby="any">
+<dialog id="dlg-trade" class="trade" aria-labelledby="trade-title" closedby="any">
   <div class="dlg-head">
     <h2 id="trade-title">Trade</h2>
     <form method="dialog"><button class="btn ghost icon-only" aria-label="Close">✕</button></form>
   </div>
-  <div class="tabs" role="tablist">
-    <button role="tab" class="tab" data-tab="bank" aria-selected="true">Bank &amp; ports</button>
-    <button role="tab" class="tab" data-tab="players" aria-selected="false">Players</button>
-  </div>
-  <div class="tabpanel" data-panel="bank">
-    <p class="muted">Pick what you give, then what you get. Your rate depends on your ports.</p>
-    <div class="bank-trade" id="bank-trade"></div>
-  </div>
-  <div class="tabpanel" data-panel="players" hidden>
-    <div class="offer-grid">
-      <div><h3>You give</h3><div class="steppers" id="offer-give"></div></div>
-      <div><h3>You get</h3><div class="steppers" id="offer-get"></div></div>
-    </div>
-    <div class="dlg-actions">
-      <button class="btn primary" id="offer-send" disabled>Offer to everyone</button>
-    </div>
-    <div class="replies" id="offer-replies"></div>
+  <div class="trade-hand" id="trade-hand" aria-label="Your hand"></div>
+  <div class="trade-cols">
+    <section class="trade-col" aria-labelledby="bank-h">
+      <h3 id="bank-h">Bank &amp; ports <span class="muted">· one click per trade</span></h3>
+      <div class="bank-trade" id="bank-trade"></div>
+    </section>
+    <section class="trade-col" aria-labelledby="offer-h">
+      <h3 id="offer-h">Offer to players</h3>
+      <div class="pick-label">You give</div>
+      <div class="picks" id="offer-give"></div>
+      <div class="pick-label">You want</div>
+      <div class="picks" id="offer-get"></div>
+      <div class="offer-bar">
+        <div class="offer-summary" id="offer-summary"></div>
+        <button class="btn ghost" id="offer-clear">Clear</button>
+        <button class="btn primary" id="offer-send" disabled>Offer</button>
+      </div>
+      <div class="replies" id="offer-replies" aria-live="polite"></div>
+    </section>
   </div>
 </dialog>
 

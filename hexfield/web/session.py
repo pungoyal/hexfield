@@ -12,7 +12,7 @@ import threading
 import time
 
 from ..ai import AIPlayer, describe
-from ..constants import DESERT, KNIGHT, MAX_CITIES, MAX_ROADS, MAX_SETTLEMENTS, RES_NAMES
+from ..constants import DESERT, MAX_CITIES, MAX_ROADS, MAX_SETTLEMENTS, RES_NAMES
 from ..game import (MAIN, OVER, PRE_ROLL, ROAD_BUILD, ROBBER, SETUP_ROAD, SETUP_SETTLE,
                     GameState, IllegalAction, fmt_cards)
 from ..render import second_person
@@ -64,16 +64,53 @@ def board_geometry(b):
     }
 
 
+# number of integer arguments each simple action takes
+ARITY = {"settle": 1, "road": 1, "city": 1, "buy_dev": 0, "play_knight": 0, "play_road": 0,
+         "play_mono": 1, "play_yop": 2, "roll": 0, "robber": 2, "bank": 2, "end": 0,
+         "end_road_building": 0}
+
+
+def _int(x):
+    if isinstance(x, bool) or not isinstance(x, int):
+        raise IllegalAction("malformed action")
+    return x
+
+
+def cards(raw):
+    """Exactly five non-negative ints."""
+    if not isinstance(raw, list) or len(raw) != 5:
+        raise IllegalAction("card lists need exactly 5 counts")
+    out = tuple(_int(x) for x in raw)
+    if any(x < 0 for x in out):
+        raise IllegalAction("negative card counts")
+    return out
+
+
 def to_action(raw):
-    """JSON list -> engine tuple."""
+    """JSON list -> engine tuple, rejecting anything malformed."""
     if not isinstance(raw, list) or not raw or not isinstance(raw[0], str):
         raise IllegalAction("malformed action")
     k = raw[0]
-    if k == "discard":
-        return ("discard", tuple(int(x) for x in raw[1]))
-    if k == "trade":
-        return ("trade", int(raw[1]), tuple(int(x) for x in raw[2]), tuple(int(x) for x in raw[3]))
-    return (k,) + tuple(int(x) for x in raw[1:])
+    if k == "discard" and len(raw) == 2:
+        return ("discard", cards(raw[1]))
+    if k == "trade" and len(raw) == 4:
+        return ("trade", _int(raw[1]), cards(raw[2]), cards(raw[3]))
+    if k not in ARITY or len(raw) != ARITY[k] + 1:
+        raise IllegalAction("malformed action")
+    return (k,) + tuple(_int(x) for x in raw[1:])
+
+
+def public_reason(why):
+    """A bot's plan names later steps (e.g. '-> play Knight') that would reveal its hidden
+    cards; keep only the move it actually made."""
+    if not why or not why.startswith("plan:"):
+        return why
+    first = why[5:].split("  (eval")[0].split(" -> ")[0].strip()
+    ev = why.rsplit("(eval", 1)
+    tail = f"  (eval{ev[1]}" if len(ev) == 2 else ""
+    if "+99" in tail or len(tail) > 18:  # a winning move scores huge; the number means nothing
+        tail = ""
+    return f"plan: {first}" + tail
 
 
 def to_json_action(a):
@@ -109,11 +146,18 @@ class WebGame:
         self.reasons = {}          # event index -> bot reasoning
         self.pending_offer = None  # bot offer waiting for the human's answer
         self.my_offer = None       # human offer + which bots accepted
-        self.epoch = 0
+        self._token = 0            # id of the newest human decision
+        self.gid = f"{self.seed}-{time.time_ns()}"
         self.started = time.time()
         self._jobs = queue.Queue()
         self._reviewer = AIPlayer(self.s.board, "hard", seed=self.seed)
+        self._alive = True
         threading.Thread(target=self._review_worker, daemon=True).start()
+
+    def close(self):
+        """Stop the review worker (called when a new game replaces this one)."""
+        self._alive = False
+        self._jobs.put(None)
 
     # ================================================================ views
     def view(self, since=0):
@@ -148,7 +192,7 @@ class WebGame:
                 item["why"] = self.reasons[i]
             evs.append(item)
         out = {
-            "seed": self.seed, "level": self.level, "human": h, "n": s.n,
+            "gid": self.gid, "seed": self.seed, "level": self.level, "human": h, "n": s.n,
             "phase": s.phase, "actor": s.actor(), "current": s.current, "turn": s.turn,
             "last_roll": list(s.last_roll) if s.last_roll else None,
             "robber": s.robber, "v_owner": s.v_owner, "v_level": s.v_level, "e_owner": s.e_owner,
@@ -160,8 +204,10 @@ class WebGame:
             "ratios": s.ratios(h), "roll_hist": s.roll_hist, "setup_idx": s.setup_idx,
             "legal": self.legal_for_human(),
             "events": evs, "ev_total": len(s.events),
-            "reviews": self.reviews, "review_on": self.review_on,
-            "pending_offer": self.pending_offer, "my_offer": self.my_offer,
+            "reviews": sorted(self.reviews, key=lambda r: r["token"]), "review_on": self.review_on,
+            "pending_offer": ({k: self.pending_offer[k] for k in ("from", "give", "get")}
+                              if self.pending_offer else None),
+            "my_offer": self.my_offer,
             "can_undo": bool(self.history), "winner": s.winner,
             "reviewing": self._jobs.unfinished_tasks,
         }
@@ -195,7 +241,7 @@ class WebGame:
             rows.append({"p": p, "vp": s.vp(p), "settlements": len(s.settlements[p]),
                          "cities": len(s.cities[p]), "longest": s.longest == p,
                          "army": s.army == p, "vp_cards": s.vp_cards(p)})
-        revs = self.reviews
+        revs = [r for r in self.reviews if not r.get("forced")]
         counts = {name: 0 for _, name in VERDICTS}
         for r in revs:
             counts[r["verdict"]] += 1
@@ -219,6 +265,7 @@ class WebGame:
             return True
         n0 = len(s.events)
         s.apply(a)
+        why = public_reason(why)
         if why and a[0] not in ("roll", "end") and len(s.events) > n0:
             for i in range(n0, len(s.events)):
                 if s.events[i][2] not in ("private", "private_steal"):
@@ -229,7 +276,7 @@ class WebGame:
     def _bot_propose(self, p, give, get, why):
         s = self.s
         s.log(f"{s.names[p]} offers {fmt_cards(give)} for {fmt_cards(get)}", "offer", p)
-        self.reasons[len(s.events) - 1] = why
+        self.reasons[len(s.events) - 1] = public_reason(why)
         answers = {}
         for q in range(s.n):
             if q == p or q == self.human:
@@ -285,9 +332,17 @@ class WebGame:
         elif a not in s.legal_actions():
             s.clone(sim=False).apply(a)  # get a helpful message ...
             raise IllegalAction("not a legal move right now")  # ... or a generic one
+        forced = self.trivial(a)
+        label = describe(s, a)
         self.snapshot()
-        if self.review_on and not self.trivial(a):
-            self._queue("discard" if a[0] == "discard" else "action", a)
+        if self.review_on:
+            if forced:
+                self.reviews.append({"token": self._token, "turn": s.turn, "phase": s.phase,
+                                     "label": label, "best": "only sensible move", "delta": 0.0,
+                                     "verdict": "forced", "forced": True,
+                                     "action": to_json_action(a), "best_action": to_json_action(a)})
+            else:
+                self._queue("discard" if a[0] == "discard" else "action", a)
         self.my_offer = None
         s.apply(a)
 
@@ -296,8 +351,8 @@ class WebGame:
         h = self.human
         if s.phase != MAIN or s.actor() != h:
             raise IllegalAction("you can only offer trades after rolling, on your turn")
-        give, get = [int(x) for x in give], [int(x) for x in get]
-        if not any(give) or not any(get) or any(x < 0 for x in give + get):
+        give, get = list(cards(give)), list(cards(get))
+        if not any(give) or not any(get):
             raise IllegalAction("pick cards on both sides")
         if any(give[r] and get[r] for r in range(5)):
             raise IllegalAction("don't give and ask for the same resource")
@@ -317,7 +372,7 @@ class WebGame:
         s = self.s
         h = self.human
         if s.phase == PRE_ROLL:
-            return not s.playable(h, KNIGHT)
+            return len(s.legal_actions()) <= 1
         if s.phase == MAIN and a[0] == "end":
             return all(x[0] == "end" for x in s.legal_actions(include_trades=True))
         if s.phase in (SETUP_ROAD, ROAD_BUILD):
@@ -327,20 +382,21 @@ class WebGame:
     # ================================================================ undo
     def snapshot(self):
         agents = [(a.rng.getstate(), a._proposed) if a else None for a in self.agents]
-        self.history.append((self.s.clone(sim=False), agents, len(self.reviews),
+        self._token += 1
+        self.history.append((self.s.clone(sim=False), agents, self._token,
                              self.pending_offer, dict(self.reasons)))
 
     def undo(self):
         if not self.history:
             raise IllegalAction("nothing to undo")
-        state, agents, nrev, offer, reasons = self.history.pop()
+        state, agents, token, offer, reasons = self.history.pop()
         self.s = state
         for a, saved in zip(self.agents, agents):
             if a:
                 a.rng.setstate(saved[0])
                 a._proposed = saved[1]
-        self.epoch += 1
-        del self.reviews[nrev:]
+        # the undone decision's review goes; reviews of earlier moves stay (even pending ones)
+        self.reviews = [r for r in self.reviews if r["token"] != token]
         self.pending_offer = offer
         self.my_offer = None
         self.reasons = reasons
@@ -375,34 +431,39 @@ class WebGame:
         return {"rows": rows}
 
     # ================================================================ reviews
+    def _live(self, token):
+        return any(h[2] == token for h in self.history)
+
     def _queue(self, kind, payload):
         state = self.s.clone(sim=False)
-        self._jobs.put((self.epoch, len(self.history), kind, state, payload))
+        self._jobs.put((self._token, kind, state, payload))
 
     def _review_worker(self):
         while True:
             job = self._jobs.get()
+            if job is None or not self._alive:
+                self._jobs.task_done()
+                return
             try:
-                rev = self._review(*job)
+                rev = self._review(*job) if self._live(job[0]) else None
                 if rev:
                     with self.lock:
-                        if job[0] == self.epoch:
+                        if self._live(job[0]):
                             self.reviews.append(rev)
             except Exception as ex:  # a review must never break the game
                 print("review failed:", ex)
             finally:
                 self._jobs.task_done()
 
-    def _review(self, epoch, seq, kind, s, payload):
-        if epoch != self.epoch:
-            return None
+    def _review(self, token, kind, s, payload):
         coach = self._reviewer
         h = self.human
         if kind == "offer":
             p, give, get, yes = payload
             ok, gain = coach.evaluate_offer(s, h, p, give, get)
-            mine, best = (gain if yes else 0.0), max(gain, 0.0)
-            best_desc = f"{'accept' if gain > 0 else 'decline'} (trade worth {gain:+.2f} to you)"
+            # same rule as the hint (it refuses to feed a player on 8+ VP)
+            mine, best = (gain if yes else 0.0), (gain if ok else 0.0)
+            best_desc = f"{'accept' if ok else 'decline'} (trade worth {gain:+.2f} to you)"
             label = f"{'accept' if yes else 'decline'} {s.names[p]}'s offer"
         elif kind == "discard":
             counts = list(payload[1])
@@ -410,6 +471,11 @@ class WebGame:
             best, best_desc, label = best_v, "discard " + fmt_cards(best_c), "discard " + fmt_cards(counts)
         else:
             a = payload
+            if a[0] == "trade":
+                # the partner accepted, so it certainly holds the cards it gives
+                b = s.belief[h][a[1]]
+                for r in range(5):
+                    b[r] = max(b[r], float(a[3][r]))
             best, best_a, why = coach.best_value(s)
             if best_a is None:
                 return None
@@ -426,6 +492,6 @@ class WebGame:
         delta = max(0.0, best - mine)
         mine_a = to_json_action(payload) if kind == "action" else None
         best_a = to_json_action(best_a) if kind == "action" else None
-        return {"seq": seq, "action": mine_a, "best_action": best_a, "turn": s.turn, "phase": s.phase, "label": label, "best": best_desc,
-                "delta": round(delta, 3), "verdict": verdict(delta)}
+        return {"token": token, "action": mine_a, "best_action": best_a, "turn": s.turn, "phase": s.phase, "label": label, "best": best_desc,
+                "delta": round(delta, 3), "verdict": verdict(delta), "forced": False}
 

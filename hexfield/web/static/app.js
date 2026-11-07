@@ -9,7 +9,7 @@ const DEVS = [
   { key: "mono", name: "Monopoly", icon: "i-mono", play: "play_mono" },
   { key: "yop", name: "Plenty", icon: "i-yop", play: "play_yop" },
 ];
-const VERDICT_COLORS = { best: "var(--good)", good: "var(--ok)", inaccuracy: "var(--warn)", mistake: "var(--bad)", blunder: "var(--worst)" };
+const VERDICT_COLORS = { forced: "var(--muted)", best: "var(--good)", good: "var(--ok)", inaccuracy: "var(--warn)", mistake: "var(--bad)", blunder: "var(--worst)" };
 const LOG_ICONS = { build: "⌂", roll: "⚄", produce: "+", robber: "☗", steal: "✋", dev: "★", trade: "⇄", award: "♛",
   discard: "−", offer: "?", reply: "·", info: "·", win: "♛", private: "👁", private_steal: "👁" };
 const SPEEDS = { fast: 60, normal: 380, slow: 900 };
@@ -44,6 +44,9 @@ let mode = null;       // main-phase build mode: road | settle | city
 let busy = false;
 let pumping = false;
 let reviewsSeen = 0;
+let logStick = true;
+let holdAutoRoll = false; // set by undo so it can step back past a roll
+let pollTimer = null;
 let overShown = null;
 let hintKey = null;
 const prefs = { speed: store("speed", "normal"), autoroll: store("autoroll", true), reasons: store("reasons", true) };
@@ -67,6 +70,7 @@ async function api(route, body) {
 async function act(action) {
   if (busy) return;
   busy = true;
+  holdAutoRoll = false;
   try {
     const st = await api("act", { action });
     apply(st);
@@ -88,8 +92,8 @@ async function boot() {
     B = st.board;
     buildBoard();
     evCount = 0;
+    reviewsSeen = st.reviews.length;
     apply(st, true);
-    reviewsSeen = S.reviews.length;
     if (S.phase === "game_over") overShown = S.seed;
     pump();
   } catch (e) {
@@ -115,11 +119,12 @@ async function newGame(opts) {
 
 // ------------------------------------------------------------------ apply
 function apply(st, initial = false) {
+  // a response from a game that has since been replaced (e.g. a slow /step racing /new)
+  if (!initial && S && st.gid && S.gid && st.gid !== S.gid) return;
   if (st.reset_log || st.ev_total < evCount) {
     $("#log").replaceChildren();
     evCount = 0;
     initial = true; // don't replay effects after an undo
-    prev = null;
   }
   const fresh = st.events.filter((e) => e.i >= evCount);
   prev = S;
@@ -131,6 +136,8 @@ function apply(st, initial = false) {
   const key = `${S.turn}|${S.phase}|${S.actor}|${S.ev_total}`;
   if (hintKey && key !== hintKey) { $("#coach-out").replaceChildren(); hintKey = null; clearGlow(); }
   render();
+  if (logStick) { const log = $("#log"); log.scrollTop = log.scrollHeight; }
+  pollReviews();
   newReviews();
   if (S.phase === "game_over" && overShown !== S.seed) {
     overShown = S.seed;
@@ -147,7 +154,7 @@ async function pump() {
   if (pumping || !S) return;
   pumping = true;
   try {
-    while (S && S.phase !== "game_over" && S.actor !== S.human && !S.pending_offer) {
+    while (S && S.phase !== "game_over" && S.actor !== S.human && !S.pending_offer && !$("#dlg-new").open) {
       setThinking(S.actor);
       let st;
       try {
@@ -166,14 +173,24 @@ async function pump() {
   } finally {
     pumping = false;
     setThinking(null);
+    render();
   }
   if (S && S.pending_offer) openBotOffer();
   if (S && S.discard_owed && myDecision()) openDiscard();
   maybeAutoRoll();
 }
 
+function pollReviews() {
+  if (pollTimer || !S || !S.reviewing) return;
+  pollTimer = setTimeout(async () => {
+    pollTimer = null;
+    if (busy || pumping) return pollReviews();
+    try { apply(await api("state")); } catch { /* next action will refresh */ }
+  }, 900);
+}
+
 function maybeAutoRoll() {
-  if (!prefs.autoroll || !myDecision() || S.phase !== "pre_roll") return;
+  if (holdAutoRoll || !prefs.autoroll || !myDecision() || S.phase !== "pre_roll") return;
   const kinds = S.legal.kinds || [];
   if (kinds.length === 1 && kinds[0] === "roll") {
     const turn = S.turn;
@@ -271,6 +288,7 @@ function buildBoard() {
   els.robber.innerHTML = `<path d="M0-17a7 7 0 0 1 7 7c0 2.6-1.4 4.6-3.3 5.8C7.6-2.6 10 1.8 10 7v6c0 2-1.5 3-4 3H-6c-2.5 0-4-1-4-3V7c0-5.2 2.4-9.6 6.3-11.2A6.8 6.8 0 0 1-7-10a7 7 0 0 1 7-7z" filter="url(#shadow)"/><circle class="eye" cx="-2.4" cy="-10" r="1.2"/><circle class="eye" cx="2.4" cy="-10" r="1.2"/>`;
   els.targets = svg("g", { class: "targets" }, board);
   els.glow = svg("g", { class: "glow" }, board);
+  els.fx = svg("g", { class: "fx" }, board);
   els.roadEls = {};
   els.pieceEls = {};
   els.hexPts = hexPts;
@@ -281,6 +299,11 @@ function terrainGradient(id, hi, mid, lo) {
 }
 function shade(res) {
   return { wood: "#174a2c", brick: "#7a3220", sheep: "#f4fbe9", wheat: "#9a6f10", ore: "#3e4757", desert: "#a08350" }[res];
+}
+
+function ripple(p, owner) {
+  const c = svg("circle", { class: "ripple", cx: p.x, cy: p.y, r: 10, style: `--pc:${pc(owner)}` }, els.fx);
+  setTimeout(() => c.remove(), 1300);
 }
 
 function roadEl(e, owner) {
@@ -311,6 +334,15 @@ function pieceEl(v, owner, level) {
 // ------------------------------------------------------------------ render
 function render() {
   if (!S || !B) return;
+  // forced decisions: keep their dialog open even if it was dismissed
+  const owe = myDecision() && S.phase === "discard" && S.discard_owed > 0;
+  $("#btn-discard").hidden = !owe;
+  $("#btn-answer").hidden = !S.pending_offer;
+  if (!busy && !pumping) {
+    if (owe && !$("#dlg-discard").open) queueMicrotask(openDiscard);
+    if (S.pending_offer && !$("#dlg-botoffer").open) queueMicrotask(openBotOffer);
+  }
+  if ($("#dlg-trade").open) renderTrade();
   renderPieces();
   renderTargets();
   renderPlayers();
@@ -349,6 +381,7 @@ function renderPieces() {
     const g = pieceEl(v, o, lv);
     g.dataset.k = key;
     if (!prev) g.firstChild.classList.remove("pop");
+    else if (o !== S.human) ripple(B.vertices[v], o);
     els.pieces.appendChild(g);
     els.pieceEls[v] = g;
   }
@@ -357,18 +390,22 @@ function renderPieces() {
   els.hex.forEach((g, i) => g.classList.toggle("blocked", i === S.robber));
 }
 
+// Everything you can build right now is clickable on the board; the build buttons
+// only narrow the highlights down to one kind.
 function targetsNow() {
   const L = legal();
-  const t = { v: [], e: [], h: [], kind: null };
+  const t = { v: [], e: [], h: [], quick: false };
   if (!myDecision()) return t;
+  const verts = (kind) => (L[kind] || []).map((v) => [v, kind]);
   switch (S.phase) {
-    case "setup_settlement": t.v = L.settle || []; t.kind = "settle"; break;
-    case "setup_road": case "road_building": t.e = L.road || []; t.kind = "road"; break;
+    case "setup_settlement": t.v = verts("settle"); break;
+    case "setup_road": case "road_building": t.e = L.road || []; break;
     case "move_robber": t.h = Object.keys(L.robber || {}).map(Number); break;
     case "main":
-      if (mode === "road") { t.e = L.road || []; t.kind = "road"; }
-      if (mode === "settle") { t.v = L.settle || []; t.kind = "settle"; }
-      if (mode === "city") { t.v = L.city || []; t.kind = "city"; }
+      t.quick = !mode;
+      if (!mode || mode === "road") t.e = L.road || [];
+      if (!mode || mode === "settle") t.v.push(...verts("settle"));
+      if (!mode || mode === "city") t.v.push(...verts("city"));
       break;
   }
   return t;
@@ -379,6 +416,7 @@ function renderTargets() {
   g.replaceChildren();
   const t = targetsNow();
   $("#board").classList.toggle("robbing", t.h.length > 0);
+  g.classList.toggle("quick", t.quick);
   for (const h of t.h) {
     const hx = B.hexes[h];
     svg("polygon", { class: "hex-target", "data-h": h, points: els.hexPts(hx.x, hx.y, 0.9) }, g);
@@ -391,11 +429,11 @@ function renderTargets() {
     svg("line", { class: "vis", ...at }, tg);
     svg("line", { class: "hit", ...at }, tg);
   }
-  for (const v of t.v) {
+  for (const [v, kind] of t.v) {
     const p = B.vertices[v];
-    const tg = svg("g", { class: "v-target", "data-v": v, "data-kind": t.kind }, g);
+    const tg = svg("g", { class: `v-target k-${kind}`, "data-v": v, "data-kind": kind }, g);
     svg("circle", { class: "hit", cx: p.x, cy: p.y, r: 16 }, tg);
-    svg("circle", { class: "ring", cx: p.x, cy: p.y, r: t.kind === "city" ? 13 : 8 }, tg);
+    svg("circle", { class: "ring", cx: p.x, cy: p.y, r: kind === "city" ? 16 : 8 }, tg);
   }
 }
 
@@ -488,7 +526,23 @@ function renderActions() {
   set("#btn-settle", main && can("settle"), "settle");
   set("#btn-city", main && can("city"), "city");
   set("#btn-dev", main && can("buy_dev"));
+  const why = (kind, cost, base) => {
+    if (!mine) return `${base} — not your turn`;
+    if (S.phase !== "main") return `${base} — ${S.phase === "pre_roll" ? "roll first" : "finish the current step first"}`;
+    const miss = cost.map((n, r) => Math.max(0, n - S.hand[r]));
+    if (miss.some(Boolean)) return `${base} — need ${miss.map((n, r) => n ? `${n} ${RES[r]}` : "").filter(Boolean).join(", ")}`;
+    if (kind && !can(kind)) return `${base} — ${kind === "buy_dev" ? "deck is empty" : kind === "city" ? "no settlement to upgrade" : "no legal spot (extend your roads)"}`;
+    return base;
+  };
+  $("#btn-road").title = why("road", COSTS.road, "Build a road (1)");
+  $("#btn-settle").title = why("settle", COSTS.settle, "Build a settlement (2)");
+  $("#btn-city").title = why("city", COSTS.city, "Upgrade to a city (3)");
+  $("#btn-dev").title = why("buy_dev", COSTS.dev, "Buy a development card (D)");
+  $("#btn-roll").title = can("roll") ? "Roll the dice (R)" : mine && S.phase === "main" ? "Already rolled" : "Roll the dice — not now";
   set("#btn-trade", main);
+  for (const [id, kind] of [["#btn-road", "road"], ["#btn-settle", "settle"], ["#btn-city", "city"], ["#btn-dev", "buy_dev"]]) {
+    $(id).classList.toggle("ready", main && can(kind));
+  }
   const end = $("#btn-end");
   end.disabled = !can("end") || busy;
   end.classList.toggle("pulse", main && (S.legal.kinds || []).every((k) => k === "end" || k === "bank"));
@@ -509,7 +563,7 @@ function renderStatus(thinker) {
       case "setup_settlement": text = `Place your ${S.setup_idx < S.n ? "first" : "second"} settlement`; break;
       case "setup_road": text = "Place a road next to it"; break;
       case "pre_roll": text = (L.kinds || []).length > 1 ? "Roll the dice — or play a development card first" : "Roll the dice"; break;
-      case "main": text = mode ? `Click where to build a ${mode === "settle" ? "settlement" : mode} · Esc to cancel` : "Build, trade, or end your turn"; break;
+      case "main": text = mode ? `Showing only ${mode === "settle" ? "settlements" : mode === "city" ? "cities" : "roads"} · Esc to show everything` : (["road", "settle", "city"].some(can) ? "Click a glowing spot to build — or trade, buy a card, end turn" : "Trade, buy a card, or end your turn"); break;
       case "discard": text = `Discard ${S.discard_owed} cards`; break;
       case "move_robber": text = "Move the robber — click a hex"; break;
       case "road_building": text = `Place a free road (${S.free_roads} left)`; break;
@@ -561,11 +615,12 @@ function renderCosts() {
 // ------------------------------------------------------------------ log
 function appendLog(evs) {
   const log = $("#log");
-  const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 40 || !log.children.length;
+  logStick = stick;
   const frag = document.createDocumentFragment();
   for (const e of evs) {
     const li = document.createElement("li");
-    li.className = e.kind;
+    li.className = `k-${e.kind}`;
     if (e.p !== null && e.p !== undefined) li.style.setProperty("--pc", pc(e.p));
     let msg = e.msg;
     const m = msg.match(/ (?:at|upgrades) (\d+)/);
@@ -665,14 +720,16 @@ function newReviews() {
   const revs = S.reviews;
   if (revs.length < reviewsSeen) reviewsSeen = revs.length;
   const busyDialog = document.querySelector("dialog[open]");
-  for (const r of busyDialog ? [] : revs.slice(reviewsSeen)) {
+  for (const r of busyDialog ? [] : scored(revs.slice(reviewsSeen))) {
     const big = r.delta >= 0.2;
     toast(`${symbol(r.verdict)} ${r.verdict}${big ? `  −${r.delta.toFixed(2)}` : ""}`, big ? `You: ${plain(r.label)}\nEngine: ${plain(r.best)}` : plain(r.label), VERDICT_COLORS[r.verdict], big ? 7000 : 2600);
   }
   reviewsSeen = revs.length;
 }
 const plain = (s) => String(s).replace(/vertex \d+ ?/g, "").replace(/\b(road|settlement at|city at) \d+/g, "$1").replace(/settlement at \[/g, "settlement [").replace(/city at \[/g, "city [");
-const symbol = (v) => ({ best: "✓", good: "✓", inaccuracy: "?!", mistake: "?", blunder: "??" })[v];
+const symbol = (v) => ({ forced: "·", best: "✓", good: "✓", inaccuracy: "?!", mistake: "?", blunder: "??" })[v];
+const engineLine = (r) => r.forced ? "no real choice" : r.delta < 0.05 ? "engine agrees" : `engine: ${plain(r.best)}`;
+const scored = (revs) => revs.filter((r) => !r.forced);
 
 function renderReviews() {
   const revs = S.reviews;
@@ -680,13 +737,40 @@ function renderReviews() {
   const key = revs.length + ":" + (revs.at(-1)?.delta ?? "");
   if (ol.dataset.key === key) return;
   ol.dataset.key = key;
+  $("#btn-review").disabled = !revs.length;
   if (!revs.length) { ol.replaceChildren(); $("#accuracy").textContent = ""; return; }
-  const good = revs.filter((r) => r.delta < 0.2).length;
-  const lost = revs.reduce((a, r) => a + r.delta, 0);
-  $("#accuracy").innerHTML = `Accuracy <b>${Math.round((100 * good) / revs.length)}%</b> of ${revs.length} decisions · lost <b>${lost.toFixed(2)}</b> VP-eq`;
-  ol.innerHTML = revs.slice().reverse().slice(0, 40).map((r) => `
-    <li class="rev" ${r.action ? `data-a='${JSON.stringify(r.action)}'` : ""} ${r.best_action ? `data-b='${JSON.stringify(r.best_action)}'` : ""}><span class="vd vd-${r.verdict}">${symbol(r.verdict)} ${r.verdict}</span><span>${esc(plain(r.label))}${r.delta >= 0.05 ? ` <span class="muted">−${r.delta.toFixed(2)}</span>` : ""}</span>
-    ${r.delta >= 0.05 ? `<span class="best-line">engine: ${esc(plain(r.best))}</span>` : ""}</li>`).join("");
+  const real = scored(revs);
+  const good = real.filter((r) => r.delta < 0.2).length;
+  const lost = real.reduce((a, r) => a + r.delta, 0);
+  $("#accuracy").innerHTML = real.length ? `Accuracy <b>${Math.round((100 * good) / real.length)}%</b> of ${real.length} decisions · lost <b>${lost.toFixed(2)}</b> VP-eq` : "";
+  // forced moves only appear in the full "All moves" table
+  ol.innerHTML = real.slice().reverse().slice(0, 60).map(reviewItem).join("");
+}
+
+function reviewItem(r) {
+  return `<li class="rev ${r.forced ? "forced" : ""}" ${r.action ? `data-a='${JSON.stringify(r.action)}'` : ""} ${r.best_action ? `data-b='${JSON.stringify(r.best_action)}'` : ""}>
+    <span class="vd vd-${r.verdict}">${symbol(r.verdict)} ${r.verdict}</span>
+    <span>${esc(plain(r.label))}${r.delta >= 0.05 ? ` <span class="loss-n">−${r.delta.toFixed(2)}</span>` : ""}</span>
+    <span class="best-line">${esc(engineLine(r))}</span></li>`;
+}
+
+function showFullReview() {
+  const revs = S?.reviews || [];
+  const real = scored(revs);
+  const lost = real.reduce((a, r) => a + r.delta, 0);
+  const counts = {};
+  for (const r of real) counts[r.verdict] = (counts[r.verdict] || 0) + 1;
+  const rows = revs.map((r) => `<tr class="${r.forced ? "forced" : ""}">
+      <td class="muted">${r.turn ? r.turn : "setup"}</td>
+      <td>${esc(plain(r.label))}</td>
+      <td><span class="vd vd-${r.verdict}">${symbol(r.verdict)} ${r.verdict}</span></td>
+      <td class="num">${r.forced ? "" : r.delta < 0.005 ? "0" : "−" + r.delta.toFixed(2)}</td>
+      <td class="muted">${r.forced ? "—" : r.delta < 0.05 ? "same as yours" : esc(plain(r.best))}</td></tr>`).join("");
+  openInfo("Every move, rated", `
+    <p class="muted">Each of your decisions compared with the engine's best line, in VP-equivalents lost. Forced moves (only one sensible choice) are listed but not scored.</p>
+    <div class="vcounts">${["best", "good", "inaccuracy", "mistake", "blunder"].map((k) => `<span class="vd vd-${k}">${symbol(k)} ${k} ${counts[k] || 0}</span>`).join("")}</div>
+    <p>Accuracy <b>${real.length ? Math.round((100 * real.filter((r) => r.delta < 0.2).length) / real.length) : 100}%</b> · total lost <b>${lost.toFixed(2)}</b> VP-eq · ${revs.length} moves</p>
+    <div class="table-scroll"><table class="info-table review-table"><thead><tr><th>Turn</th><th>Your move</th><th>Verdict</th><th>Lost</th><th>Engine's best</th></tr></thead><tbody>${rows}</tbody></table></div>`, true);
 }
 
 async function showHint() {
@@ -710,7 +794,7 @@ async function showHint() {
 }
 
 function playableHint(a) {
-  return a && a[0] !== "macro" && a[0] !== "discard";
+  return a && !["macro", "discard", "trade", "propose"].includes(a[0]);
 }
 
 async function askCoachOffer() {
@@ -803,7 +887,10 @@ function onBoardHover(ev) {
   let html = null;
   if (v) {
     const vx = B.vertices[Number(v.dataset.v)];
-    html = `<b>${vx.desc || "coast"}</b><br><span class="muted">${vx.pips} pips total</span>`;
+    const what = { settle: "Build a settlement", city: "Upgrade to a city" }[v.dataset.kind];
+    html = `${what ? `<b style="color:var(--accent)">${what}</b><br>` : ""}<b>${vx.desc || "coast"}</b><br><span class="muted">${vx.pips} pips total</span>`;
+  } else if (ev.target.closest(".e-target")) {
+    html = `<b style="color:var(--accent)">Build a road</b><br><span class="muted">wood + brick</span>`;
   } else if (hx) {
     const h = B.hexes[Number(hx.dataset.h)];
     html = h.res ? `<b>${h.label}</b> · ${h.num} ${h.res} <span class="muted">(${h.pips} pips)</span>` : `<b>${h.label}</b> · desert`;
@@ -812,7 +899,7 @@ function onBoardHover(ev) {
   if (!html) { tip.classList.remove("show"); return; }
   tip.innerHTML = html;
   tip.style.left = `${Math.min(ev.clientX + 14, innerWidth - 290)}px`;
-  tip.style.top = `${ev.clientY + 14}px`;
+  tip.style.top = `${ev.clientY + 26}px`;
   tip.classList.add("show");
 }
 
@@ -824,6 +911,7 @@ function stepperRow(r, max, onChange, extra = "") {
   if (!extra) row.style.gridTemplateColumns = "24px 1fr 30px 26px 30px";
   let val = 0;
   const upd = () => {
+    val = Math.max(0, Math.min(val, max()));
     row.querySelector(".val").textContent = val;
     row.querySelector('[data-d="-1"]').disabled = val <= 0;
     row.querySelector('[data-d="1"]').disabled = val >= max();
@@ -855,7 +943,7 @@ function openDiscard() {
     $("#discard-ok").disabled = total() !== need;
     $("#discard-ok").textContent = `Discard ${total()}/${need}`;
   };
-  RES.forEach((_, r) => rows.push(stepperRow(r, () => Math.min(S.hand[r], rows[r].get() + need - total()), sync, `<span class="have">have ${S.hand[r]}</span>`)));
+  RES.forEach((_, r) => rows.push(stepperRow(r, () => Math.min(S.hand[r], (rows[r]?.get() ?? 0) + need - total()), sync, `<span class="have">have ${S.hand[r]}</span>`)));
   box.replaceChildren(...rows);
   sync();
   $("#discard-ok").onclick = async () => {
@@ -880,12 +968,12 @@ function openBotOffer() {
   const mini = (counts) => counts.map((n, r) => n ? `<div class="rcard r-${RES[r]}">${icon("i-" + RES[r])}<span class="n">${n}</span></div>` : "").join("");
   $("#bo-get").innerHTML = mini(po.give);
   $("#bo-give").innerHTML = mini(po.get);
-  const offerEv = [...$$("#log li.offer")].at(-1);
+  const offerEv = [...$$("#log li.k-offer")].at(-1);
   $("#bo-why").textContent = prefs.reasons && offerEv?.querySelector(".why") ? `“${offerEv.querySelector(".why").textContent}”` : "";
   $("#bo-hint").textContent = "";
   const answer = async (yes) => {
     dlg.close();
-    if (busy) return;
+    while (busy) await sleep(40);
     busy = true;
     try { apply(await api("respond", { accept: yes })); } catch (e) { toast(e.message, "", "var(--worst)"); }
     busy = false;
@@ -898,63 +986,108 @@ function openBotOffer() {
   modal(dlg);
 }
 
-let tradeRows = null;
-function openTrade(tab = "bank") {
+// Trade dialog: bank/ports and player offers side by side at a fixed size.
+// Give/want tiles add one card per click; the small minus takes one back.
+const trade = { give: [0, 0, 0, 0, 0], want: [0, 0, 0, 0, 0], replies: null, note: "" };
+
+function openTrade() {
   if (!myDecision() || S.phase !== "main") return;
-  const dlg = $("#dlg-trade");
-  selectTab(tab);
-  renderBankTrade();
-  const give = $("#offer-give"), get = $("#offer-get");
-  const sync = () => {
-    tradeRows.give.forEach((r) => r.refresh());
-    tradeRows.get.forEach((r) => r.refresh());
-    const g = tradeRows.give.map((r) => r.get()), w = tradeRows.get.map((r) => r.get());
-    $("#offer-send").disabled = !g.some(Boolean) || !w.some(Boolean) || g.some((n, i) => n && w[i]);
-    $("#offer-replies").replaceChildren();
-  };
-  tradeRows = {
-    give: RES.map((_, r) => stepperRow(r, () => S.hand[r], sync)),
-    get: RES.map((_, r) => stepperRow(r, () => 4, sync)),
-  };
-  give.replaceChildren(...tradeRows.give);
-  get.replaceChildren(...tradeRows.get);
-  sync();
-  modal(dlg);
+  trade.give = [0, 0, 0, 0, 0];
+  trade.want = [0, 0, 0, 0, 0];
+  trade.replies = null;
+  trade.note = "";
+  renderTrade();
+  modal($("#dlg-trade"));
 }
 
-function renderBankTrade() {
-  const box = $("#bank-trade");
-  box.innerHTML = RES.map((r, i) => {
+function renderTrade() {
+  const live = myDecision() && S.phase === "main";
+  trade.give = trade.give.map((n, r) => Math.min(n, S.hand[r]));
+  $("#trade-hand").innerHTML = `<span class="th-label">Your hand</span>` + RES.map((r, i) =>
+    `<span class="th-res ${S.hand[i] ? "" : "zero"}" title="${S.hand[i]} ${r}">${resIcon(i)}<b>${S.hand[i]}</b></span>`).join("");
+
+  $("#bank-trade").innerHTML = RES.map((r, i) => {
     const ratio = S.ratios[i];
-    const ok = S.hand[i] >= ratio && myDecision() && S.phase === "main";
-    const gets = RES.map((g, j) => j === i ? "" : `<button class="btn" data-give="${i}" data-get="${j}" ${ok && S.bank[j] > 0 ? "" : "disabled"} title="${ratio} ${r} → 1 ${g}">${resIcon(j)}</button>`).join("");
-    return `<div class="bt-row ${ok ? "" : "off"}"><div class="bt-give">${resIcon(i)}${ratio}× <small>have ${S.hand[i]}</small></div><div class="bt-gets">${gets}</div></div>`;
+    const ok = live && S.hand[i] >= ratio;
+    const gets = RES.map((g, j) => j === i ? "" :
+      `<button class="btn res-btn" data-give="${i}" data-get="${j}" ${ok && S.bank[j] > 0 ? "" : "disabled"} title="Give ${ratio} ${r}, get 1 ${g}">${resIcon(j)}</button>`).join("");
+    return `<div class="bt-row ${ok ? "" : "off"}"><div class="bt-give">${resIcon(i)}<b>${ratio}:1</b><small>${S.hand[i]}/${ratio}</small></div><div class="bt-gets">${gets}</div></div>`;
   }).join("");
-}
 
-function selectTab(name) {
-  $$("#dlg-trade .tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
-  $$("#dlg-trade .tabpanel").forEach((p) => { p.hidden = p.dataset.panel !== name; });
+  const tile = (side, r) => {
+    const n = trade[side][r];
+    const max = side === "give" ? S.hand[r] : 9;
+    return `<div class="pick ${n ? "on" : ""} r-${RES[r]}">
+      <button class="pick-add" data-side="${side}" data-r="${r}" ${live && n < max ? "" : "disabled"} title="${side === "give" ? "Give" : "Ask for"} one more ${RES[r]}">${icon("i-" + RES[r])}<span class="n">${n || ""}</span></button>
+      <button class="pick-sub" data-side="${side}" data-r="${r}" data-d="-1" ${n ? "" : "hidden"} aria-label="one fewer ${RES[r]}">−</button></div>`;
+  };
+  $("#offer-give").innerHTML = RES.map((_, r) => tile("give", r)).join("");
+  $("#offer-get").innerHTML = RES.map((_, r) => tile("want", r)).join("");
+  const fmt = (c) => c.map((n, r) => n ? `${n} ${RES[r]}` : "").filter(Boolean).join(" + ");
+  const ready = trade.give.some(Boolean) && trade.want.some(Boolean);
+  $("#offer-summary").innerHTML = ready ? `<b>${fmt(trade.give)}</b> <span class="muted">for</span> <b>${fmt(trade.want)}</b>`
+    : `<span class="muted">${trade.give.some(Boolean) ? "Now pick what you want" : "Click your cards to give, then what you want"}</span>`;
+  $("#offer-send").disabled = !live || !ready || busy;
+  $("#offer-clear").disabled = !trade.give.some(Boolean) && !trade.want.some(Boolean);
+
+  const box = $("#offer-replies");
+  if (trade.replies) {
+    box.innerHTML = trade.replies.map((r) => `<div class="reply" style="--pc:${pc(r.p)}"><span class="dot"></span><b>${esc(S.players[r.p].name)}</b>
+      <span class="ans ${r.ok ? "yes" : "no"}">${r.ok ? "accepts" : "declines"}</span>${r.ok ? `<button class="btn primary" data-q="${r.p}" ${live ? "" : "disabled"}>Trade</button>` : ""}</div>`).join("");
+  } else {
+    box.innerHTML = `<p class="coach-note">${esc(trade.note || "Every bot answers at once; you pick who to trade with.")}</p>`;
+  }
 }
 
 async function sendOffer() {
-  const give = tradeRows.give.map((r) => r.get()), get = tradeRows.get.map((r) => r.get());
-  const box = $("#offer-replies");
-  box.innerHTML = `<p class="coach-note">Waiting for answers…</p>`;
+  const give = trade.give.slice(), get = trade.want.slice();
+  trade.replies = null;
+  trade.note = "Waiting for answers…";
+  renderTrade();
   try {
     const st = await api("offer", { give, get });
     apply(st);
-    const mo = st.my_offer;
-    box.innerHTML = mo.replies.map((r) => `<div class="reply" style="--pc:${pc(r.p)}"><span class="dot"></span><b>${esc(S.players[r.p].name)}</b>
-      <span class="ans ${r.ok ? "yes" : "no"}">${r.ok ? "accepts" : "declines"}</span>${r.ok ? `<button class="btn primary" data-q="${r.p}">Trade</button>` : ""}</div>`).join("");
-    box.onclick = async (e) => {
-      const b = e.target.closest("[data-q]");
-      if (!b) return;
-      $("#dlg-trade").close();
-      await act(["trade", Number(b.dataset.q), give, get]);
-    };
+    trade.replies = st.my_offer.replies;
+    trade.sent = { give, get };
   } catch (e) {
-    box.innerHTML = `<p class="coach-note">${esc(e.message)}</p>`;
+    trade.note = e.message;
+  }
+  renderTrade();
+}
+
+async function onTradeClick(e) {
+  const bank = e.target.closest("[data-give]");
+  if (bank) {
+    await act(["bank", Number(bank.dataset.give), Number(bank.dataset.get)]);
+    return renderTrade();
+  }
+  const pick = e.target.closest("[data-side]");
+  if (pick) {
+    const side = pick.dataset.side, r = Number(pick.dataset.r);
+    const other = side === "give" ? "want" : "give";
+    trade[side][r] = Math.max(0, trade[side][r] + (pick.dataset.d === "-1" ? -1 : 1));
+    if (trade[side][r]) trade[other][r] = 0; // can't give and want the same card
+    trade.replies = null;
+    trade.note = "";
+    return renderTrade();
+  }
+  const q = e.target.closest("[data-q]");
+  if (q && trade.sent) {
+    const name = S.players[Number(q.dataset.q)].name;
+    await act(["trade", Number(q.dataset.q), trade.sent.give, trade.sent.get]);
+    trade.give = [0, 0, 0, 0, 0];
+    trade.want = [0, 0, 0, 0, 0];
+    trade.replies = null;
+    trade.note = `Traded with ${name}.`;
+    return renderTrade();
+  }
+  if (e.target.closest("#offer-send")) return sendOffer();
+  if (e.target.closest("#offer-clear")) {
+    trade.give = [0, 0, 0, 0, 0];
+    trade.want = [0, 0, 0, 0, 0];
+    trade.replies = null;
+    trade.note = "";
+    renderTrade();
   }
 }
 
@@ -968,7 +1101,7 @@ function openPick(kind) {
   const draw = () => {
     box.innerHTML = RES.map((r, i) => {
       const n = picks.filter((x) => x === i).length;
-      const off = yop && S.bank[i] < n + 1 && !n;
+      const off = yop && S.bank[i] < 1;
       return `<button data-r="${i}" aria-pressed="${n > 0}" ${off ? "disabled" : ""} title="${r}"><div class="rcard r-${r}">${icon("i-" + r)}<span class="lbl">${r}</span>${n ? `<span class="n">${n}</span>` : ""}</div></button>`;
     }).join("");
     $("#pick-ok").disabled = picks.length !== (yop ? 2 : 1);
@@ -978,6 +1111,7 @@ function openPick(kind) {
     if (!b) return;
     const r = Number(b.dataset.r);
     if (yop) {
+      if (picks.filter((x) => x === r).length >= Math.min(2, S.bank[r])) return;
       if (picks.length === 2) picks.shift();
       picks.push(r);
     } else {
@@ -994,9 +1128,10 @@ function openPick(kind) {
   modal(dlg);
 }
 
-function openInfo(title, html) {
+function openInfo(title, html, wide = false) {
   $("#info-title").textContent = title;
   $("#info-body").innerHTML = html;
+  $("#dlg-info").classList.toggle("wide", wide);
   modal($("#dlg-info"));
 }
 
@@ -1042,7 +1177,7 @@ function showGameOver() {
   if (sm.accuracy !== null) {
     rev = `<h3 style="margin-top:18px">Your decisions</h3>
       <div class="vcounts">${Object.entries(sm.counts).map(([k, n]) => `<span class="vd vd-${k}">${symbol(k)} ${k} ${n}</span>`).join("")}</div>
-      <p>Accuracy <b>${Math.round(sm.accuracy)}%</b> · total value lost <b>${sm.lost.toFixed(2)}</b> VP-eq · ${sm.turns} turns</p>
+      <p>Accuracy <b>${Math.round(sm.accuracy)}%</b> · total value lost <b>${sm.lost.toFixed(2)}</b> VP-eq · ${sm.turns} turns · <button class="btn ghost" id="over-all" style="padding:2px 8px">every move…</button></p>
       ${sm.worst.length ? `<h3>Biggest misses</h3><ul class="misses">${sm.worst.map((w) => `<li><span class="vd vd-${w.verdict}">−${w.delta.toFixed(2)}</span> ${w.turn ? `turn ${w.turn}` : "setup"}: ${esc(plain(w.label))}<br><span class="eng">engine: ${esc(plain(w.best))}</span></li>`).join("")}</ul>` : ""}`;
   }
   $("#over-body").innerHTML = `<table class="info-table"><thead><tr><th>Player</th><th>VP</th><th>Settl.</th><th>Cities</th><th></th></tr></thead><tbody>${rows}</tbody></table>${rev}`;
@@ -1086,9 +1221,12 @@ function wireUI() {
   $("#btn-end").onclick = () => { mode = null; act(["end"]); };
   $("#btn-dev").onclick = () => act(["buy_dev"]);
   $("#btn-trade").onclick = () => openTrade();
+  $("#btn-discard").onclick = () => openDiscard();
+  $("#btn-answer").onclick = () => openBotOffer();
   for (const b of $$("[data-mode]")) b.onclick = () => toggleMode(b.dataset.mode);
   $("#btn-hint").onclick = showHint;
   $("#btn-eval").onclick = showEval;
+  $("#btn-review").onclick = showFullReview;
   $("#btn-undo").onclick = undo;
   $("#btn-stats").onclick = showStats;
   $("#btn-help").onclick = showHelp;
@@ -1119,7 +1257,7 @@ function wireUI() {
     if (!b || !opts) return;
     const a = opts[Number(b.dataset.i)].action;
     clearGlow();
-    if (a[0] === "robber" || a[0] === "settle" || a[0] === "city" || a[0] === "road" || a[0].startsWith("play_") || ["roll", "end", "buy_dev", "bank", "end_road_building"].includes(a[0])) act(a);
+    if (playableHint(a)) act(a);
   });
 
   $("#log").addEventListener("pointerover", (e) => {
@@ -1162,28 +1300,21 @@ function wireUI() {
   $("#autoroll").onchange = (e) => { prefs.autoroll = e.target.checked; save("autoroll", prefs.autoroll); maybeAutoRoll(); };
 
   // trade dialog
-  $$("#dlg-trade .tab").forEach((t) => (t.onclick = () => selectTab(t.dataset.tab)));
-  $("#bank-trade").addEventListener("click", async (e) => {
-    const b = e.target.closest("[data-give]");
-    if (!b) return;
-    await act(["bank", Number(b.dataset.give), Number(b.dataset.get)]);
-    renderBankTrade();
-    tradeRows?.give.forEach((r) => r.refresh());
-  });
-  $("#offer-send").onclick = sendOffer;
+  $("#dlg-trade").addEventListener("click", onTradeClick);
 
   // new game dialog
   const f = $("#form-new");
   f.addEventListener("change", syncSeat4);
   $("#dlg-new").addEventListener("close", async () => {
     const dlg = $("#dlg-new");
-    if (dlg.returnValue !== "start") { if (!S) openNewGame(false); return; }
+    if (dlg.returnValue !== "start") { if (!S) openNewGame(false); else pump(); return; }
     dlg.returnValue = "";
     const opts = { opponents: Number(f.elements.opponents.value), level: f.elements.level.value, seat: f.elements.seat.value, name: f.elements.name.value, seed: f.elements.seed.value };
     save("newgame", { opponents: opts.opponents, level: opts.level, seat: opts.seat, name: opts.name });
     try { await newGame(opts); } catch (e) { toast("Couldn't start", e.message, "var(--worst)"); openNewGame(!!S); }
   });
   $("#over-new").onclick = () => { $("#dlg-over").close(); openNewGame(true); };
+  $("#over-body").addEventListener("click", (e) => { if (e.target.id === "over-all") { $("#dlg-over").close(); showFullReview(); } });
   $("#over-replay").onclick = async () => {
     $("#dlg-over").close();
     await newGame({ opponents: S.n - 1, level: S.level, seat: S.human + 1, name: S.players[S.human].name, seed: S.seed });
@@ -1208,6 +1339,7 @@ async function undo() {
   busy = true;
   try {
     mode = null;
+    holdAutoRoll = true;
     apply(await api("undo", {}));
     reviewsSeen = S.reviews.length;
     toast("Undone", `Back to turn ${S.turn}. Same dice, different choices.`, "var(--muted)", 2200);
@@ -1235,8 +1367,11 @@ function onKey(e) {
     2: () => toggleMode("settle"),
     3: () => toggleMode("city"),
     "?": () => showHelp(),
-    escape: () => { if (mode) { mode = null; render(); } },
   };
+  if (k === "escape") {
+    if (mode) { e.preventDefault(); mode = null; render(); }
+    return;
+  }
   if (map[k]) { e.preventDefault(); map[k](); }
 }
 

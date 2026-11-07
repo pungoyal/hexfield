@@ -101,6 +101,51 @@ class WebTests(unittest.TestCase):
         for p in st["players"]:
             self.assertNotIn("hand", p)
 
+    def test_malformed_input_is_rejected(self):
+        c = self.c
+        st = c.call("new", {"opponents": 2, "seed": 5, "seat": 1})
+        for action in (["end", 1], ["settle"], ["discard"], ["trade", 1], ["road", "x"],
+                       ["discard", 5], ["discard", [0, 0, 0, 0, 0, 4]], ["roll", 7], "x", None):
+            r = c.call("act", {"action": action})
+            self.assertEqual(r.get("status"), 400, action)
+        for give, get in (([1], [0, 0, 0, 0, 1]), (5, 5), ([1, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1])):
+            self.assertEqual(c.call("offer", {"give": give, "get": get}).get("status"), 400)
+        self.assertEqual(c.call("new", {"opponents": "x"}).get("status"), 400)
+        self.assertEqual(c.call("state?since=abc").get("status"), 400)
+        self.assertEqual(st["phase"], "setup_settlement")
+
+    def test_discard_needs_five_counts(self):
+        g = WebGame(2, "easy", seed=11, seat=1)
+        g.s.phase = "discard"
+        g.s.hands[0] = [2, 2, 2, 2, 0]
+        g.s.discards = {0: 4}
+        with self.assertRaises(Exception):
+            g.act(["discard", [0, 0, 0, 0, 0, 4]])
+        g.act(["discard", [1, 1, 1, 1, 0]])
+        self.assertEqual(g.s.hands[0], [1, 1, 1, 1, 0])
+
+    def test_undo_keeps_earlier_reviews(self):
+        g = WebGame(2, "easy", seed=12, seat=1)
+        for _ in range(4):  # both setup rounds for the human
+            while g.s.actor() != g.human:
+                g.step()
+            g.act(list(g.s.legal_actions()[0]))
+        g._jobs.join()
+        n = len(g.reviews)
+        self.assertEqual(n, 4)
+        g.undo()
+        g._jobs.join()
+        self.assertEqual(len(g.reviews), 3)
+        g.close()
+
+    def test_bot_answers_and_plans_stay_hidden(self):
+        g = WebGame(2, "easy", seed=13, seat=1)
+        g.pending_offer = {"from": 1, "give": [1, 0, 0, 0, 0], "get": [0, 1, 0, 0, 0], "answers": {"2": True}}
+        self.assertNotIn("answers", g.view()["pending_offer"])
+        from hexfield.web.session import public_reason
+        self.assertEqual(public_reason("plan: buy development card -> play Knight  (eval +0.40)"),
+                         "plan: buy development card  (eval +0.40)")
+
     def test_geometry(self):
         g = WebGame(2, "easy", seed=1, seat=1)
         geo = g.geometry

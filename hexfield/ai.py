@@ -890,7 +890,7 @@ class AIPlayer:
             t = s.clone()
             self._apply_compound(t, a, p)
             if t.phase == MAIN and t.winner == -1:
-                sc, _, _ = self.plan_turn(t, p, beam=3, depth=3)
+                sc, _, _ = self.plan_turn(t, p, beam=max(4, self.cfg["beam"]), depth=3)  # matches best_value
                 return max(sc, self.exact_score(t, p))
             return self.exact_score(t, p)
         t = s.clone()

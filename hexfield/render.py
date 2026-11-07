@@ -369,7 +369,7 @@ def second_person(msg, human_name):
     """'You builds' -> 'You build' when the human kept the default name."""
     if human_name != "You":
         return msg
-    msg = msg.replace("You's turn", "Your turn")
+    msg = msg.replace("You's turn", "Your turn").replace("You starts", "You start")
     words = msg.split(" ")
     for i in range(len(words) - 1):
         if words[i] in ("You", "(You") and words[i + 1] in _VERBS:
