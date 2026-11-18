@@ -195,20 +195,18 @@
   </div>
 </dialog>
 
-<dialog id="dlg-botoffer" aria-labelledby="bo-title" closedby="none">
-  <h2 id="bo-title"></h2>
+<dialog id="dlg-botoffer" class="botoffer" aria-labelledby="bo-title" closedby="none">
+  <h2 id="bo-title"><span class="dot" id="bo-dot"></span><span><span id="bo-name"></span> offers a trade</span></h2>
   <div class="bo-cards">
-    <div><h3>You get</h3><div class="mini-cards" id="bo-get"></div></div>
-    <div class="bo-arrow">⇄</div>
-    <div><h3>You give</h3><div class="mini-cards" id="bo-give"></div></div>
+    <section class="bo-side"><h3>You get</h3><div class="mini-cards" id="bo-get"></div></section>
+    <div class="bo-arrow" aria-hidden="true">⇄</div>
+    <section class="bo-side"><h3>You give</h3><div class="mini-cards" id="bo-give"></div></section>
   </div>
   <div class="trade-hand" id="bo-hand"></div>
-  <p class="bo-why muted" id="bo-why"></p>
-  <p class="bo-hint" id="bo-hint"></p>
-  <div class="dlg-actions">
+  <p class="bo-coach" id="bo-hint" aria-live="polite"></p>
+  <div class="dlg-actions bo-actions">
     <button class="btn ghost dlg-undo" data-key="U" title="Undo your last decision"><svg><use href="#i-undo"/></svg>Undo</button>
-    <button class="btn ghost" id="bo-ask" data-key="C"><svg><use href="#i-bulb"/></svg>Ask coach</button>
-    <button class="btn danger" id="bo-no" data-key="N" autofocus>Decline</button>
+    <button class="btn danger" id="bo-no" data-key="N">Decline</button>
     <button class="btn primary" id="bo-yes" data-key="Y">Accept</button>
   </div>
 </dialog>

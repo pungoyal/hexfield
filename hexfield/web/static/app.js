@@ -1326,16 +1326,28 @@ function playableHint(a) {
   return a && !["macro", "discard", "trade", "propose"].includes(a[0]);
 }
 
+// the coach's verdict on a bot's offer, in one line; Space follows it
 async function askCoachOffer() {
   const box = $("#bo-hint");
   const offer = JSON.stringify(S.pending_offer);
-  box.textContent = "Coach is thinking…";
+  const from = S.players[S.pending_offer.from].name;
+  box.className = "bo-coach";
+  box.removeAttribute("title");
+  box.innerHTML = `<span class="tag">Coach</span><span class="muted">thinking…</span>`;
   try {
     const st = await api("hint");
     if (JSON.stringify(S.pending_offer) !== offer) return; // answered meanwhile
     const h = st.hint;
     setObvious($("#dlg-botoffer"), h.accept ? $("#bo-yes") : $("#bo-no"));
-    box.innerHTML = `Engine: <b style="color:${h.accept ? "var(--good)" : "var(--worst)"}">${h.accept ? "ACCEPT" : "DECLINE"}</b> · net value for you ${h.gain >= 0 ? "+" : ""}${h.gain.toFixed(2)} VP-eq <span class="muted">(includes what they build with it)</span>`;
+    // the coach declines small gains (and anything that feeds a player on 8+): say which
+    const vp = Math.abs(h.gain).toFixed(2);
+    const why = h.accept ? `worth +${vp} VP to you`
+      : h.gain <= 0 ? `costs you ${vp} VP`
+      : S.players[S.pending_offer.from].vp >= 8 ? `only +${vp} VP, and ${esc(from)} is close to winning`
+      : `only +${vp} VP: too small to help ${esc(from)}`;
+    box.className = `bo-coach ${h.accept ? "yes" : "no"}`;
+    box.title = `Net value for you in VP-equivalents, including what ${from} builds with the cards`;
+    box.innerHTML = `<span class="tag">Coach</span><b>${h.accept ? "Accept" : "Decline"}</b><span class="muted">${why}</span>`;
   } catch (e) {
     box.textContent = e.message;
   }
@@ -1477,7 +1489,7 @@ function handStrip(el, delta = [0, 0, 0, 0, 0], label = "Your hand") {
   el.innerHTML = `<span class="th-label">${label}</span>` + RES.map((r, i) => {
     const n = S.hand[i], d = delta[i] || 0, after = n + d;
     const cls = d > 0 ? "up" : d < 0 ? "down" : "";
-    return `<span class="th-res ${after ? "" : "zero"} ${cls}" title="${n} ${r}${d ? ` → ${after}` : ""}">${resIcon(i)}<b>${d ? `<s>${n}</s>${after}` : n}</b></span>`;
+    return `<span class="th-res ${after ? "" : "zero"} ${cls}" title="${n} ${r}${d ? ` → ${after}` : ""}">${resIcon(i)}<b>${after}</b>${d ? `<small class="th-d">${d > 0 ? "+" : "−"}${Math.abs(d)}</small>` : ""}</span>`;
   }).join("") + handTotal(S.hand.reduce((a, b) => a + b, 0) + delta.reduce((a, b) => a + b, 0)) +
     (delta.some(Boolean) ? `<span class="th-builds">${buildChanges(S.hand, handPlus(S.hand, delta))}</span>`
       : `<span class="th-builds"><span class="th-label">Can pay for</span>${buildChips(S.hand)}</span>`);
@@ -1485,7 +1497,7 @@ function handStrip(el, delta = [0, 0, 0, 0, 0], label = "Your hand") {
 
 // card count, with the cost of a 7 once it's over seven
 function handTotal(n) {
-  return `<span class="th-total ${n > 7 ? "over" : ""}">${n} cards${n > 7 ? ` · a 7 would cost you ${Math.floor(n / 2)}` : ""}</span>`;
+  return `<span class="th-total ${n > 7 ? "over" : ""}">${n} card${n === 1 ? "" : "s"}${n > 7 ? ` · a 7 would cost you ${Math.floor(n / 2)}` : ""}</span>`;
 }
 
 function openDiscard() {
@@ -1524,13 +1536,12 @@ function openBotOffer() {
   const dlg = $("#dlg-botoffer");
   const po = S.pending_offer;
   if (!po || dlg.open) return;
-  $("#bo-title").textContent = `${S.players[po.from].name} offers you a trade`;
+  $("#bo-name").textContent = S.players[po.from].name;
+  $("#bo-dot").style.background = pc(po.from);
   const mini = (counts) => counts.map((n, r) => n ? `<div class="rcard r-${RES[r]}">${icon("i-" + RES[r])}<span class="n">${n}</span></div>` : "").join("");
   $("#bo-get").innerHTML = mini(po.give);
   $("#bo-give").innerHTML = mini(po.get);
-  const offerEv = $$("#log li.k-offer").at(-1);
-  $("#bo-why").textContent = prefs.reasons && offerEv?.querySelector(".why") ? `“${offerEv.querySelector(".why").textContent}”` : "";
-  handStrip($("#bo-hand"), RES.map((_, r) => po.give[r] - po.get[r]), "If you accept");
+  handStrip($("#bo-hand"), RES.map((_, r) => po.give[r] - po.get[r]), "After");
   const answer = async (yes) => {
     dlg.close();
     while (busy) await sleep(40);
@@ -1542,7 +1553,6 @@ function openBotOffer() {
   };
   $("#bo-yes").onclick = () => answer(true);
   $("#bo-no").onclick = () => answer(false);
-  $("#bo-ask").onclick = askCoachOffer;
   setObvious(dlg, $("#bo-no")); // safe default until the coach's verdict arrives
   modal(dlg);
   askCoachOffer(); // the verdict is cheap: show it straight away
@@ -1799,7 +1809,7 @@ function showHelp() {
       ${k(["1", "…", "5"], "Wood, brick, sheep, wheat, ore: add one (discard, offer you give, Year of Plenty, Monopoly)")}
       ${k(["⇧1", "…", "⇧5"], "Discard: remove one · Offer: add one to what you want")}${k(["⌥1", "…"], "Offer: take one back (⌥⇧ for the want side)")}
       ${k(["A", "…", "W"], "Trade: the bank or port trade with that letter")}${k(["J", "K", "L"], "Trade: accept a bot's answer")}
-      ${k(["Y", "N", "C"], "Bot offer: accept, decline, ask the coach")}${k(["S"], "Discard: suggest")}${k(["↵"], "Confirm (discard, play, send offer, start game)")}${k(["⌫"], "Clear the offer")}${k(["Esc"], "Close")}
+      ${k(["Y", "N"], "Bot offer: accept, decline (Space follows the coach)")}${k(["S"], "Discard: suggest")}${k(["↵"], "Confirm (discard, play, send offer, start game)")}${k(["⌫"], "Clear the offer")}${k(["Esc"], "Close")}
     </div>
     </details>
   </div>`);
