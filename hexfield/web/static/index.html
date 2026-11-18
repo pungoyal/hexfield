@@ -60,11 +60,11 @@
   <aside class="left">
     <section class="players" id="players" aria-label="Players"></section>
     <section class="card econ" aria-label="Your income">
-      <h2>Your income <span class="h-sub" id="econ-sum"></span></h2>
+      <h2 title="Pips = cards per 36 rolls. Each row: the numbers you collect on, and your trade rate.">Your income <span class="h-sub" id="econ-sum"></span></h2>
       <div id="econ"></div>
     </section>
-    <section class="card bank" aria-label="Bank">
-      <h2>Bank <span class="h-sub">cards left</span></h2>
+    <section class="card bank" aria-label="Bank" title="Cards left in the bank">
+      <h2 title="When a resource runs out, nobody collects it.">Bank <span class="h-sub">cards left</span></h2>
       <div class="bank-row" id="bank"></div>
     </section>
   </aside>
@@ -82,7 +82,7 @@
       <div class="coach-head">
         <h2>Coach</h2>
         <label class="switch" data-key="⇧R" title="Review each of your decisions (Shift+R)"><input type="checkbox" id="review-on" checked><span>Review</span></label>
-        <label class="switch" data-key="⇧B" title="Show the bots' reasoning in the log (Shift+B)"><input type="checkbox" id="reason-on" checked><span>Bot reasoning</span></label>
+        <label class="switch" data-key="⇧B" title="Show the bots' reasoning in the log (Shift+B)"><input type="checkbox" id="reason-on" checked><span>Reasoning</span></label>
       </div>
       <div class="coach-actions">
         <button class="btn" id="btn-hint" data-key="H" title="Engine's top options (H)"><svg><use href="#i-bulb"/></svg>Hint</button>
@@ -106,8 +106,14 @@
   </aside>
 
   <footer class="dock">
-    <div class="hand" id="hand" aria-label="Your resource cards"></div>
-    <div class="devhand" id="devhand" aria-label="Your development cards"></div>
+    <div class="hand-wrap">
+      <div class="dock-cap" id="hand-cap"></div>
+      <div class="hand" id="hand" aria-label="Your resource cards"></div>
+    </div>
+    <div class="dev-wrap">
+      <div class="dock-cap" id="dev-cap"></div>
+      <div class="devhand" id="devhand" aria-label="Your development cards"></div>
+    </div>
     <div class="actions">
       <button class="btn big primary" id="btn-roll" data-key="R" title="Roll the dice (R)"><svg><use href="#i-dice"/></svg>Roll</button>
       <div class="build">

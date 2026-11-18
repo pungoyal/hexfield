@@ -56,6 +56,10 @@ works at every prompt (no B, D, E, H, Q, R or T). `c`, `k` and `s` are main-turn
 well as hexes C, K and S; at the robber prompt only hex letters and victim names mean
 anything, so there is no clash.
 
+The board fills a full-bleed sea panel and scales with the window. When a roll pays out, each
+card travels from the hex that produced it to whoever collected it. After a game ends you can
+dismiss the result to look at the board; **Results** in the status pill brings it back.
+
 The left panel shows **your income**: pips per resource, the numbers you collect on, what
 the robber blocks, and your trade rate. Settlement spots are labelled with their pip value
 (the best ones stand out), and when your turn starts a **While you waited** card summarises
