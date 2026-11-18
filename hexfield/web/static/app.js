@@ -51,6 +51,7 @@ function production(p) {
 
 // ---- what a hand can pay for (used wherever a decision changes your hand)
 const BUILD_NAMES = { road: "Road", settle: "Settlement", city: "City", dev: "Dev card" };
+const BUILD_ORDER = ["city", "settle", "dev", "road"]; // most valuable first: what a recommendation aims for
 const covers = (hand, cost) => cost.every((n, r) => hand[r] >= n);
 const handPlus = (hand, d) => hand.map((n, r) => n + (d[r] || 0));
 
@@ -610,32 +611,100 @@ function renderTargets() {
 // Board spot letters use whatever letters the main screen leaves free.
 const MAIN_LETTERS = new Set($$("body > .app [data-key]")
   .map((el) => el.dataset.key).filter((k) => /^[A-Z]$/.test(k)).map((k) => k.toLowerCase()));
-const KEY_ABC = [..."abcdefghijklmnopqrstuvwxyz"].filter((c) => !MAIN_LETTERS.has(c)).join("");
+// easiest keys first: home row, then the top row, then the bottom row
+const KEY_ABC = [..."asfgjklqwyuiopzxcvbnm"].filter((c) => !MAIN_LETTERS.has(c)).join("");
 let keyBuf = "";
-let keyMap = []; // [{code, x, y} + one of v/kind, e, hex]
+let keyMap = []; // [{code, x, y, best} + one of v/kind, e, hex]
+
+// ---- "obvious" controls: in every scope (main screen, each dialog, the victim menu) the
+// recommended choice is ringed green, and Space presses it. Multi-step choices (a discard,
+// Year of Plenty) move the ring along, so pressing Space repeatedly plays the recommended line.
+function setObvious(scope, el) {
+  for (const o of $$(".obvious", scope)) if (o !== el) o.classList.remove("obvious");
+  el?.classList.add("obvious");
+}
+
+// ---- ranking: the better a spot, the easier its key. The best spot is always A.
+let adjacent = null; // vertex -> neighbouring vertices
+function neighbours(v) {
+  if (!adjacent) {
+    adjacent = B.vertices.map(() => []);
+    for (const [a, b] of B.edges) { adjacent[a].push(b); adjacent[b].push(a); }
+  }
+  return adjacent[v];
+}
+const openSpot = (v) => S.v_owner[v] === -1 && neighbours(v).every((u) => S.v_owner[u] === -1);
+
+// resources the human already collects (setup's second settlement and later builds favour new ones)
+function myResources() {
+  const have = new Set();
+  S.v_owner.forEach((o, v) => {
+    if (o === S.human) for (const h of B.vertices[v].hexes) if (B.hexes[h].res) have.add(B.hexes[h].res);
+  });
+  return have;
+}
+
+function spotScore(v, have) {
+  const p = B.vertices[v];
+  const res = new Set(p.hexes.map((h) => B.hexes[h].res).filter(Boolean));
+  let sc = p.pips + 0.6 * res.size + 0.8 * [...res].filter((r) => !have.has(r)).length;
+  // a 3:1 port always helps; a 2:1 port only for a resource you will collect
+  if (p.port) sc += p.port === "any" || res.has(p.port) || have.has(p.port) ? 1.2 : 0.4;
+  return sc;
+}
+
+// a road is worth the best open spot it leads to (one more road away counts a bit less)
+function roadScore(e, have) {
+  let best = 0;
+  for (const u of B.edges[e]) {
+    if (openSpot(u)) best = Math.max(best, spotScore(u, have));
+    for (const w of neighbours(u)) if (openSpot(w)) best = Math.max(best, 0.8 * spotScore(w, have));
+  }
+  return best;
+}
+
+// the robber: opponents' pips blocked (the leaders' count more), never your own, and a card to steal
+function robberScore(h) {
+  const hit = robberHits(h);
+  let sc = 0;
+  for (const [q, pips] of Object.entries(hit)) {
+    sc += Number(q) === S.human ? -3 * pips : pips * (1 + S.players[q].vp / 5);
+  }
+  return sc + ((S.legal.robber?.[h] || []).length ? 2 : 0);
+}
+
+// codes in rank order: the top spots get one letter, the rest two letters that begin with
+// the hardest-to-reach letters (so a one-letter code is never the start of a longer one)
+function assignCodes(items) {
+  const n = items.length, L = KEY_ABC.length;
+  let pre = 0;
+  while (L - pre + pre * L < n) pre++;
+  const singles = KEY_ABC.slice(0, L - pre), prefixes = KEY_ABC.slice(L - pre);
+  items.forEach((it, i) => {
+    const j = i - singles.length;
+    it.code = j < 0 ? singles[i] : prefixes[Math.floor(j / L)] + KEY_ABC[j % L];
+  });
+}
 
 function keyTargets() {
   if (!myDecision()) return [];
   const t = targetsNow();
   const labelled = mode || ["setup_settlement", "setup_road", "road_building", "move_robber"].includes(S.phase);
   if (!labelled) return [];
-  if (t.h.length) {
-    // the robber uses each hex's fixed letter (never a shortcut), shown only while robbing
-    return t.h.map((h) => ({ code: B.hexes[h].label.toLowerCase(), hex: h, x: B.hexes[h].x, y: B.hexes[h].y - 26 }));
-  }
+  const have = myResources();
   const items = [
-    ...t.v.map(([v, kind]) => ({ v, kind, x: B.vertices[v].x, y: B.vertices[v].y })),
+    ...t.h.map((h) => ({ hex: h, x: B.hexes[h].x, y: B.hexes[h].y - 26, score: robberScore(h) })),
+    ...t.v.map(([v, kind]) => ({ v, kind, x: B.vertices[v].x, y: B.vertices[v].y,
+      score: kind === "city" ? B.vertices[v].pips : spotScore(v, have) })),
     ...t.e.map((e) => {
       const [a, b] = B.edges[e].map((v) => B.vertices[v]);
-      return { e, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      return { e, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, score: roadScore(e, have) };
     }),
   ];
-  // reading order: top to bottom, then left to right, so codes are easy to find
-  items.sort((a, b) => Math.round(a.y / 20) - Math.round(b.y / 20) || a.x - b.x);
-  const two = items.length > KEY_ABC.length;
-  items.forEach((it, i) => {
-    it.code = two ? KEY_ABC[Math.floor(i / KEY_ABC.length)] + KEY_ABC[i % KEY_ABC.length] : KEY_ABC[i];
-  });
+  // best first; equal spots in reading order, so the codes are easy to find
+  items.sort((a, b) => b.score - a.score || Math.round(a.y / 20) - Math.round(b.y / 20) || a.x - b.x);
+  assignCodes(items);
+  if (items.length > 1) items[0].best = true;
   return items;
 }
 
@@ -646,7 +715,7 @@ function renderKeys() {
   if (keyBuf && !keyMap.some((k) => k.code.startsWith(keyBuf))) keyBuf = "";
   for (const k of keyMap) {
     const on = keyBuf && k.code.startsWith(keyBuf);
-    const kg = svg("g", { class: `key-tag ${on ? "on" : keyBuf ? "dim" : ""}`, transform: `translate(${k.x.toFixed(1)} ${(k.v !== undefined ? k.y - 20 : k.y).toFixed(1)})` }, g);
+    const kg = svg("g", { class: `key-tag ${on ? "on" : keyBuf ? "dim" : ""} ${k.best ? "best" : ""}`, transform: `translate(${k.x.toFixed(1)} ${(k.v !== undefined ? k.y - 20 : k.y).toFixed(1)})` }, g);
     const w = 8 + 7 * k.code.length;
     svg("rect", { x: -w / 2, y: -8, width: w, height: 15, rx: 4 }, kg);
     const tx = svg("text", { y: 3.5 }, kg);
@@ -785,6 +854,7 @@ function renderActions() {
   const roll = $("#btn-roll");
   roll.disabled = !can("roll") || busy;
   roll.classList.toggle("pulse", pre);
+  roll.classList.toggle("obvious", can("roll"));
   // the tooltip says why a button is off
   const why = (kind, cost, base) => {
     if (!mine) return `${base} — not your turn`;
@@ -1264,6 +1334,7 @@ async function askCoachOffer() {
     const st = await api("hint");
     if (JSON.stringify(S.pending_offer) !== offer) return; // answered meanwhile
     const h = st.hint;
+    setObvious($("#dlg-botoffer"), h.accept ? $("#bo-yes") : $("#bo-no"));
     box.innerHTML = `Engine: <b style="color:${h.accept ? "var(--good)" : "var(--worst)"}">${h.accept ? "ACCEPT" : "DECLINE"}</b> · net value for you ${h.gain >= 0 ? "+" : ""}${h.gain.toFixed(2)} VP-eq <span class="muted">(includes what they build with it)</span>`;
   } catch (e) {
     box.textContent = e.message;
@@ -1322,6 +1393,9 @@ function moveRobber(hex, at) {
 
 function chooseVictim(hex, vics, ev) {
   const pop = $("#victims");
+  // the leader with the most cards first: key 1 and Space
+  const worth = (q) => 2 * S.players[q].vp + S.players[q].cards;
+  vics = [...vics].sort((a, b) => worth(b) - worth(a));
   pop.innerHTML = `<h3>Steal from…</h3>` + vics.map((q, i) => `<button class="btn ghost" data-q="${q}" data-key="${i + 1}" style="--pc:${pc(q)}"><span class="dot"></span>${esc(S.players[q].name)} <span class="muted">${S.players[q].cards} cards · ${S.players[q].vp} VP</span></button>`).join("");
   pop.style.left = `${Math.min(ev.clientX + 8, innerWidth - 240)}px`;
   pop.style.top = `${Math.min(ev.clientY + 8, innerHeight - 160)}px`;
@@ -1331,6 +1405,7 @@ function chooseVictim(hex, vics, ev) {
     pop.hidePopover();
     act(["robber", hex, Number(b.dataset.q)]);
   };
+  setObvious(pop, pop.querySelector("button"));
   pop.showPopover();
   pop.querySelector("button")?.focus();
 }
@@ -1425,6 +1500,7 @@ function openDiscard() {
     rows.forEach((r) => r.refresh());
     $("#discard-ok").disabled = total() !== need;
     $("#discard-ok").textContent = `Discard ${total()}/${need}`;
+    setObvious(dlg, total() === need ? $("#discard-ok") : $("#discard-hint"));
     handStrip($("#discard-hand"), rows.map((r) => -r.get()), total() ? "Keeping" : "Your hand");
   };
   RES.forEach((_, r) => rows.push(stepperRow(r, () => Math.min(S.hand[r], (rows[r]?.get() ?? 0) + need - total()), sync)));
@@ -1467,6 +1543,7 @@ function openBotOffer() {
   $("#bo-yes").onclick = () => answer(true);
   $("#bo-no").onclick = () => answer(false);
   $("#bo-ask").onclick = askCoachOffer;
+  setObvious(dlg, $("#bo-no")); // safe default until the coach's verdict arrives
   modal(dlg);
   askCoachOffer(); // the verdict is cheap: show it straight away
 }
@@ -1540,6 +1617,23 @@ function renderTrade() {
   } else {
     box.innerHTML = `<p class="coach-note">${esc(trade.note || "Every bot answers at once; you pick who to trade with.")}</p>`;
   }
+  obviousTrade();
+}
+
+function obviousTrade() {
+  const dlg = $("#dlg-trade");
+  const accept = $("#offer-replies [data-q]:not(:disabled)");
+  if (accept) return setObvious(dlg, accept);
+  if (!$("#offer-send").disabled && !trade.replies) return setObvious(dlg, $("#offer-send"));
+  let best = null, bestRank = Infinity, bestLeft = -1;
+  for (const b of $$("#bank-trade [data-give]:not(:disabled)")) {
+    const i = Number(b.dataset.give), j = Number(b.dataset.get);
+    const after = S.hand.map((n, k) => n + (k === j) - (k === i ? S.ratios[i] : 0));
+    const rank = BUILD_ORDER.findIndex((k) => !covers(S.hand, COSTS[k]) && covers(after, COSTS[k]));
+    const left = after[i]; // keep the most of what you give
+    if (rank >= 0 && (rank < bestRank || (rank === bestRank && left > bestLeft))) { best = b; bestRank = rank; bestLeft = left; }
+  }
+  setObvious(dlg, best);
 }
 
 async function sendOffer() {
@@ -1592,6 +1686,7 @@ function openPick(kind) {
   const haul = (r) => Math.round(S.tracker?.[r] ?? 0);
   const picks = [];
   const box = $("#pick-res");
+  const rec = yop ? plentyPicks() : [RES.map((_, i) => i).sort((a, b) => (S.tracker?.[b] ?? 0) - (S.tracker?.[a] ?? 0))[0]];
   const draw = () => {
     box.innerHTML = RES.map((r, i) => {
       const n = picks.filter((x) => x === i).length;
@@ -1602,6 +1697,11 @@ function openPick(kind) {
     $("#pick-ok").disabled = picks.length !== (yop ? 2 : 1);
     if (yop) handStrip($("#pick-hand"), RES.map((_, r) => picks.filter((x) => x === r).length), picks.length ? "After" : "Your hand");
     else handStrip($("#pick-hand"), RES.map((_, r) => (picks[0] === r ? haul(r) : 0)), picks.length ? "About" : "Your hand");
+    // the next recommended card, then Play
+    const left = rec.slice();
+    for (const x of picks) { const i = left.indexOf(x); if (i >= 0) left.splice(i, 1); }
+    const done = picks.length === (yop ? 2 : 1);
+    setObvious(dlg, done ? $("#pick-ok") : box.querySelector(`[data-r="${left[0] ?? rec[0]}"]`));
   };
   box.onclick = (e) => {
     const b = e.target.closest("[data-r]");
@@ -1623,6 +1723,21 @@ function openPick(kind) {
   };
   draw();
   modal(dlg);
+}
+
+// Year of Plenty: the two cards that complete the best build, else the two you hold fewest of
+function plentyPicks() {
+  const avail = (r, n) => S.bank[r] >= n;
+  for (const b of BUILD_ORDER) {
+    const need = COSTS[b].flatMap((c, r) => Array(Math.max(0, c - S.hand[r])).fill(r));
+    if (need.length && need.length <= 2 && need.every((r) => avail(r, need.filter((x) => x === r).length))) {
+      if (need.length === 1) need.push(RES.map((_, r) => r).filter((r) => avail(r, r === need[0] ? 2 : 1))
+        .sort((a, b) => S.hand[a] - S.hand[b])[0]);
+      return need;
+    }
+  }
+  const low = RES.map((_, r) => r).filter((r) => avail(r, 1)).sort((a, b) => S.hand[a] - S.hand[b]);
+  return [low[0], low[1] ?? low[0]];
 }
 
 function openInfo(title, html, wide = false) {
@@ -1668,7 +1783,8 @@ function showHelp() {
       ${k(["R"], "Roll the dice")}${k(["1", "2", "3"], "Build a road / settlement / city: then type the letter on the spot")}
       ${k(["D"], "Buy a development card")}${k(["4", "5", "6", "7"], "Play Knight / Road Building / Monopoly / Year of Plenty")}
       ${k(["T"], "Trade with the bank, ports or players")}${k(["E"], "End your turn")}
-      ${k(["A", "…", "Z"], "Pick the board spot with that letter (setup, build modes, robber; never R, E, D, T or H)")}
+      ${k(["Space"], "The obvious move, everywhere: the green-ringed choice. On the board the best spot or the roll; in a dialog the recommended answer (the coach's verdict on an offer, the suggested discard, the trade that unlocks your best build, the richest player to rob). Keep pressing to follow a multi-step recommendation")}
+      ${k(["A", "S", "F", "…"], "Pick a board spot (setup, build modes, robber). Spots are ranked: A is always the best, then S, F, G… down the home row; weaker spots get two letters")}
       ${k(["⌫"], "Take back a typed letter")}${k(["1", "2", "3"], "Choose who to rob (when asked)")}
       ${k(["⇧D"], "Reopen the discard dialog")}${k(["⇧Y"], "Reopen a bot's trade offer")}${k(["Esc"], "Cancel: typed letters, then build mode, then the coach panel")}
     </div>
@@ -1939,12 +2055,23 @@ function onKey(e) {
   if (scope) {
     if (label === "↵" && e.target.closest("button, a")) return; // Enter on a focused button presses that button
     if (label === "Esc" && dlg?.getAttribute("closedby") !== "none") return; // the browser closes it
+    if (label === " ") { // Space: the recommended choice, wherever focus is
+      const o = $$(".obvious", scope).find(shown);
+      if (o) { e.preventDefault(); press(o); }
+      return;
+    }
     const el = keyTarget(scope, label);
     if (el) { e.preventDefault(); press(el); }
     return;
   }
   if (k === "backspace" && keyBuf) { e.preventDefault(); keyBuf = keyBuf.slice(0, -1); renderKeys(); return; }
   if (/^[A-Z]$/.test(label) && !busy && pickKey(k)) { e.preventDefault(); return; }
+  // Space is always the obvious move: the top-ranked spot (always a single letter), or the roll
+  if (label === " " && !busy && !keyBuf) {
+    if (keyMap.length) { e.preventDefault(); pickKey(keyMap[0].code); return; }
+    const o = $$("body > .app .obvious").find((el) => shown(el) && !el.closest("dialog, [popover]"));
+    if (o) { e.preventDefault(); press(o); return; }
+  }
   // halfway through a two-letter spot code, any other key just cancels the code
   if (keyBuf && label !== "Esc") { e.preventDefault(); keyBuf = ""; renderKeys(); return; }
   if (label === "Esc") {

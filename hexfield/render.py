@@ -391,7 +391,7 @@ class Renderer:
 _VERBS = {"builds": "build", "rolls": "roll", "receives": "receive", "collects": "collect",
           "trades": "trade", "steals": "steal", "plays": "play", "buys": "buy", "moves": "move",
           "discards": "discard", "takes": "take", "loses": "lose", "upgrades": "upgrade",
-          "offers": "offer", "WINS": "WIN"}
+          "offers": "offer", "accepts": "accept", "declines": "decline", "WINS": "WIN"}
 
 
 def second_person(msg, human_name):

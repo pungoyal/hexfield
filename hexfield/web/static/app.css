@@ -719,6 +719,13 @@ dialog.trade { width: min(860px, calc(100vw - 32px)); }
 .key-tag.on rect { fill: var(--accent); }
 .key-tag.on text { fill: #10151d; }
 .key-tag.dim { opacity: .08; }
+/* the recommended choice in any scope: ringed green, and Space presses it */
+.obvious { box-shadow: 0 0 0 2px var(--good), 0 0 12px rgb(62 207 142 / .35); }
+.obvious > .kb { color: var(--good); border-color: var(--good); }
+.obvious > .kb::before { content: "␣ "; }
+/* the top-ranked spot: always the first key (A) */
+.key-tag.best rect { fill: var(--good); stroke: var(--good); opacity: 1; }
+.key-tag.best text { fill: #08130d; }
 .victims kbd, .help kbd { font: 700 10.5px var(--mono); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--muted); }
 
 /* while robbing, the key tags replace the hex letters so only one letter shows per hex */

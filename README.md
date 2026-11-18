@@ -41,11 +41,20 @@ Monopoly dialog shows your card tracker's estimate of what each resource would b
 On a phone or tablet the key badges and board letters are hidden.
 
 Everything can be done from the keyboard. In setup, in a build mode and when moving the
-robber, every clickable spot shows a letter (two letters when there are many), and typing it
-picks the spot. Hexes are named with letters that never clash with a browser shortcut or a
-terminal command that works at every prompt (no B, D, E, H, Q, R or T). In the terminal,
-`c`, `k` and `s` are main-turn commands as well as hexes C, K and S; at the robber prompt
-only hex letters and victim names mean anything, so there is no clash.
+robber, every clickable spot shows a letter, and typing it picks the spot. Letters go by
+rank, not position: the best spot is always **A** (shown in green), then S, F, G… along the
+home row, and only the weakest spots get two letters. **Space** always does the obvious
+move: the A spot, the roll, and in every dialog and popup the green-ringed recommended
+answer (the coach's verdict on an offer, the suggested discard, the trade that unlocks your
+best build, the richest player to rob); keep pressing to follow a multi-step one.
+Settlements rank by pips, new resources and ports; cities by pips; roads by the best open
+spot they lead to; the robber by the opponents' income it blocks (the leaders' counts
+more), never your own.
+
+In the terminal, hexes are named with fixed letters that never clash with a command that
+works at every prompt (no B, D, E, H, Q, R or T). `c`, `k` and `s` are main-turn commands as
+well as hexes C, K and S; at the robber prompt only hex letters and victim names mean
+anything, so there is no clash.
 
 The left panel shows **your income**: pips per resource, the numbers you collect on, what
 the robber blocks, and your trade rate. Settlement spots are labelled with their pip value

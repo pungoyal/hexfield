@@ -59,6 +59,14 @@ class KeyTests(unittest.TestCase):
         clash = {c.upper() for c in cmds if len(c) == 1} & set(HEX_LETTERS)
         self.assertFalse(clash, f"terminal commands reuse hex letters: {clash}")
 
+    def test_spot_letters_skip_shortcuts_and_start_on_the_home_row(self):
+        js = (ROOT / "hexfield/web/static/app.js").read_text()
+        order = re.search(r'const KEY_ABC = \[\.\.\."([a-z]+)"\]', js).group(1)
+        self.assertEqual(len(order), len(set(order)), "a letter appears twice")
+        free = set("abcdefghijklmnopqrstuvwxyz") - web_shortcuts()
+        self.assertEqual(set(order) & free, free, "a free letter is missing from the spot-key order")
+        self.assertEqual([c for c in order if c in free][0], "a", "the best spot should be A")
+
 
 if __name__ == "__main__":
     unittest.main()
