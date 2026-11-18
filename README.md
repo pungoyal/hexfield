@@ -25,7 +25,9 @@ server plus plain HTML/CSS/JS). It has an SVG board with clickable spots, animat
 production and robber, a card dock, trade dialogs for the bank, ports and players, and a
 coach panel. In the coach panel, **Hint** shows the engine's top options on the board,
 **Evaluate** scores every player, and each of your decisions gets a verdict. Hover a review
-to compare your move with the engine's. Undo works as in the terminal. Bots play at a
+to compare your move with the engine's. Undo works as in the terminal, at any moment: while
+the bots play, in the discard and bot-offer dialogs (an **Undo** button, or `U`), and after
+the game ends. Bots play at a
 selectable speed. Keys: `R` roll, `1/2/3` road/settlement/city, `D` dev card,
 `T` trade, `E` end turn, `H` hint, `Ctrl+Z` (`⌘Z` on a Mac) undo, `?` help. Reloading the
 page resumes the game.
@@ -88,7 +90,7 @@ colour off.
 
 | command | |
 |---|---|
-| `r` | roll |
+| `r` | roll (rolled for you unless you can play a knight first; `--no-autoroll` to always ask) |
 | `s 23` / `s` | settlement at vertex 23 (bare `s` shows the legal vertex ids on the map) |
 | `c 23` | city |
 | `rd 41` / `rd` | road on edge 41 (bare `rd` shows the legal edge ids) |
@@ -100,7 +102,7 @@ colour off.
 | `h` / `hint` | the engine's top 5 options for the current decision, with reasons |
 | `eval` | engine evaluation of every player plus production (pips per resource) |
 | `review on/off`, `reason on/off` | post-move review / bot reasoning (bare `review` shows the setting) |
-| `undo` | take back your last decision. Dice and the deck stay the same, so you can try another line |
+| `undo` | take back your last decision, at any prompt (also while discarding or answering a bot's offer). Dice and the deck stay the same, so you can try another line |
 | `b`, `ids`, `log 30`, `stats`, `cost`, `help`, `q` | view and help commands |
 
 Hexes are lettered for the robber, e.g. `F` or `F vera`. At the robber prompt a letter is

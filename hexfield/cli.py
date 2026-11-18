@@ -8,7 +8,7 @@ import time
 from collections import Counter
 
 from .ai import AIPlayer, describe
-from .constants import (DESERT, KNIGHT, MONOPOLY, PIPS, RES_NAMES, ROAD_BUILDING, YEAR_OF_PLENTY,
+from .constants import (DESERT, KNIGHT, PIPS, RES_NAMES,
                         parse_res)
 from .game import (DISCARD, MAIN, OVER, PRE_ROLL, ROAD_BUILD, ROBBER, SETUP_ROAD,
                    SETUP_SETTLE, GameState, IllegalAction, fmt_cards)
@@ -128,6 +128,7 @@ class Game:
         self.reason_on = not args.no_reasoning
         self.delay = 0.0 if args.fast else args.delay
         self.history = []        # undo snapshots
+        self.resume = None       # a bot offer to ask again after undoing back to it
         self.reviews = []        # (turn, phase, my, best, delta, verdict)
         self.pending_review = None
         self.shown = None
@@ -178,17 +179,22 @@ class Game:
         self.out(self.r.screen(vertex_ids, edge_ids, highlight))
 
     def ask(self, prompt):
+        line = self.read_line(prompt).strip()
+        if line.lower() == "undo":
+            raise Undo()  # works at every prompt, including sub-prompts and bot offers
+        return line
+
+    def read_line(self, prompt):
         st = self.st
         p = self.human
         tag = st(f" {self.s.names[p]} ", fg=16, bg=PLAYER_COLORS[p], bold=True)
         try:
-            line = input(f"{tag} {st(prompt, bold=True)} {st('›', fg=PLAYER_COLORS[p], bold=True)} ")
+            return input(f"{tag} {st(prompt, bold=True)} {st('›', fg=PLAYER_COLORS[p], bold=True)} ")
         except EOFError:
             raise Quit()
         except KeyboardInterrupt:
             print()
             raise Quit()
-        return line.strip()
 
     def command(self, prompt, redraw=None, parse=None):
         """Ask until the answer is more than a common command; return its words.
@@ -236,15 +242,24 @@ class Game:
         self.out(f"  Type {st('help', bold=True)} for commands, {st('hint', bold=True)} for engine advice.")
         try:
             while self.s.phase != OVER:
-                p = self.s.actor()
-                if p == self.human:
-                    self.human_turn_step()
-                else:
-                    self.ai_step(p)
-                self.flush_events()
+                self.step()
             self.game_over()
         except Quit:
             self.out("\n  Bye! Seed was " + str(self.seed))
+
+    def step(self):
+        """One decision: yours, a bot's, or your answer to a bot's offer."""
+        p = self.s.actor()
+        try:
+            if self.resume:
+                self.replay_offer()
+            elif p == self.human:
+                self.human_turn_step()
+            else:
+                self.ai_step(p)
+        except Undo:  # typed while answering a bot's offer
+            self.undo()
+        self.flush_events()
 
     def banner(self):
         st = self.st
@@ -264,17 +279,10 @@ class Game:
         a, why = self.agents[p].decide(s)
         if a[0] == "propose":
             _, give, get = a
-            self.out(" " + self.st("⇄", fg=PLAYER_COLORS[p], bold=True) +
-                     f" {s.names[p]} offers {fmt_cards(give)} for {fmt_cards(get)}")
-            if self.reason_on:
-                self.reason(why)
-
-            def on_reply(q, ok, gain):
-                if q != self.human:
-                    self.out(self.st(f"     {s.names[q]} {'accepts' if ok else 'declines'}", dim=True))
-
-            resolve_proposal(s, self.agents, p, give, get, ask_human=self.ask_trade, on_reply=on_reply)
-            self.flush_events()
+            if s.can_afford(self.human, get):
+                # answering is one of your decisions: undo can come back to it
+                self.snapshot(resume=(p, give, get, why))
+            self.bot_offer(p, give, get, why)
             return
         self.apply(a)
         self.flush_events()
@@ -284,6 +292,27 @@ class Game:
             self.last_reason = ""
         if self.delay:
             time.sleep(self.delay)
+
+    def replay_offer(self):
+        """Ask a bot's offer again after undoing back to it."""
+        p, give, get, why = self.resume
+        self.resume = None
+        self.snapshot(resume=(p, give, get, why))
+        self.bot_offer(p, give, get, why)
+
+    def bot_offer(self, p, give, get, why):
+        s = self.s
+        self.out(" " + self.st("⇄", fg=PLAYER_COLORS[p], bold=True) +
+                 f" {s.names[p]} offers {fmt_cards(give)} for {fmt_cards(get)}")
+        if self.reason_on:
+            self.reason(why)
+
+        def on_reply(q, ok, gain):
+            if q != self.human:
+                self.out(self.st(f"     {s.names[q]} {'accepts' if ok else 'declines'}", dim=True))
+
+        resolve_proposal(s, self.agents, p, give, get, ask_human=self.ask_trade, on_reply=on_reply)
+        self.flush_events()
 
     def reason(self, why):
         # a knight's reason already explains the robber move that follows it
@@ -307,9 +336,6 @@ class Game:
                 self.info(f"engine: {'ACCEPT' if ok else 'DECLINE'} (net value for you {gain:+.2f}, "
                           f"includes what {s.names[proposer]} builds with it)")
                 continue
-            if ans == "undo":
-                self.warn("can't undo in the middle of an offer - answer first")
-                continue
             if ans in ("y", "yes", "n", "no", ""):
                 yes = ans in ("y", "yes")
                 if self.review_on:
@@ -323,19 +349,22 @@ class Game:
             self.warn("answer y or n")
 
     # ------------------------------------------------------------- undo
-    def snapshot(self):
+    def snapshot(self, resume=None):
+        """Save the game before one of your decisions. `resume` marks a bot's offer
+        (proposer, give, get, why), asked again when undo comes back to it."""
         agents = [(a.rng.getstate(), a._proposed) if a else None for a in self.agents]
-        self.history.append((self.s.clone(sim=False), agents, len(self.reviews)))
+        self.history.append((self.s.clone(sim=False), agents, len(self.reviews), resume))
 
     def undo(self):
         # drop the snapshot of the current decision, restore the previous one
         if len(self.history) < 2:
             self.warn("nothing to undo")
-            self.history.pop()  # the current decision is re-snapshotted
+            # the current decision is asked again (and re-snapshotted); nothing has changed
+            self.resume = self.history.pop()[3]
             return False
         self.shown = None  # the next prompt redraws the board once
         self.history.pop()
-        state, agents, nrev = self.history.pop()
+        state, agents, nrev, self.resume = self.history.pop()
         self.s = state
         for a, saved in zip(self.agents, agents):
             if a:
@@ -695,8 +724,8 @@ class Game:
     # main turn -----------------------------------------------------------
     def human_main(self):
         s = self.s
-        if s.phase == PRE_ROLL and self.args.autoroll and not any(
-                s.playable(self.human, c) for c in (KNIGHT, ROAD_BUILDING, MONOPOLY, YEAR_OF_PLENTY)):
+        # only a knight is worth playing before the roll; other dev cards can wait until after it
+        if s.phase == PRE_ROLL and self.args.autoroll and not s.playable(self.human, KNIGHT):
             self.apply(("roll",))
             self.flush_events()
             return
@@ -900,7 +929,7 @@ def main(argv=None):
     ap.add_argument("--fast", action="store_true", help="no pause between bot actions")
     ap.add_argument("--delay", type=float, default=0.15, help="seconds between bot actions")
     ap.add_argument("--no-autoroll", dest="autoroll", action="store_false",
-                    help="always ask before rolling (default: auto-roll when no dev card is playable)")
+                    help="always ask before rolling (default: auto-roll unless you can play a knight)")
     args = ap.parse_args(argv)
     if args.seat and args.seat > args.opponents + 1:
         ap.error("seat must be <= number of players")

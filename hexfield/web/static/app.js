@@ -169,6 +169,7 @@ let prev = null;       // previous S for diffing
 let mode = null;       // main-phase build mode: road | settle | city
 let busy = false;
 let pumping = false;
+let stopPump = false;   // set by undo: the bot loop stops after its current step
 let reviewsSeen = 0;
 let logStick = true;
 let holdAutoRoll = false; // set by undo so it can step back past a roll
@@ -291,7 +292,7 @@ async function pump() {
   if (pumping || !S) return;
   pumping = true;
   try {
-    while (S && S.phase !== "game_over" && S.actor !== S.human && !S.pending_offer && !$("#dlg-new").open) {
+    while (S && !stopPump && S.phase !== "game_over" && S.actor !== S.human && !S.pending_offer && !$("#dlg-new").open) {
       setThinking(S.actor);
       let st;
       try {
@@ -329,7 +330,8 @@ function pollReviews() {
 function maybeAutoRoll() {
   if (holdAutoRoll || !prefs.autoroll || !myDecision() || S.phase !== "pre_roll") return;
   const kinds = S.legal.kinds || [];
-  if (kinds.length === 1 && kinds[0] === "roll") {
+  // only a knight is worth playing before the roll; other dev cards can wait until after it
+  if (kinds.includes("roll") && !kinds.includes("play_knight")) {
     const turn = S.turn;
     setTimeout(() => { if (S.turn === turn && S.phase === "pre_roll" && myDecision()) act(["roll"]); }, 350);
   }
@@ -501,7 +503,8 @@ function render() {
   renderEcon();
   renderReviews();
   $("#seed").textContent = `seed ${S.seed}`;
-  $("#btn-undo").disabled = !S.can_undo || pumping || busy;
+  $("#btn-undo").disabled = !S.can_undo;
+  for (const b of $$(".dlg-undo")) b.hidden = !S.can_undo;
   $("#review-on").checked = S.review_on;
   $("#reviewing").hidden = !S.reviewing;
 }
@@ -1752,6 +1755,7 @@ function wireUI() {
   $("#btn-eval").onclick = showEval;
   $("#btn-review").onclick = showFullReview;
   $("#btn-undo").onclick = undo;
+  for (const b of $$(".dlg-undo")) b.onclick = undo;
   $("#btn-stats").onclick = showStats;
   $("#btn-help").onclick = showHelp;
   $("#btn-new").onclick = () => openNewGame(true);
@@ -1852,8 +1856,16 @@ function toggleMode(m) {
   render();
 }
 
+let undoing = false;
 async function undo() {
-  if (!S?.can_undo || busy || pumping) return;
+  if (!S?.can_undo || undoing) return;
+  undoing = true;
+  // undo is always allowed: let the bots finish their current step and any request land first
+  stopPump = true;
+  while (busy || pumping) await sleep(40);
+  stopPump = false;
+  // forced dialogs (discard, a bot's offer) and the game-over screen give way to the undo
+  for (const d of $$("dialog[open]")) if (d.id !== "dlg-new") d.close();
   busy = true;
   try {
     mode = null;
@@ -1861,11 +1873,13 @@ async function undo() {
     const st = await api("undo", {});
     apply(st);
     reviewsSeen = S.reviews.length;
+    overShown = null; // undoing out of a finished game: show the result again if it ends again
     toast(`Undid: ${st.undone ? human(st.undone) : "your last decision"}`, "Same dice, different choices.", "var(--muted)", 2600);
   } catch (e) {
     toast(e.message, "", "var(--worst)");
   }
   busy = false;
+  undoing = false;
   render();
   pump();
 }
@@ -1915,7 +1929,7 @@ function onKey(e) {
   const dlg = $$("dialog[open]").at(-1);
   const k = e.key.toLowerCase();
   if (e.metaKey || e.ctrlKey) {
-    if (!dlg && k === "z") { e.preventDefault(); undo(); }
+    if (k === "z" && (!dlg || dlg.id !== "dlg-new")) { e.preventDefault(); undo(); }
     return;
   }
   const label = keyLabel(e);

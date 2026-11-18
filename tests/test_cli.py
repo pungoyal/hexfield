@@ -74,7 +74,7 @@ def scripted_game(seed, opponents=2, color=False):
             a = ("end",)
         return to_command(game, a)
 
-    game.ask = ask
+    game.read_line = ask
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         game.run()
@@ -106,7 +106,7 @@ def scripted(game, answers):
         if not answers:
             raise AssertionError(f"unexpected prompt: {prompt}")
         return answers.pop(0)
-    game.ask = ask
+    game.read_line = ask
     return answers
 
 
@@ -199,6 +199,89 @@ class CLIInputTests(unittest.TestCase):
         scripted(game, ["U", "undo"])
         with self.assertRaises(cli.Undo):
             run_quiet(game.human_robber)
+
+
+    def bot_offer_game(self):
+        """You end your turn; the next bot offers you 1 wood for your 1 brick."""
+        game = make_game()
+        to_my_main(game)
+        s, me = game.s, game.human
+        s.hands = [[0] * 5 for _ in range(s.n)]
+        s.hands[me] = [0, 1, 0, 0, 0]
+        scripted(game, ["e"])
+        run_quiet(game.step)
+        bot = (me + 1) % s.n
+        self.assertEqual(s.actor(), bot)
+        s.phase = MAIN  # the bot has rolled
+        s.hands = [[0] * 5 for _ in range(s.n)]
+        s.hands[me], s.hands[bot] = [0, 1, 0, 0, 0], [1, 0, 0, 0, 0]
+        game.agents[bot].decide = lambda st: (("propose", (1, 0, 0, 0, 0), (0, 1, 0, 0, 0)), "needs brick")
+        return game, me, bot
+
+    def test_undo_while_answering_a_bot_offer(self):
+        game, me, bot = self.bot_offer_game()
+        scripted(game, ["undo"])
+        text = run_quiet(game.step)
+        self.assertNotIn("can't undo", text)
+        s = game.s
+        self.assertEqual((s.current, s.phase), (me, MAIN))  # back before you ended your turn
+        self.assertEqual(s.hands[me], [0, 1, 0, 0, 0])
+
+    def test_undo_comes_back_to_a_bot_offer(self):
+        game, me, bot = self.bot_offer_game()
+        scripted(game, ["y"])
+        run_quiet(game.step)
+        self.assertEqual(game.s.hands[me], [1, 0, 0, 0, 0])
+        game.snapshot()  # your next decision ...
+        run_quiet(game.undo)  # ... undone: the offer is asked again
+        self.assertEqual(game.s.hands[me], [0, 1, 0, 0, 0])
+        left = scripted(game, ["n"])
+        text = run_quiet(game.step)
+        self.assertFalse(left)
+        self.assertIn("offers 1 wood for 1 brick", text)
+        self.assertEqual(game.s.hands[me], [0, 1, 0, 0, 0])
+
+    def test_undo_while_discarding(self):
+        game = make_game()
+        to_my_main(game)
+        s, me = game.s, game.human
+        s.hands[me] = [3, 2, 1, 1, 1]
+        scripted(game, ["e"])
+        run_quiet(game.step)
+        game.s.phase, game.s.discards = DISCARD, {me: 4}  # someone rolled a 7
+        scripted(game, ["undo"])
+        run_quiet(game.step)
+        self.assertEqual((game.s.current, game.s.phase), (me, MAIN))
+        self.assertEqual(game.s.hands[me], [3, 2, 1, 1, 1])
+
+    def test_undo_at_a_sub_prompt(self):
+        game = make_game()
+        to_my_main(game)
+        game.show = lambda *a, **k: None
+        game.s.hands[game.human] = [1, 1, 1, 1, 0]
+        scripted(game, ["e"])
+        run_quiet(game.step)
+        to_my_main(game)
+        scripted(game, ["s", "undo"])  # undo at "settlement at (vertex id, blank to cancel)"
+        with self.assertRaises(cli.Undo):
+            run_quiet(game.human_main)
+
+    def test_autoroll_waits_only_for_a_knight(self):
+        from hexfield.constants import KNIGHT, MONOPOLY
+        from hexfield.game import PRE_ROLL
+        for card, waits in ((MONOPOLY, False), (KNIGHT, True)):
+            game = make_game()
+            to_my_main(game)
+            game.show = lambda *a, **k: None
+            s, me = game.s, game.human
+            s.phase, s.dev_played = PRE_ROLL, False
+            s.devs[me] = [0] * len(s.devs[me])
+            s.new_devs[me] = [0] * len(s.new_devs[me])
+            s.devs[me][card] = 1
+            left = scripted(game, ["r"])
+            run_quiet(game.human_main)
+            self.assertEqual(bool(left), not waits, card)
+            self.assertNotEqual(s.phase, PRE_ROLL)
 
 
 if __name__ == "__main__":

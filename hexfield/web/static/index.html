@@ -99,7 +99,7 @@
       <div class="coach-head log-opts">
         <label class="switch" data-key="⇧F" title="Bot speed (Shift+F cycles)">Speed <select id="speed">
           <option value="fast">fast</option><option value="normal">normal</option><option value="slow">slow</option></select></label>
-        <label class="switch" data-key="⇧O" title="Roll automatically when you have no development card to play first (Shift+O)"><input type="checkbox" id="autoroll">Auto-roll</label>
+        <label class="switch" data-key="⇧O" title="Roll automatically unless you can play a knight first (Shift+O)"><input type="checkbox" id="autoroll">Auto-roll</label>
       </div>
       <ol class="log" id="log"></ol>
     </section>
@@ -163,6 +163,7 @@
   <div class="trade-hand" id="discard-hand"></div>
   <div class="steppers" id="discard-steppers"></div>
   <div class="dlg-actions">
+    <button class="btn ghost dlg-undo" data-key="U" title="Undo your last decision"><svg><use href="#i-undo"/></svg>Undo</button>
     <button class="btn ghost" id="discard-hint" data-key="S"><svg><use href="#i-bulb"/></svg>Suggest</button>
     <button class="btn primary" id="discard-ok" data-key="↵" disabled>Discard</button>
   </div>
@@ -205,6 +206,7 @@
   <p class="bo-why muted" id="bo-why"></p>
   <p class="bo-hint" id="bo-hint"></p>
   <div class="dlg-actions">
+    <button class="btn ghost dlg-undo" data-key="U" title="Undo your last decision"><svg><use href="#i-undo"/></svg>Undo</button>
     <button class="btn ghost" id="bo-ask" data-key="C"><svg><use href="#i-bulb"/></svg>Ask coach</button>
     <button class="btn danger" id="bo-no" data-key="N" autofocus>Decline</button>
     <button class="btn primary" id="bo-yes" data-key="Y">Accept</button>
@@ -234,6 +236,7 @@
   <h2 id="over-title"></h2>
   <div id="over-body"></div>
   <div class="dlg-actions">
+    <button class="btn ghost dlg-undo" data-key="U" title="Undo your last decision"><svg><use href="#i-undo"/></svg>Undo</button>
     <form method="dialog"><button class="btn ghost" data-key="Esc">See board</button></form>
     <button class="btn" id="over-replay" data-key="R">Replay this seed</button>
     <button class="btn primary" id="over-new" data-key="N">New game</button>
