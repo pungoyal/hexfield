@@ -356,13 +356,13 @@ const SPRITES = `
   <linearGradient id="a-gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe98a"/><stop offset=".5" stop-color="#f3b92b"/><stop offset="1" stop-color="#b9780c"/></linearGradient>
   <linearGradient id="a-steel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f4f7fb"/><stop offset=".5" stop-color="#aeb9c9"/><stop offset="1" stop-color="#5f6b80"/></linearGradient>
   <linearGradient id="a-bark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a5a33"/><stop offset="1" stop-color="#4a2c14"/></linearGradient>
-  <radialGradient id="a-grain" cx="40%" cy="35%" r="75%"><stop offset="0" stop-color="#f8ddb0"/><stop offset="1" stop-color="#d59f5e"/></radialGradient>
-  <linearGradient id="a-clay" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ec8460"/><stop offset="1" stop-color="#b9482b"/></linearGradient>
+  <radialGradient id="a-log-rings" cx="40%" cy="35%" r="75%"><stop offset="0" stop-color="#f8ddb0"/><stop offset="1" stop-color="#d59f5e"/></radialGradient>
+  <linearGradient id="a-brick-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ec8460"/><stop offset="1" stop-color="#b9482b"/></linearGradient>
 
   <symbol id="a-timber" viewBox="0 0 48 48">
     <ellipse cx="25" cy="42.5" rx="19" ry="3" fill="#000" opacity=".22"/>
     <g id="a-log"><circle cx="19.4" cy="30.2" r="8.6" fill="#3d2410"/>
-      <circle cx="14" cy="33.2" r="8.6" fill="url(#a-bark)"/><circle cx="14" cy="33.2" r="6.7" fill="url(#a-grain)"/>
+      <circle cx="14" cy="33.2" r="8.6" fill="url(#a-bark)"/><circle cx="14" cy="33.2" r="6.7" fill="url(#a-log-rings)"/>
       <circle cx="14" cy="33.2" r="4.3" fill="none" stroke="#b37a3f" stroke-width="1"/><circle cx="14" cy="33.2" r="1.7" fill="#b37a3f"/>
       <path d="M14 33.2l4.6-3.6" stroke="#b37a3f" stroke-width=".9" stroke-linecap="round"/></g>
     <use href="#a-log" x="17.5"/>
@@ -374,7 +374,7 @@ const SPRITES = `
     <ellipse cx="25" cy="42" rx="19" ry="3" fill="#000" opacity=".22"/>
     <path d="M6 15.5 12 9.5h32l-6 6z" fill="#f4a384"/><path d="M38 15.5l6-6V34l-6 6z" fill="#8f3520"/>
     <rect x="6" y="15.5" width="32" height="24.5" fill="#7b2c18"/>
-    <g fill="url(#a-clay)"><rect x="7" y="16.6" width="14.4" height="6.6" rx="1"/><rect x="22.6" y="16.6" width="14.4" height="6.6" rx="1"/>
+    <g fill="url(#a-brick-fill)"><rect x="7" y="16.6" width="14.4" height="6.6" rx="1"/><rect x="22.6" y="16.6" width="14.4" height="6.6" rx="1"/>
       <rect x="7" y="24.4" width="6.6" height="6.6" rx="1"/><rect x="14.8" y="24.4" width="14.4" height="6.6" rx="1"/><rect x="30.4" y="24.4" width="6.6" height="6.6" rx="1"/>
       <rect x="7" y="32.2" width="14.4" height="6.6" rx="1"/><rect x="22.6" y="32.2" width="14.4" height="6.6" rx="1"/></g>
     <path d="M8.4 18h11.6M24 18h11.6M16.2 25.8h11.6M8.4 33.6h11.6M24 33.6h11.6M8.4 25.8h3.8M31.8 25.8h3.8" stroke="#ffd0bb" stroke-width="1" stroke-linecap="round" opacity=".8"/>
