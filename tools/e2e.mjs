@@ -1,4 +1,4 @@
-// End-to-end check of the browser client in headless Chrome.
+// End-to-end check of the browser client in headless Chrome or Chromium.
 //
 //   python3 -m hexfield.web --port 8765 --no-browser --no-save &
 //   node tools/e2e.mjs http://127.0.0.1:8765/ [screenshot-folder]

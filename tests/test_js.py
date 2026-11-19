@@ -1,8 +1,10 @@
 """The browser client's own tests, run from the Python suite.
 
-* tests/js/*.test.mjs  - unit tests of the DOM-free logic (needs Node 20+)
-* tools/e2e.mjs        - a real browser plays through the main screens (needs Node 22+ and
-                         Chrome; opt in with HEXFIELD_BROWSER_TESTS=1 because it takes a while)
+* tests/js/*.test.mjs  - unit tests of the DOM-free logic
+* tools/e2e.mjs        - a real browser plays through the main screens (needs Chrome or
+                         Chromium; opt in with HEXFIELD_BROWSER_TESTS=1 because it takes a while)
+
+Both need Node 26.
 
 Both are skipped, not failed, on a machine without the tools.
 """
@@ -16,6 +18,7 @@ from http.server import ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 NODE = shutil.which("node")
+NODE_MIN = 26
 
 
 def node_major():
@@ -26,13 +29,13 @@ def node_major():
 
 
 class ClientTests(unittest.TestCase):
-    @unittest.skipUnless(NODE and node_major() >= 20, "needs Node 20+")
+    @unittest.skipUnless(NODE and node_major() >= NODE_MIN, f"needs Node {NODE_MIN}")
     def test_logic(self):
         files = sorted(str(p) for p in (ROOT / "tests/js").glob("*.test.mjs"))
         r = subprocess.run([NODE, "--test", *files], capture_output=True, text=True, cwd=ROOT)
         self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-2000:])
 
-    @unittest.skipUnless(NODE and node_major() >= 20, "needs Node 20+")
+    @unittest.skipUnless(NODE and node_major() >= NODE_MIN, f"needs Node {NODE_MIN}")
     def test_every_module_parses(self):
         for f in sorted((ROOT / "hexfield/web/static/js").glob("*.js")):
             r = subprocess.run([NODE, "--check", str(f)], capture_output=True, text=True)
@@ -56,7 +59,8 @@ class ClientTests(unittest.TestCase):
                 for n in (x.split(" as ")[0].strip() for x in block.split(",") if x.strip()):
                     self.assertIn(n, exports[src], f"{f.name} imports {n} from {src}, which doesn't export it")
 
-    @unittest.skipUnless(os.environ.get("HEXFIELD_BROWSER_TESTS") and NODE and node_major() >= 22, "set HEXFIELD_BROWSER_TESTS=1 (needs Node 22+ and Chrome)")
+    @unittest.skipUnless(os.environ.get("HEXFIELD_BROWSER_TESTS") and NODE and node_major() >= NODE_MIN,
+                         f"set HEXFIELD_BROWSER_TESTS=1 (needs Node {NODE_MIN} and Chrome or Chromium)")
     def test_in_a_real_browser(self):
         from hexfield.web import server
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)

@@ -1,10 +1,10 @@
-# The web server in a container. It has no dependencies beyond Python itself.
+# The web server in a container, for arm64 hosts. It has no dependencies beyond Python itself.
 #
 #   docker build -t hexfield .
 #   docker run -p 8765:8765 -v hexfield-data:/data -e HEXFIELD_HOST_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')" hexfield
 #
 # Then open http://<server>:8765/?host=<the key> once: that browser runs the games.
-FROM python:3.13-slim
+FROM --platform=linux/arm64 python:3.15-slim
 
 RUN useradd --create-home --uid 10001 hexfield && mkdir /data && chown hexfield /data
 WORKDIR /src

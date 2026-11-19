@@ -1,5 +1,5 @@
 // A tiny headless-Chrome driver over the DevTools protocol: no packages to install.
-// Needs Node 22+ (global WebSocket) and Chrome or Chromium.
+// Needs Node 26 and Chrome or Chromium (set CHROME_BIN if it isn't in a usual place).
 //
 //   const page = await launch("http://127.0.0.1:8765/");
 //   await page.eval(`document.title`);          // run script in the page, get the value back

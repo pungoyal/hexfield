@@ -1,6 +1,6 @@
 # Hexfield
 
-A complete base-game engine in pure Python (3.10+, no dependencies). You play against
+A complete base-game engine in pure Python (3.15, no dependencies). You play against
 2 to 5 machine opponents in a coloured terminal UI or in the browser, alone or with other people. A coach can suggest moves, review
 every decision you make, and replay the same board and dice from a seed.
 
@@ -71,7 +71,7 @@ server's own machine are no longer treated as the host.
 Or with Docker (games are kept in the `/data` volume):
 
 ```
-docker build -t hexfield .
+docker build -t hexfield .   # a linux/arm64 image
 docker run -p 8765:8765 -v hexfield-data:/data -e HEXFIELD_HOST_KEY="$HEXFIELD_HOST_KEY" hexfield
 ```
 
@@ -381,8 +381,8 @@ node --test tests/js                                  # just the browser client'
 HEXFIELD_BROWSER_TESTS=1 python3 -m unittest tests.test_js   # plus the real-browser run
 ```
 
-The suite needs only Python. With Node 20+ on the path it also runs the client's unit
+The suite needs only Python 3.15. With Node 26 on the path it also runs the client's unit
 tests and checks that every module parses and every import resolves; without Node those
-are skipped. The real-browser run needs Node 22+ and Chrome and is opt-in. GitHub Actions
-(`.github/workflows/tests.yml`) runs all of it on Python 3.10, 3.12, 3.13 and 3.14, then
+are skipped. The real-browser run also needs Chrome or Chromium (`CHROME_BIN`) and is
+opt-in. GitHub Actions (`.github/workflows/tests.yml`) runs all of it on arm64 runners, then
 builds the package and the Docker image and checks the container starts and stops cleanly.

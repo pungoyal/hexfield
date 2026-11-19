@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+* Needs Python 3.15. CI uses Node 26 and the latest GitHub Actions, and runs on arm64.
+* The Docker image is built for linux/arm64, on `python:3.15-slim`.
+
 ## 2.1.0
 
 Web client
