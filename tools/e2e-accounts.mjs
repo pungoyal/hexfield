@@ -50,6 +50,7 @@ try {
   step = "Ada hosts";
   await ada.goto(URL);
   await ada.waitFor(`document.querySelector("#dlg-new").open`, 8000, "the new game dialog");
+  if (await ada.eval(`document.querySelector("#form-new").elements.name.value`) !== "Ada") throw new Error("the new game doesn't use Ada's name");
   await ada.eval(`(() => {
     const f = document.querySelector("#form-new");
     for (const [k, v] of [["mode", "online"], ["humans", "2"], ["opponents", "1"]]) f.querySelector('[name="' + k + '"][value="' + v + '"]').click();
