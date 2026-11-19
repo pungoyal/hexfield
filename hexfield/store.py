@@ -18,9 +18,9 @@ from .record import VERSION, Record
 KEEP = 200  # saved games kept; the oldest finished ones go first
 ID_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
 PHASE_GROUPS = {
-    "setup_settlement": "opening", "setup_road": "opening",
+    "setup_village": "opening", "setup_trail": "opening",
     "main": "building and trading", "special_build": "building and trading",
-    "road_building": "building and trading", "pre_roll": "rangers",
+    "free_trails": "building and trading", "pre_roll": "rangers",
     "move_bandit": "bandit", "discard": "discards", "offer": "trade offers",
 }
 
@@ -157,7 +157,7 @@ def stats(limit=200):
             continue
         me = res.get("human")
         row = {"id": g["id"], "when": g["updated"], "won": res.get("winner") == me,
-               "vp": (res.get("vp") or [None])[me] if me is not None else None,
+               "fame": (res.get("fame") or [None])[me] if me is not None else None,
                "rounds": res.get("rounds"), "level": next((p["level"] for p in g["players"] if p["kind"] == "bot"), None),
                "players": len(g["players"]),
                "accuracy": coach and coach["accuracy"], "lost": coach and coach["lost"],

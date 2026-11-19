@@ -1,11 +1,11 @@
 // The SVG board: tiles, pieces, click targets, highlights and hover tips.
 
 import { act, render } from "./app.js";
-import { BANDIT, boardDefs, cityArt, hexPoints, portBadge, roadArt, settlementArt, terrain, tokenArt } from "./art.js";
+import { BANDIT, boardDefs, townArt, hexPoints, dockBadge, trailArt, villageArt, terrain, tokenArt } from "./art.js";
 import { resetKeyCaches, setObvious } from "./keys.js";
 import { boardBox, zoomBox } from "./logic.js";
 import { B, G, S, els, legal, myDecision } from "./state.js";
-import { edgeLine, resetBoardCaches as resetTextCaches, roadsToward, spotName } from "./text.js";
+import { edgeLine, resetBoardCaches as resetTextCaches, trailsToward, spotName } from "./text.js";
 import { $, RES, esc, pc, resIcon, svg } from "./util.js";
 
 // ------------------------------------------------------------------ board
@@ -13,7 +13,7 @@ export function buildBoard() {
   const board = $("#board");
   board.replaceChildren();
   const R = B.radius;
-  // just the island and its ports: the sea is the panel behind (and fills whatever is left over)
+  // just the island and its docks: the sea is the panel behind (and fills whatever is left over)
   const box = boardBox(B.vertices);
   els.box = box;
   els.view = { x: box.x, y: box.y, w: box.w, h: box.h };
@@ -35,23 +35,23 @@ export function buildBoard() {
     for (const h of B.hexes) svg("polygon", { points: hexPts(h.x, h.y, k) }, g);
   }
 
-  // ports (under the tiles so the jetties tuck in)
-  const gPorts = svg("g", { class: "ports" }, board);
-  for (const port of B.ports) {
-    const [a, b] = port.v.map((v) => B.vertices[v]);
+  // docks (under the tiles so the jetties tuck in)
+  const gDocks = svg("g", { class: "docks" }, board);
+  for (const dock of B.docks) {
+    const [a, b] = dock.v.map((v) => B.vertices[v]);
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     const len = Math.hypot(mx - box.cx, my - box.cy);
     const bx = mx + ((mx - box.cx) / len) * 36, by = my + ((my - box.cy) / len) * 36;
     for (const v of [a, b]) {
       const at = { x1: f1(v.x + (bx - v.x) * 0.12), y1: f1(v.y + (by - v.y) * 0.12), x2: f1(bx), y2: f1(by) };
-      svg("line", { class: "jetty-shadow", ...at, transform: "translate(1.5 3)" }, gPorts);
-      svg("line", { class: "jetty", ...at }, gPorts);
-      svg("line", { class: "jetty-planks", ...at }, gPorts);
+      svg("line", { class: "jetty-shadow", ...at, transform: "translate(1.5 3)" }, gDocks);
+      svg("line", { class: "jetty", ...at }, gDocks);
+      svg("line", { class: "jetty-planks", ...at }, gDocks);
     }
-    const g = svg("g", { class: `port-badge${port.kind === "any" ? " any" : ""}`, transform: `translate(${bx.toFixed(1)} ${by.toFixed(1)})` }, gPorts);
-    g.innerHTML = portBadge(port.kind);
+    const g = svg("g", { class: `dock-badge${dock.kind === "any" ? " any" : ""}`, transform: `translate(${bx.toFixed(1)} ${by.toFixed(1)})` }, gDocks);
+    g.innerHTML = dockBadge(dock.kind);
     const title = svg("title", {}, g);
-    title.textContent = port.kind === "any" ? "3:1 port — any resource" : `2:1 ${port.kind} port`;
+    title.textContent = dock.kind === "any" ? "3:1 dock — any resource" : `2:1 ${dock.kind} dock`;
   }
 
   // the shadow the island's tiles throw on the sand
@@ -74,7 +74,7 @@ export function buildBoard() {
     return tk;
   });
 
-  els.roads = svg("g", { class: "roads" }, board);
+  els.trails = svg("g", { class: "trails" }, board);
   els.pieces = svg("g", { class: "pieces" }, board);
   els.bandit = svg("g", { class: "bandit" }, board);
   els.bandit.innerHTML = BANDIT;
@@ -82,7 +82,7 @@ export function buildBoard() {
   els.keys = svg("g", { class: "keys" }, board);
   els.glow = svg("g", { class: "glow" }, board);
   els.fx = svg("g", { class: "fx" }, board);
-  els.roadEls = {};
+  els.trailEls = {};
   els.pieceEls = {};
   els.hexPts = hexPts;
   els.hexVerts = B.hexes.map((_, h) => B.vertices.flatMap((v, i) => ((v.hexes || []).includes(h) ? [i] : [])));
@@ -104,17 +104,17 @@ export function ripple(p, owner) {
   setTimeout(() => c.remove(), 1300);
 }
 
-export function roadEl(e, owner) {
-  const g = svg("g", { class: "road", style: `--pc:${pc(owner)}` });
-  g.innerHTML = roadArt(edgeLine(e, 0.17));
+export function trailEl(e, owner) {
+  const g = svg("g", { class: "trail", style: `--pc:${pc(owner)}` });
+  g.innerHTML = trailArt(edgeLine(e, 0.17));
   return g;
 }
 
 export function pieceEl(v, owner, level) {
   const { x, y } = B.vertices[v];
-  const g = svg("g", { class: `piece ${level === 1 ? "settlement" : "city"}`, style: `--pc:${pc(owner)}`, transform: `translate(${x} ${y}) scale(1.12)` });
+  const g = svg("g", { class: `piece ${level === 1 ? "village" : "town"}`, style: `--pc:${pc(owner)}`, transform: `translate(${x} ${y}) scale(1.12)` });
   const inner = svg("g", { class: "pop" }, g);
-  inner.innerHTML = level === 1 ? settlementArt() : cityArt();
+  inner.innerHTML = level === 1 ? villageArt() : townArt();
   svg("text", { class: "seat-mark", x: level === 1 ? -3.6 : -8.9, y: level === 1 ? 2 : 3 }, inner).textContent = owner + 1;
   return g;
 }
@@ -122,15 +122,15 @@ export function pieceEl(v, owner, level) {
 export function renderPieces() {
   for (let e = 0; e < S.e_owner.length; e++) {
     const o = S.e_owner[e];
-    const cur = els.roadEls[e];
-    if (o === -1) { if (cur) { cur.remove(); delete els.roadEls[e]; } continue; }
+    const cur = els.trailEls[e];
+    if (o === -1) { if (cur) { cur.remove(); delete els.trailEls[e]; } continue; }
     if (cur && cur.dataset.o === String(o)) continue;
     if (cur) cur.remove();
-    const g = roadEl(e, o);
+    const g = trailEl(e, o);
     g.dataset.o = o;
     if (G.prev) g.classList.add("pop");
-    els.roads.appendChild(g);
-    els.roadEls[e] = g;
+    els.trails.appendChild(g);
+    els.trailEls[e] = g;
   }
   for (let v = 0; v < S.v_owner.length; v++) {
     const o = S.v_owner[v], lv = S.v_level[v];
@@ -162,14 +162,14 @@ export function targetsNow() {
   if (!myDecision()) return t;
   const verts = (kind) => (L[kind] || []).map((v) => [v, kind]);
   switch (S.phase) {
-    case "setup_settlement": t.v = verts("settle"); break;
-    case "setup_road": case "road_building": t.e = L.road || []; break;
+    case "setup_village": t.v = verts("settle"); break;
+    case "setup_trail": case "free_trails": t.e = L.trail || []; break;
     case "move_bandit": t.h = Object.keys(L.bandit || {}).map(Number); break;
     case "main": case "special_build":
       t.quick = !G.mode;
-      if (!G.mode || G.mode === "road") t.e = L.road || [];
+      if (!G.mode || G.mode === "trail") t.e = L.trail || [];
       if (!G.mode || G.mode === "settle") t.v.push(...verts("settle"));
-      if (!G.mode || G.mode === "city") t.v.push(...verts("city"));
+      if (!G.mode || G.mode === "town") t.v.push(...verts("town"));
       break;
   }
   return t;
@@ -189,8 +189,8 @@ export function onBoardKey(ev) {
 }
 
 // ------------------------------------------------------------------ the camera
-// When the spots you can click sit close together (the road beside a new settlement, a
-// free road, a city to upgrade), the board zooms in on them: bigger targets, and no
+// When the spots you can click sit close together (the trail beside a new village, a
+// free trail, a town to upgrade), the board zooms in on them: bigger targets, and no
 // doubt about where the game wants you. It zooms back out as soon as you have chosen.
 const calm = matchMedia("(prefers-reduced-motion: reduce)");
 export const MAX_ZOOM = 1.7;
@@ -246,7 +246,7 @@ export function renderTargets() {
   }
   for (const e of t.e) {
     const at = edgeLine(e, 0.2);
-    const tg = svg("g", { class: "e-target", "data-e": e, ...button(`Build a road toward ${roadsToward([e])}`) }, g);
+    const tg = svg("g", { class: "e-target", "data-e": e, ...button(`Build a trail toward ${trailsToward([e])}`) }, g);
     enter(tg);
     svg("line", { class: "bed", ...at }, tg);
     svg("line", { class: "vis", ...at }, tg);
@@ -255,7 +255,7 @@ export function renderTargets() {
   for (const [v, kind] of t.v) {
     const p = B.vertices[v];
     const tg = svg("g", { class: `v-target k-${kind}`, "data-v": v, "data-kind": kind,
-      ...button(`${kind === "city" ? "Upgrade to a city" : "Build a settlement"}: ${spotName(v)}, ${p.pips} pips`) }, g);
+      ...button(`${kind === "town" ? "Upgrade to a town" : "Build a village"}: ${spotName(v)}, ${p.pips} pips`) }, g);
     enter(tg);
     svg("circle", { class: "hit", cx: p.x, cy: p.y, r: 18 }, tg);
     if (kind === "settle") {
@@ -278,10 +278,10 @@ export function glowFor(a, keep = false) {
   if (!keep) clearGlow();
   if (!a || a[0] === "macro") return;
   const g = els.glow;
-  if ((a[0] === "settle" || a[0] === "city") && B.vertices[a[1]]) {
+  if ((a[0] === "settle" || a[0] === "town") && B.vertices[a[1]]) {
     const p = B.vertices[a[1]];
     svg("circle", { class: "glow-mark", cx: p.x, cy: p.y, r: 15 }, g);
-  } else if (a[0] === "road" && B.edges[a[1]]) {
+  } else if (a[0] === "trail" && B.edges[a[1]]) {
     const [p, q] = B.edges[a[1]].map((v) => B.vertices[v]);
     svg("line", { class: "glow-mark", x1: p.x, y1: p.y, x2: q.x, y2: q.y, "stroke-width": 9, "stroke-linecap": "round" }, g);
   } else if (a[0] === "bandit") {
@@ -297,8 +297,8 @@ export function onBoardClick(ev) {
   const v = ev.target.closest("[data-v]");
   const e = ev.target.closest(".e-target");
   const h = ev.target.closest(".hex-target");
-  if (v) act([v.dataset.kind, Number(v.dataset.v)]); // kind: settle | city
-  else if (e) act(["road", Number(e.dataset.e)]);
+  if (v) act([v.dataset.kind, Number(v.dataset.v)]); // kind: settle | town
+  else if (e) act(["trail", Number(e.dataset.e)]);
   else if (h) moveBandit(Number(h.dataset.h), ev);
   else if (G.mode) {
     G.mode = null;
@@ -316,9 +316,9 @@ export function moveBandit(hex, at) {
 export function chooseVictim(hex, vics, ev) {
   const pop = $("#victims");
   // the leader with the most cards first: key 1 and Space
-  const worth = (q) => 2 * S.players[q].vp + S.players[q].cards;
+  const worth = (q) => 2 * S.players[q].fame + S.players[q].cards;
   vics = [...vics].sort((a, b) => worth(b) - worth(a));
-  pop.innerHTML = `<h3>Steal from…</h3>` + vics.map((q, i) => `<button class="btn ghost" data-q="${q}" data-key="${i + 1}" style="--pc:${pc(q)}"><span class="dot"></span>${esc(S.players[q].name)} <span class="muted">${S.players[q].cards} cards · ${S.players[q].vp} VP</span></button>`).join("");
+  pop.innerHTML = `<h3>Steal from…</h3>` + vics.map((q, i) => `<button class="btn ghost" data-q="${q}" data-key="${i + 1}" style="--pc:${pc(q)}"><span class="dot"></span>${esc(S.players[q].name)} <span class="muted">${S.players[q].cards} cards · ${S.players[q].fame} fame</span></button>`).join("");
   pop.style.left = `${Math.min(ev.clientX + 8, innerWidth - 240)}px`;
   pop.style.top = `${Math.min(ev.clientY + 8, innerHeight - 160)}px`;
   pop.onclick = (e) => {
@@ -339,14 +339,14 @@ export function onBoardHover(ev) {
   let html = null;
   if (v) {
     const vx = B.vertices[Number(v.dataset.v)];
-    const what = { settle: "Build a settlement", city: "Upgrade to a city" }[v.dataset.kind];
+    const what = { settle: "Build a village", town: "Upgrade to a town" }[v.dataset.kind];
     const lines = (vx.hexes || []).map((h) => B.hexes[h]).filter((h) => h.res)
       .map((h) => `<span class="tt-line">${resIcon(RES.indexOf(h.res))}<b>${h.num}</b> ${h.res} <span class="tt-pips">${"•".repeat(h.pips)}</span></span>`).join("");
-    const port = vx.port ? `<span class="tt-line muted">⚓ ${vx.port === "any" ? "3:1 port" : `2:1 ${vx.port} port`}</span>` : "";
+    const dock = vx.dock ? `<span class="tt-line muted">⚓ ${vx.dock === "any" ? "3:1 dock" : `2:1 ${vx.dock} dock`}</span>` : "";
     const gain = what ? `<span class="muted">+${vx.pips} pips to your income</span>` : `<span class="muted">${vx.pips} pips</span>`;
-    html = `${what ? `<b style="color:var(--accent)">${what}</b><br>` : ""}${lines || "<span class='muted'>coast</span>"}${port}${gain}`;
+    html = `${what ? `<b style="color:var(--accent)">${what}</b><br>` : ""}${lines || "<span class='muted'>coast</span>"}${dock}${gain}`;
   } else if (ev.target.closest(".e-target")) {
-    html = `<b style="color:var(--accent)">Build a road</b><br><span class="muted">timber + clay</span>`;
+    html = `<b style="color:var(--accent)">Build a trail</b><br><span class="muted">timber + clay</span>`;
   } else if (hx) {
     const i = Number(hx.dataset.h), h = B.hexes[i];
     const robbing = !!ev.target.closest(".hex-target");

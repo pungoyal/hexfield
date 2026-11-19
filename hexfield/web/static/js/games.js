@@ -75,12 +75,12 @@ function progressHTML(st) {
       <div><b>${games.length}</b><span>finished game${games.length === 1 ? "" : "s"}</span></div>
       <div><b>${Math.round((100 * st.won) / games.length)}%</b><span>won (${st.won})</span></div>
       <div><b>${rated.length ? Math.round(mean(rated.map((g) => g.accuracy))) + "%" : "–"}</b><span>average accuracy</span></div>
-      <div><b>${rated.length ? mean(rated.map((g) => g.lost)).toFixed(1) : "–"}</b><span>VP-eq lost per game</span></div>
+      <div><b>${rated.length ? mean(rated.map((g) => g.lost)).toFixed(1) : "–"}</b><span>fame-eq lost per game</span></div>
       ${trend === null ? "" : `<div><b class="${trend >= 0 ? "up" : "down"}">${trend >= 0 ? "+" : "−"}${Math.abs(trend).toFixed(0)}</b><span>last 5 games against the 5 before</span></div>`}
     </div>${chart}
     ${rows ? `<h3>Where the points go</h3>
     <div class="table-scroll"><table class="info-table"><thead><tr><th>Kind of decision</th><th>Decisions</th><th>Accuracy</th><th>Lost each</th><th>Lost in all</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="muted">Lost = VP-equivalents given up against the engine's best line, summed over your finished solo games. The top row is where practice pays most.</p>` : ""}`;
+    <p class="muted">Lost = fame-equivalents given up against the engine's best line, summed over your finished solo games. The top row is where practice pays most.</p>` : ""}`;
 }
 
 async function onGamesClick(e) {

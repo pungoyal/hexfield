@@ -104,7 +104,7 @@ class StoreTests(unittest.TestCase):
 
     def test_statistics(self):
         revs = [
-            {"seat": 0, "phase": "setup_settlement", "delta": 0.0, "verdict": "best"},
+            {"seat": 0, "phase": "setup_village", "delta": 0.0, "verdict": "best"},
             {"seat": 0, "phase": "main", "delta": 0.6, "verdict": "mistake"},
             {"seat": 0, "phase": "main", "delta": 0.1, "verdict": "good"},
             {"seat": 0, "phase": "main", "kind": "offer", "delta": 0.3, "verdict": "inaccuracy"},
@@ -120,14 +120,14 @@ class StoreTests(unittest.TestCase):
         self.assertIsNone(store.review_summary([], 0))
         # a finished solo game shows up in the totals
         rec = Record(8, [{"name": "You", "kind": "human"}] + bot_seats(2), meta={"mode": "solo"})
-        rec.meta["result"] = {"winner": 0, "vp": [10, 5, 6], "rounds": 14, "human": 0}
+        rec.meta["result"] = {"winner": 0, "fame": [10, 5, 6], "rounds": 14, "human": 0}
         rec.meta["coach"] = sm
         gid = store.new_id()
         store.save(gid, rec)
         st = store.stats()
         row = next(g for g in st["games"] if g["id"] == gid)
         self.assertTrue(row["won"])
-        self.assertEqual(row["vp"], 10)
+        self.assertEqual(row["fame"], 10)
         self.assertGreaterEqual(st["groups"]["building and trading"]["n"], 2)
         store.delete(gid)
 
@@ -145,16 +145,16 @@ class TerminalSaveTests(unittest.TestCase):
         script = iter(["0", "x"])
 
         def ask(prompt):
-            # place the first settlement on a legal spot, then quit
-            if "settlement" in prompt and not game.s.settlements[game.human]:
-                return str(game.s.legal_settlements(game.human, setup=True)[0])
+            # place the first village on a legal spot, then quit
+            if "village" in prompt and not game.s.villages[game.human]:
+                return str(game.s.legal_villages(game.human, setup=True)[0])
             raise cli.Quit()
 
         game.read_line = ask
         game.run()
         del script
         rec, _ = store.load(game.gid)
-        self.assertEqual(len(rec.replay().settlements[game.human]), 1)
+        self.assertEqual(len(rec.replay().villages[game.human]), 1)
         again = cli.Game(self.args(), rec, game.gid)
         self.assertEqual(fingerprint(again.s)[:8], fingerprint(game.s)[:8])
         self.assertEqual(again.human, game.human)

@@ -1,7 +1,7 @@
 """Web games: engine state, bots, coach, undo, saved games, replays and move reviews.
 
 Everything a browser sees goes through `Table.view(seat)`, which shows only what that
-player could know at a real table: their own hand and dev cards, opponents' card
+player could know at a real table: their own hand and ventures, opponents' card
 *counts*, and the public log. A game can seat several humans (hot-seat on one device,
 or online with one device each); every human seat has a secret token, and a request
 acts for the seat its token belongs to.
@@ -22,8 +22,8 @@ import time
 from .. import store
 from ..ai import LEVELS, STYLES, AIPlayer, describe
 from ..cli import VERDICTS
-from ..constants import BADLANDS, MAX_CITIES, MAX_ROADS, MAX_SETTLEMENTS, RES_NAMES
-from ..game import (DICE_MODES, LAYOUTS, MAIN, OVER, PRE_ROLL, ROAD_BUILD, BANDIT, SETUP_ROAD,
+from ..constants import BADLANDS, MAX_TOWNS, MAX_TRAILS, MAX_VILLAGES, RES_NAMES
+from ..game import (DICE_MODES, LAYOUTS, MAIN, OVER, PRE_ROLL, FREE_TRAILS, BANDIT, SETUP_TRAIL,
                     SETUP_SETTLE, SPECIAL, IllegalAction, fmt_cards)
 from ..match import AI_NAMES, bot_counters, clean_name, pick_partner, public_reason, seat_plan
 from ..record import Record
@@ -35,24 +35,24 @@ COUNTER_TRIES = 2  # counter-offers a human may make to one bot offer
 HEX_R = 60.0
 
 
-BUILD_STEP = {"city": "city", "settlement": "settle", "road": "road", "dev": "buy_dev"}
+BUILD_STEP = {"town": "town", "village": "settle", "trail": "trail", "venture": "buy_venture"}
 
 
 def parse_step(text):
-    """One step of an engine plan ('trade 4 timber -> stone', 'city at 12 [..]', 'road 30')
+    """One step of an engine plan ('trade 4 timber -> stone', 'town at 12 [..]', 'trail 30')
     back to an action, or None when it isn't a simple build or bank trade."""
     text = text.strip()
     m = re.fullmatch(r"trade \d+ (\w+) -> (\w+)", text)
     if m and m[1] in RES_NAMES and m[2] in RES_NAMES:
         return ["bank", RES_NAMES.index(m[1]), RES_NAMES.index(m[2])]
-    m = re.match(r"(settlement|city) at (\d+)\b", text)
+    m = re.match(r"(village|town) at (\d+)\b", text)
     if m:
-        return ["settle" if m[1] == "settlement" else "city", int(m[2])]
-    m = re.fullmatch(r"road (\d+)", text)
+        return ["settle" if m[1] == "village" else "town", int(m[2])]
+    m = re.fullmatch(r"trail (\d+)", text)
     if m:
-        return ["road", int(m[1])]
-    if text == "buy development card":
-        return ["buy_dev"]
+        return ["trail", int(m[1])]
+    if text == "buy venture":
+        return ["buy_venture"]
     return None
 
 
@@ -60,7 +60,7 @@ def verdict(delta):
     return next(v[1] for v in VERDICTS if delta < v[0])
 
 
-def port_name(kind):
+def dock_name(kind):
     return None if kind is None else "any" if kind == "any" else RES_NAMES[kind]
 
 
@@ -87,18 +87,18 @@ def board_geometry(b):
     return {
         "hexes": hexes,
         "vertices": [{"x": x, "y": y, "pips": b.vertex_total_pips[v], "hexes": list(b.vertex_hexes[v]),
-                      "port": port_name(b.vertex_port[v])}
+                      "dock": dock_name(b.vertex_dock[v])}
                      for v, (x, y) in enumerate(vxy)],
         "edges": [list(pr) for pr in b.edge_vertices],
-        "ports": [{"kind": port_name(kind), "v": list(b.edge_vertices[e])} for e, kind in b.ports],
+        "docks": [{"kind": dock_name(kind), "v": list(b.edge_vertices[e])} for e, kind in b.docks],
         "radius": HEX_R,
     }
 
 
 # number of integer arguments each simple action takes
-ARITY = {"settle": 1, "road": 1, "city": 1, "buy_dev": 0, "play_ranger": 0, "play_road": 0,
+ARITY = {"settle": 1, "trail": 1, "town": 1, "buy_venture": 0, "play_ranger": 0, "play_pathfinder": 0,
          "play_hoard": 1, "play_windfall": 2, "roll": 0, "bandit": 2, "bank": 2, "end": 0,
-         "end_road_building": 0}
+         "end_free_trails": 0}
 
 
 def _int(x):
@@ -175,22 +175,22 @@ class Table:
             info = self.rec.seats[p]
             pl = {
                 "name": s.names[p],
-                "vp": s.vp(p) if shown else s.public_vp(p),
-                "hidden_vp": s.vp_cards(p) if shown else 0,
+                "fame": s.fame(p) if shown else s.public_fame(p),
+                "hidden_fame": s.landmarks(p) if shown else 0,
                 "cards": s.hand_size(p),
-                "devs": s.dev_count(p),
+                "ventures": s.venture_count(p),
                 "rangers": s.rangers[p],
-                "road": s.road_len[p],
-                "left": {"road": MAX_ROADS - len(s.roads[p]),
-                         "settlement": MAX_SETTLEMENTS - len(s.settlements[p]),
-                         "city": MAX_CITIES - len(s.cities[p])},
+                "trail": s.trail_len[p],
+                "left": {"trail": MAX_TRAILS - len(s.trails[p]),
+                         "village": MAX_VILLAGES - len(s.villages[p]),
+                         "town": MAX_TOWNS - len(s.towns[p])},
                 "bot": info["kind"] == "bot",
                 "level": info.get("level"), "style": info.get("style"),
                 "open": p in self.open,
             }
             if reveal:
                 pl["hand"] = list(s.hands[p])
-                pl["dev_cards"] = [s.devs[p][k] + s.new_devs[p][k] for k in range(5)]
+                pl["venture_cards"] = [s.ventures[p][k] + s.new_ventures[p][k] for k in range(5)]
             players.append(pl)
         evs = []
         for i in range(since, len(s.events)):
@@ -217,9 +217,9 @@ class Table:
             "last_roll": list(s.last_roll) if s.last_roll else None,
             "bandit": s.bandit, "v_owner": s.v_owner, "v_level": s.v_level, "e_owner": s.e_owner,
             "players": players, "longest": s.longest, "patrol": s.patrol,
-            "hand": s.hands[h], "devs": s.devs[h][:5], "new_devs": s.new_devs[h][:5],
-            "bank": s.bank, "deck": s.deck_size(), "dev_played": s.dev_played,
-            "free_roads": s.free_roads, "discard_owed": s.discards.get(h, 0),
+            "hand": s.hands[h], "ventures": s.ventures[h][:5], "new_ventures": s.new_ventures[h][:5],
+            "bank": s.bank, "deck": s.deck_size(), "venture_played": s.venture_played,
+            "free_trails": s.free_trails, "discard_owed": s.discards.get(h, 0),
             "discards_pending": {str(q): k for q, k in s.discards.items()},
             "ratios": s.ratios(h), "roll_hist": s.roll_hist, "setup_idx": s.setup_idx,
             "tracker": self.tracker(h),
@@ -295,10 +295,10 @@ class Table:
         if (not self.live or s.phase == OVER or self.open or s.actor() != h
                 or (self.offer and self.offer["bot"])):
             return {}
-        L = {"settle": [], "city": [], "road": [], "bandit": {}, "kinds": []}
+        L = {"settle": [], "town": [], "trail": [], "bandit": {}, "kinds": []}
         for a in s.legal_actions():
             k = a[0]
-            if k in ("settle", "city", "road"):
+            if k in ("settle", "town", "trail"):
                 L[k].append(a[1])
             elif k == "bandit":
                 victims = L["bandit"].setdefault(str(a[1]), [])
@@ -312,10 +312,10 @@ class Table:
         s = self.s
         h = self.human if h is None else h
         rows = []
-        for p in sorted(range(s.n), key=lambda q: -s.vp(q)):
-            rows.append({"p": p, "vp": s.vp(p), "settlements": len(s.settlements[p]),
-                         "cities": len(s.cities[p]), "longest": s.longest == p,
-                         "patrol": s.patrol == p, "vp_cards": s.vp_cards(p)})
+        for p in sorted(range(s.n), key=lambda q: -s.fame(q)):
+            rows.append({"p": p, "fame": s.fame(p), "villages": len(s.villages[p]),
+                         "towns": len(s.towns[p]), "longest": s.longest == p,
+                         "patrol": s.patrol == p, "landmarks": s.landmarks(p)})
         revs = [r for r in self.reviews if r.get("seat") == h and not r.get("forced")]
         counts = {v[1]: 0 for v in VERDICTS}
         for r in revs:
@@ -347,7 +347,7 @@ class Table:
                 steps, text, more = self.playable_steps(a, why, h)
             else:
                 steps, text, more = [list(a)], f"{describe(s, a)} — {why}", False
-            if text in seen:  # e.g. a bank trade then a city, and the same as one macro
+            if text in seen:  # e.g. a bank trade then a town, and the same as one macro
                 continue
             seen.add(text)
             opts.append({"loss": best - sc, "action": a, "steps": steps, "more": more, "text": text})
@@ -496,7 +496,7 @@ class WebGame(Table):
         meta = self.rec.meta
         meta["round"] = self.round()
         if s.phase == OVER:
-            meta["result"] = {"winner": s.winner, "vp": [s.vp(p) for p in range(s.n)],
+            meta["result"] = {"winner": s.winner, "fame": [s.fame(p) for p in range(s.n)],
                               "rounds": self.round(), "human": self.human}
             meta["coach"] = store.review_summary(self.reviews, self.human)
         else:
@@ -792,7 +792,7 @@ class WebGame(Table):
             return "not interested"  # saying why would reveal their hidden hand
         if ok:
             return None
-        if gain > 0.05 and s.public_vp(h) >= 8:
+        if gain > 0.05 and s.public_fame(h) >= 8:
             return "won't trade with the leader"
         if gain < -0.05:
             return "helps you more than them"
@@ -800,7 +800,7 @@ class WebGame(Table):
 
     def trivial(self, a):
         s = self.s
-        if s.phase in (PRE_ROLL, SETUP_ROAD, ROAD_BUILD):
+        if s.phase in (PRE_ROLL, SETUP_TRAIL, FREE_TRAILS):
             return len(s.legal_actions()) <= 1
         if s.phase in (MAIN, SPECIAL) and a[0] == "end":
             return all(x[0] == "end" for x in s.legal_actions(include_trades=True))
@@ -871,7 +871,7 @@ class WebGame(Table):
         if kind == "offer":
             p, give, get, yes = payload
             ok, gain = coach.evaluate_offer(s, h, p, give, get)
-            # same rule as the hint (it refuses to feed a player on 8+ VP)
+            # same rule as the hint (it refuses to feed a player on 8+ fame)
             mine, best = (gain if yes else 0.0), (gain if ok else 0.0)
             best_desc = f"{'accept' if ok else 'decline'} (trade worth {gain:+.2f} to you)"
             label = f"{'accept' if yes else 'decline'} {s.names[p]}'s offer"
@@ -894,7 +894,7 @@ class WebGame(Table):
             best_desc = describe(s, best_a)
             if s.phase in (MAIN, SPECIAL) and why.startswith("plan:"):
                 best_desc = why[6:]
-            elif why and s.phase in (SETUP_SETTLE, SETUP_ROAD, BANDIT):
+            elif why and s.phase in (SETUP_SETTLE, SETUP_TRAIL, BANDIT):
                 best_desc += f" — {why}"
             label = describe(s, a)
             if a[0] == "trade":

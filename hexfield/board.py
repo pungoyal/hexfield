@@ -10,8 +10,8 @@ and rendering in perfect agreement.
 import math
 import random
 
-from .constants import (BEGINNER_PORTS, BEGINNER_TILES, BADLANDS, LARGE_NUMBER_BAG, LARGE_PORT_BAG,
-                        LARGE_TILE_BAG, NUMBER_BAG, PIPS, PORT_BAG, RES_NAMES, TILE_BAG)
+from .constants import (BEGINNER_DOCKS, BEGINNER_TILES, BADLANDS, LARGE_NUMBER_BAG, LARGE_DOCK_BAG,
+                        LARGE_TILE_BAG, NUMBER_BAG, PIPS, DOCK_BAG, RES_NAMES, TILE_BAG)
 
 # character-grid geometry
 HEX_DX = 12          # horizontal distance between hex centres in a row
@@ -103,7 +103,7 @@ class Board:
                                        if (q + dq, r + dr) in index])
 
         self._generate_tiles(rng)
-        self._generate_ports(rng)
+        self._generate_docks(rng)
         self._precompute()
 
     # ------------------------------------------------------------------ tiles
@@ -167,8 +167,8 @@ class Board:
                     return False
         return True
 
-    # ------------------------------------------------------------------ ports
-    def _generate_ports(self, rng):
+    # ------------------------------------------------------------------ docks
+    def _generate_docks(self, rng):
         coastal = [e for e in range(self.E) if len(self.edge_hexes[e]) == 1]
         cx = sum(x for x, _ in self.hex_xy) / self.H
         cy = sum(y for _, y in self.hex_xy) / self.H
@@ -181,12 +181,12 @@ class Board:
 
         coastal.sort(key=ang)
         if self.layout == "beginner":
-            # fixed harbours: the first on the north-west edge of the top-left hex, the
+            # fixed docks: the first on the north-west edge of the top-left hex, the
             # rest clockwise at these gaps along the coast
-            start, gaps, kinds = 4, [3, 4, 3, 3, 3, 4, 3, 4, 3], BEGINNER_PORTS[:]
+            start, gaps, kinds = 4, [3, 4, 3, 3, 3, 4, 3, 4, 3], BEGINNER_DOCKS[:]
         elif self.large:
             start = rng.randrange(len(coastal))
-            kinds = LARGE_PORT_BAG[:]
+            kinds = LARGE_DOCK_BAG[:]
             each, extra = divmod(len(coastal), len(kinds))
             gaps = [each + 1] * extra + [each] * (len(kinds) - extra)
             rng.shuffle(gaps)
@@ -195,17 +195,17 @@ class Board:
             start = rng.randrange(len(coastal))
             gaps = [3, 3, 4] * 3
             rng.shuffle(gaps)
-            kinds = PORT_BAG[:]
+            kinds = DOCK_BAG[:]
             rng.shuffle(kinds)
-        self.ports = []  # (edge, kind) kind = 'any' or resource int
+        self.docks = []  # (edge, kind) kind = 'any' or resource int
         idx = start
         for i, g in enumerate(gaps):
-            self.ports.append((coastal[idx % len(coastal)], kinds[i]))
+            self.docks.append((coastal[idx % len(coastal)], kinds[i]))
             idx += g
-        self.vertex_port = [None] * self.V
-        for e, kind in self.ports:
+        self.vertex_dock = [None] * self.V
+        for e, kind in self.docks:
             for v in self.edge_vertices[e]:
-                self.vertex_port[v] = kind
+                self.vertex_dock[v] = kind
 
     # ------------------------------------------------------------- analytics
     def _precompute(self):
@@ -235,8 +235,8 @@ class Board:
                 parts.append("badlands")
             else:
                 parts.append(f"{self.hex_number[h]} {RES_NAMES[r]}")
-        port = self.vertex_port[v]
-        if port is not None:
-            parts.append("3:1 port" if port == "any" else f"2:1 {RES_NAMES[port]} port")
+        dock = self.vertex_dock[v]
+        if dock is not None:
+            parts.append("3:1 dock" if dock == "any" else f"2:1 {RES_NAMES[dock]} dock")
         return ", ".join(parts)
 

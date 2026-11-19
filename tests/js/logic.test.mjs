@@ -6,8 +6,8 @@ import {
   accuracy, assignCodes, keyLabel, parseCards, windfallPicks, scored, totalLost, tradesNeeded,
 } from "../../hexfield/web/static/js/logic.js";
 
-const COSTS = { road: [1, 1, 0, 0, 0], settle: [1, 1, 1, 1, 0], city: [0, 0, 0, 2, 3], dev: [0, 0, 1, 1, 1] };
-const ORDER = ["city", "settle", "dev", "road"];
+const COSTS = { trail: [1, 1, 0, 0, 0], settle: [1, 1, 1, 1, 0], town: [0, 0, 0, 2, 3], venture: [0, 0, 1, 1, 1] };
+const ORDER = ["town", "settle", "venture", "trail"];
 
 test("parseCards reads the log's card lists", () => {
   assert.deepEqual(parseCards("Vera receives 2 grain, 1 stone"), [0, 0, 0, 2, 1]);
@@ -20,9 +20,9 @@ test("tradesNeeded counts bank trades at your rates", () => {
   assert.equal(tradesNeeded([1, 1, 1, 1, 0], COSTS.settle, [4, 4, 4, 4, 4]), 0);
   assert.equal(tradesNeeded([5, 1, 1, 0, 0], COSTS.settle, [4, 4, 4, 4, 4]), 1);     // 4 spare timber -> grain
   assert.equal(tradesNeeded([4, 1, 1, 0, 0], COSTS.settle, [4, 4, 4, 4, 4]), Infinity); // only 3 spare
-  assert.equal(tradesNeeded([3, 1, 1, 0, 0], COSTS.settle, [2, 4, 4, 4, 4]), 1);     // a 2:1 timber port
-  assert.equal(tradesNeeded([0, 0, 0, 8, 0], COSTS.city, [4, 4, 4, 3, 4]), Infinity); // 6 spare grain at 3:1 = 2 < 3
-  assert.equal(tradesNeeded([0, 0, 0, 11, 0], COSTS.city, [4, 4, 4, 3, 4]), 3);
+  assert.equal(tradesNeeded([3, 1, 1, 0, 0], COSTS.settle, [2, 4, 4, 4, 4]), 1);     // a 2:1 timber dock
+  assert.equal(tradesNeeded([0, 0, 0, 8, 0], COSTS.town, [4, 4, 4, 3, 4]), Infinity); // 6 spare grain at 3:1 = 2 < 3
+  assert.equal(tradesNeeded([0, 0, 0, 11, 0], COSTS.town, [4, 4, 4, 3, 4]), 3);
 });
 
 test("assignCodes: best spots get one letter and no code is a prefix of another", () => {
@@ -65,8 +65,8 @@ test("review arithmetic leaves forced moves out", () => {
 
 test("windfallPicks completes the best build it can", () => {
   const bank = [19, 19, 19, 19, 19];
-  assert.deepEqual(windfallPicks([0, 0, 0, 2, 1], bank, COSTS, ORDER), [4, 4]);          // two stone for a city
-  assert.deepEqual(windfallPicks([1, 1, 0, 0, 0], bank, COSTS, ORDER), [2, 3]);          // wool + grain: settlement
+  assert.deepEqual(windfallPicks([0, 0, 0, 2, 1], bank, COSTS, ORDER), [4, 4]);          // two stone for a town
+  assert.deepEqual(windfallPicks([1, 1, 0, 0, 0], bank, COSTS, ORDER), [2, 3]);          // wool + grain: village
   assert.deepEqual(windfallPicks([0, 0, 0, 2, 1], [19, 19, 19, 19, 1], COSTS, ORDER).length, 2);
   assert.notDeepEqual(windfallPicks([0, 0, 0, 2, 1], [19, 19, 19, 19, 1], COSTS, ORDER), [4, 4], "the bank has one stone");
   const picks = windfallPicks([3, 3, 3, 3, 3], [0, 0, 5, 0, 0], COSTS, ORDER);

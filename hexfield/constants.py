@@ -1,4 +1,4 @@
-"""Static rules data: costs, tile, number and port bags, and the fixed beginner map."""
+"""Static rules data: costs, tile, number and dock bags, and the fixed beginner map."""
 
 TIMBER, CLAY, WOOL, GRAIN, STONE = range(5)
 BADLANDS = 5
@@ -6,36 +6,36 @@ RESOURCES = (TIMBER, CLAY, WOOL, GRAIN, STONE)
 RES_NAMES = ("timber", "clay", "wool", "grain", "stone")
 
 COSTS = {
-    "road": (1, 1, 0, 0, 0),
-    "settlement": (1, 1, 1, 1, 0),
-    "city": (0, 0, 0, 2, 3),
-    "dev": (0, 0, 1, 1, 1),
+    "trail": (1, 1, 0, 0, 0),
+    "village": (1, 1, 1, 1, 0),
+    "town": (0, 0, 0, 2, 3),
+    "venture": (0, 0, 1, 1, 1),
 }
 
-RANGER, VP_CARD, PATHFINDER, HOARD, WINDFALL = range(5)
-UNKNOWN_DEV = 5  # only used inside AI simulations (card bought but not yet seen)
-DEV_NAMES = ("ranger", "victory point", "pathfinder", "hoard", "windfall", "unknown")
-DEV_DECK_COUNTS = (14, 5, 2, 2, 2)
+RANGER, LANDMARK, PATHFINDER, HOARD, WINDFALL = range(5)
+UNKNOWN_VENTURE = 5  # only used inside AI simulations (card bought but not yet seen)
+VENTURE_NAMES = ("ranger", "landmark", "pathfinder", "hoard", "windfall", "unknown")
+VENTURE_DECK_COUNTS = (14, 5, 2, 2, 2)
 
 PIPS = {0: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1}
 
-MAX_SETTLEMENTS = 5
-MAX_CITIES = 4
-MAX_ROADS = 15
+MAX_VILLAGES = 5
+MAX_TOWNS = 4
+MAX_TRAILS = 15
 BANK_START = 19
-WIN_VP = 10
+WIN_FAME = 10
 
 TILE_BAG = [TIMBER] * 4 + [WOOL] * 4 + [GRAIN] * 4 + [CLAY] * 3 + [STONE] * 3 + [BADLANDS]
 NUMBER_BAG = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12]
-PORT_BAG = ["any"] * 4 + list(RESOURCES)
+DOCK_BAG = ["any"] * 4 + list(RESOURCES)
 
-# 5-6 player extension: a 30-hex board (rows of 3-4-5-6-5-4-3), 11 harbours, a bigger
-# bank and development deck. Pieces per player and the 10 VP target stay the same.
+# 5-6 player extension: a 30-hex board (rows of 3-4-5-6-5-4-3), 11 docks, a bigger
+# bank and venture deck. Pieces per player and the 10 fame target stay the same.
 LARGE_TILE_BAG = [TIMBER] * 6 + [WOOL] * 6 + [GRAIN] * 6 + [CLAY] * 5 + [STONE] * 5 + [BADLANDS] * 2
 LARGE_NUMBER_BAG = [2, 2, 12, 12] + [n for n in (3, 4, 5, 6, 8, 9, 10, 11) for _ in range(3)]
-LARGE_PORT_BAG = ["any"] * 5 + list(RESOURCES) + [WOOL]
+LARGE_DOCK_BAG = ["any"] * 5 + list(RESOURCES) + [WOOL]
 LARGE_BANK_START = 24
-LARGE_DEV_DECK_COUNTS = (20, 5, 3, 3, 3)
+LARGE_VENTURE_DECK_COUNTS = (20, 5, 3, 3, 3)
 LARGE_FROM = 5  # this many players or more play on the large board
 
 # The fixed beginner board, row by row (3-4-5-4-3), as (terrain, number).
@@ -46,8 +46,8 @@ BEGINNER_TILES = [
     (TIMBER, 8), (STONE, 3), (GRAIN, 4), (WOOL, 5),
     (CLAY, 5), (GRAIN, 6), (WOOL, 11),
 ]
-# its harbours clockwise from the north-west corner
-BEGINNER_PORTS = ["any", GRAIN, STONE, "any", WOOL, "any", "any", CLAY, TIMBER]
+# its docks clockwise from the north-west corner
+BEGINNER_DOCKS = ["any", GRAIN, STONE, "any", WOOL, "any", "any", CLAY, TIMBER]
 
 RES_ALIASES = {
     "t": TIMBER, "ti": TIMBER, "timber": TIMBER,

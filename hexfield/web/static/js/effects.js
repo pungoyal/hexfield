@@ -36,7 +36,7 @@ export function effects(evs) {
       if (victim >= 0) flash($("#players").children[victim], "shake", 450);
     }
     if (e.kind === "award") toast(e.msg, "", pc(e.p ?? 0));
-    if (e.kind === "private" && /you drew/.test(e.msg)) toast("Development card", e.msg.replace(/[()]/g, ""), "#9c88e0");
+    if (e.kind === "private" && /you drew/.test(e.msg)) toast("Venture", e.msg.replace(/[()]/g, ""), "#9c88e0");
     if (e.kind === "private_steal") toast("Steal", e.msg.replace(/[()]/g, ""), "#e59cf2");
   }
 }
@@ -110,8 +110,8 @@ export function recapTurn(fresh, initial) {
   for (const e of evs) {
     const m = e.msg;
     if (e.kind === "steal" && /from you$/i.test(m)) robbedBy = e.p;
-    else if (e.kind === "build") did(e.p, /road/.test(m) ? "road" : /city/.test(m) ? "city" : "settlement");
-    else if (e.kind === "dev") did(e.p, /buys/.test(m) ? "dev card" : m.replace(/^\S+ plays? /, "played ").replace(/ \(.*\)$/, ""));
+    else if (e.kind === "build") did(e.p, /trail/.test(m) ? "trail" : /town/.test(m) ? "town" : "village");
+    else if (e.kind === "venture") did(e.p, /buys/.test(m) ? "venture" : m.replace(/^\S+ plays? /, "played ").replace(/ \(.*\)$/, ""));
     else if (e.kind === "bandit" && e.p !== S.human) did(e.p, `bandit → ${hexName((m.match(/bandit to ([A-Z]{1,2})\b/) || [])[1] || "?")}`);
     else if (e.kind === "trade") did(e.p, /bank/.test(m) ? "bank trade" : "trade");
   }
@@ -119,7 +119,7 @@ export function recapTurn(fresh, initial) {
   const count = (list) => {
     const m = new Map();
     for (const x of list) m.set(x, (m.get(x) || 0) + 1);
-    return [...m].map(([k, n]) => (n > 1 ? `${n} ${k === "city" ? "cities" : k + "s"}` : k)).join(", ");
+    return [...m].map(([k, n]) => (n > 1 ? `${n} ${k === "town" ? "towns" : k + "s"}` : k)).join(", ");
   };
   const lines = [...acts].map(([p, l]) => `<div class="rc-line"><span class="dot" style="background:${pc(p)}"></span><b>${esc(S.players[p].name)}</b> ${esc(count(l))}</div>`);
   const mine = cards(got, 1) + cards(lost, -1);
@@ -139,7 +139,7 @@ export function recap(html) {
 // Hoard, Windfall and steals change your hand outside production: float the
 // change off each card (production already animates itself)
 export function handGains(evs) {
-  if (!G.prev || !evs.some((e) => e.kind === "private_steal" || (e.kind === "dev" && /Hoard|Windfall/.test(e.msg)))) return;
+  if (!G.prev || !evs.some((e) => e.kind === "private_steal" || (e.kind === "venture" && /Hoard|Windfall/.test(e.msg)))) return;
   const produced = [0, 0, 0, 0, 0];
   for (const e of evs) if (e.kind === "produce" && e.p === S.human) parseCards(e.msg).forEach((n, r) => { produced[r] += n; });
   S.hand.forEach((n, r) => {

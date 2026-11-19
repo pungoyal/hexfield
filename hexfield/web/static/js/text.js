@@ -25,10 +25,10 @@ export function production(p) {
 }
 
 // ---- what a hand can pay for (used wherever a decision changes your hand)
-export const BUILD_NAMES = { road: "Road", settle: "Settlement", city: "City", dev: "Dev card" };
-export const BUILD_ORDER = ["city", "settle", "dev", "road"]; // most valuable first: what a recommendation aims for
+export const BUILD_NAMES = { trail: "Trail", settle: "Village", town: "Town", venture: "Venture" };
+export const BUILD_ORDER = ["town", "settle", "venture", "trail"]; // most valuable first: what a recommendation aims for
 
-// bank/port trades needed before `hand` covers `cost`, at your trade rates
+// bank/dock trades needed before `hand` covers `cost`, at your trade rates
 export const tradesShort = (hand, cost) => tradesNeeded(hand, cost, S.ratios);
 
 // "Can pay for" chips
@@ -52,19 +52,19 @@ export function hexName(label) {
   return !h ? label : h.res ? `${h.num} ${h.res}` : "the badlands";
 }
 
-// a spot by what it touches: "8 grain, 5 wool · 3:1 port"
+// a spot by what it touches: "8 grain, 5 wool · 3:1 dock"
 export function spotName(v) {
   const vx = B.vertices[v];
   const hs = (vx.hexes || []).map((h) => B.hexes[h]).filter((h) => h.res).sort((a, b) => b.pips - a.pips).map((h) => `${h.num} ${h.res}`);
-  const port = vx.port ? (vx.port === "any" ? "3:1 port" : `2:1 ${vx.port} port`) : "";
-  return [hs.slice(0, 2).join(", "), port].filter(Boolean).join(" · ") || "the coast";
+  const dock = vx.dock ? (vx.dock === "any" ? "3:1 dock" : `2:1 ${vx.dock} dock`) : "";
+  return [hs.slice(0, 2).join(", "), dock].filter(Boolean).join(" · ") || "the coast";
 }
 
-// a road, or a chain of roads, by where it leads: the far end of the chain, or for a
-// single road the end that isn't already on your network
+// a trail, or a chain of trails, by where it leads: the far end of the chain, or for a
+// single trail the end that isn't already on your network
 export let vEdges = null;
 export function resetBoardCaches() { vEdges = null; }
-export function roadsToward(edges) {
+export function trailsToward(edges) {
   if (!vEdges) {
     vEdges = B.vertices.map(() => []);
     B.edges.forEach(([a, b], e) => { vEdges[a].push(e); vEdges[b].push(e); });
@@ -77,7 +77,7 @@ export function roadsToward(edges) {
   return spotName(end);
 }
 
-// engine notation -> readable line: "road 4 -> road 9 -> city at 12 [..]" => "2 roads toward 8 grain → city [..]"
+// engine notation -> readable line: "trail 4 -> trail 9 -> town at 12 [..]" => "2 trails toward 8 grain → town [..]"
 export function human(s) {
   const text = String(s).replace(/\s*\(eval [^)]*\)/g, "")
     .replace(/bank-trade \(([^)]*)\) and build (\w+)/g, (_, t, k) => `trade ${t.replace(/(\d+ \w+) ?-> ?(\w+)/g, "$1 for $2")}, build ${k}`)
@@ -86,14 +86,14 @@ export function human(s) {
   let chain = [];
   const flush = () => {
     if (!chain.length) return;
-    out.push(`${chain.length > 1 ? `${chain.length} roads` : "road"} toward ${B ? roadsToward(chain) : "?"}`);
+    out.push(`${chain.length > 1 ? `${chain.length} trails` : "trail"} toward ${B ? trailsToward(chain) : "?"}`);
     chain = [];
   };
   for (const part of text.split(/\s*->\s*/)) {
-    const m = part.match(/^road (\d+)( — .*)?$/s);
+    const m = part.match(/^trail (\d+)( — .*)?$/s);
     if (m && B?.edges[Number(m[1])]) {
       chain.push(Number(m[1]));
-      if (m[2]) { flush(); out[out.length - 1] += plain(m[2]); } // "road 4 — why" in setup
+      if (m[2]) { flush(); out[out.length - 1] += plain(m[2]); } // "trail 4 — why" in setup
       continue;
     }
     flush();
@@ -112,7 +112,7 @@ export function edgeLine(e, k) {
   return { x1: a.x + (b.x - a.x) * k, y1: a.y + (b.y - a.y) * k, x2: b.x - (b.x - a.x) * k, y2: b.y - (b.y - a.y) * k };
 }
 
-export const plain = (s) => String(s).replace(/\bbandit (to|on) ([A-Z]{1,2})\b(?: \([^)]*\))?/g, (_, w, l) => `bandit ${w} ${hexName(l)}`).replace(/vertex \d+ ?/g, "").replace(/\b(road|settlement at|city at) \d+/g, "$1").replace(/settlement at \[/g, "settlement [").replace(/city at \[/g, "city [");
+export const plain = (s) => String(s).replace(/\bbandit (to|on) ([A-Z]{1,2})\b(?: \([^)]*\))?/g, (_, w, l) => `bandit ${w} ${hexName(l)}`).replace(/vertex \d+ ?/g, "").replace(/\b(trail|village at|town at) \d+/g, "$1").replace(/village at \[/g, "village [").replace(/town at \[/g, "town [");
 export const symbol = (v) => ({ forced: "·", best: "✓", good: "✓", inaccuracy: "?!", mistake: "?", blunder: "??" })[v];
 export const engineLine = (r) => r.forced ? "no real choice" : r.delta < 0.05 ? "engine agrees" : `better: ${short(r.best)}`;
 
@@ -120,10 +120,10 @@ export const engineLine = (r) => r.forced ? "no real choice" : r.delta < 0.05 ? 
 export function describeStep(a) {
   switch (a[0]) {
     case "bank": return `trade ${S.ratios[a[1]]} ${RES[a[1]]} -> ${RES[a[2]]}`;
-    case "road": return `road ${a[1]}`;
-    case "settle": return `settlement [${spotName(a[1])}]`;
-    case "city": return `city [${spotName(a[1])}]`;
-    case "buy_dev": return "buy development card";
+    case "trail": return `trail ${a[1]}`;
+    case "settle": return `village [${spotName(a[1])}]`;
+    case "town": return `town [${spotName(a[1])}]`;
+    case "buy_venture": return "buy venture";
     case "bandit": return `bandit to ${B.hexes[a[1]].label}${a[2] >= 0 ? `, rob ${S.players[a[2]].name}` : ""}`;
     default: return a[0].replace("play_", "play ").replace("_", " ");
   }

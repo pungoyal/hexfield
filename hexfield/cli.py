@@ -11,7 +11,7 @@ from . import store
 from .ai import STYLES, STYLE_NOTES, AIPlayer, describe
 from .constants import (BADLANDS, RANGER, PIPS, RES_NAMES,
                         parse_res)
-from .game import (DISCARD, MAIN, OVER, PRE_ROLL, ROAD_BUILD, BANDIT, SETUP_ROAD,
+from .game import (DISCARD, MAIN, OVER, PRE_ROLL, FREE_TRAILS, BANDIT, SETUP_TRAIL,
                    SETUP_SETTLE, SPECIAL, IllegalAction, fmt_cards)
 from .match import public_reason, resolve_proposal, seat_plan
 from .record import Record
@@ -21,15 +21,15 @@ from .render import (PLAYER_COLORS, PLAYER_COLOR_NAMES, RES_ABBR, Renderer, clip
 HELP_ROWS = (
     ("COMMANDS", (
         ("r, roll", "roll the dice"),
-        ("s [v], settle [v]", "settlement at vertex v (no v: list the spots)"),
-        ("c [v], city [v]", "upgrade your settlement at v to a city"),
-        ("rd [e], road [e]", "road on edge e (no e: show the edge ids)"),
-        ("d, dev, buy", "buy a development card"),
+        ("v [n], village [n]", "village at vertex n (no n: list the spots)"),
+        ("tn [n], town [n]", "upgrade your village at n to a town"),
+        ("tr [e], trail [e]", "trail on edge e (no e: show the edge ids)"),
+        ("vn, venture", "buy a venture"),
         ("rg, ranger", "play a ranger"),
         ("pf, pathfinder", "play a pathfinder"),
         ("hoard <res>", "play hoard, e.g. hoard stone"),
         ("windfall <res> <res>", "play windfall, e.g. windfall grain stone"),
-        ("t <give> <get> [n]", "bank/port trade at your best ratio;"),
+        ("t <give> <get> [n]", "bank/dock trade at your best ratio;"),
         ("", "n = number of trades, e.g. t timber stone 2"),
         ("offer <cards> for <cards>", "offer the bots a trade: offer 2 timber for stone"),
         ("", "(a bot that says no may name its price)"),
@@ -195,7 +195,7 @@ class Game:
         """Ask until the answer is more than a common command; return its words.
         `redraw` re-shows the board for 'b' when the prompt needs ids marked on it.
         `parse(words)` is tried first: if it returns anything but None, that is the answer
-        (so 'c t t' at the discard prompt means clay, timber, timber - not 'city')."""
+        (so 'c t t' at the discard prompt means clay, timber, timber - not 'tn')."""
         while True:
             words = self.ask(prompt).split()
             if not words:
@@ -235,7 +235,7 @@ class Game:
         s, meta = self.s, self.rec.meta
         meta["round"] = (s.turn - 1) // s.n + 1 if s.turn else 0
         if s.phase == OVER:
-            meta["result"] = {"winner": s.winner, "vp": [s.vp(p) for p in range(s.n)],
+            meta["result"] = {"winner": s.winner, "fame": [s.fame(p) for p in range(s.n)],
                               "rounds": meta["round"], "human": self.human}
             meta["coach"] = store.review_summary(self.rec.reviews, self.human)
         try:
@@ -455,7 +455,7 @@ class Game:
         head = f"  ◆ {sym} {name}"
         msg = st(head, fg=col, bold=True)
         if delta >= 0.05:
-            cost = f"  (−{delta:.2f} VP-eq)"
+            cost = f"  (−{delta:.2f} fame-eq)"
             lead = f"  engine: → {cmd}  " if cmd else "  engine: "
             room = term_width() - 1 - len(head) - len(cost) - len(lead)
             msg += st(cost, fg=col) + st("  engine: ", fg=250)
@@ -478,7 +478,7 @@ class Game:
             return not s.playable(p, RANGER)
         if s.phase in (MAIN, SPECIAL) and a[0] == "end":
             return all(x[0] == "end" for x in s.legal_actions(include_trades=True))
-        if s.phase in (SETUP_ROAD, ROAD_BUILD):
+        if s.phase in (SETUP_TRAIL, FREE_TRAILS):
             return len(s.legal_actions()) <= 1
         return False
 
@@ -510,7 +510,7 @@ class Game:
     def option_text(self, a, why):
         """An engine option in words, without repeating itself."""
         s = self.s
-        if s.phase == MAIN or (why and s.phase in (SETUP_SETTLE, SETUP_ROAD, BANDIT, PRE_ROLL)):
+        if s.phase == MAIN or (why and s.phase in (SETUP_SETTLE, SETUP_TRAIL, BANDIT, PRE_ROLL)):
             return why  # these reasons already name the move (and the command shows the id)
         d = describe(s, a)
         return d if not why or why == d else f"{d} - {why}"
@@ -521,10 +521,10 @@ class Game:
         k = a[0]
         if k == "macro":
             a, k = a[1][0], "bank"
-        bare = s.phase in (SETUP_SETTLE, SETUP_ROAD, ROAD_BUILD)
-        if k in ("settle", "road", "city"):
-            return str(a[1]) if bare else f"{dict(settle='s', road='rd', city='c')[k]} {a[1]}"
-        simple = {"buy_dev": "d", "play_ranger": "rg", "play_road": "pf", "roll": "r", "end": "e"}
+        bare = s.phase in (SETUP_SETTLE, SETUP_TRAIL, FREE_TRAILS)
+        if k in ("settle", "trail", "town"):
+            return str(a[1]) if bare else f"{dict(settle='v', trail='tr', town='tn')[k]} {a[1]}"
+        simple = {"buy_venture": "vn", "play_ranger": "rg", "play_pathfinder": "pf", "roll": "r", "end": "e"}
         if k in simple:
             return simple[k]
         if k == "play_hoard":
@@ -547,14 +547,14 @@ class Game:
         try:
             if ph == SETUP_SETTLE:
                 self.human_setup_settle()
-            elif ph == SETUP_ROAD:
-                self.human_setup_road()
+            elif ph == SETUP_TRAIL:
+                self.human_setup_trail()
             elif ph == DISCARD:
                 self.human_discard()
             elif ph == BANDIT:
                 self.human_bandit()
-            elif ph == ROAD_BUILD:
-                self.human_free_road()
+            elif ph == FREE_TRAILS:
+                self.human_free_trail()
             elif ph in (PRE_ROLL, MAIN, SPECIAL):
                 self.human_main()
         except Undo:
@@ -590,8 +590,8 @@ class Game:
                 self.out(line)
             return True
         if cmd == "cost" or cmd == "costs":
-            self.out("  road: timber+clay · settlement: timber+clay+wool+grain · "
-                     "city: 2 grain+3 stone · dev card: wool+grain+stone")
+            self.out("  trail: timber+clay · village: timber+clay+wool+grain · "
+                     "town: 2 grain+3 stone · venture: wool+grain+stone")
             return True
         if cmd == "review":
             self.review_on = self.toggle("post-move review", "review", self.review_on, args)
@@ -638,7 +638,7 @@ class Game:
     def eval_cmd(self):
         s = self.s
         vals = self.coach.ev.values(self.coach.view(s, self.human), self.human)
-        self.out(self.st("  Engine evaluation (VP-equivalents, your point of view):", bold=True))
+        self.out(self.st("  Engine evaluation (fame-equivalents, your point of view):", bold=True))
         top = max(vals)
         for p in range(s.n):
             prod = self.coach.ev.production(s, p)
@@ -669,7 +669,7 @@ class Game:
             self.apply(a)
 
     def spot_list(self, legal, top=8):
-        """The legal settlement spots, best (most pips) first, a few per line."""
+        """The legal village spots, best (most pips) first, a few per line."""
         b = self.s.board
         best = sorted(legal, key=lambda v: (-b.vertex_total_pips[v], v))[:top]
         items = [f"{v:>2}: {b.describe_vertex(v)} = {b.vertex_total_pips[v]} pips" for v in best]
@@ -697,21 +697,21 @@ class Game:
     def human_setup_settle(self):
         s = self.s
         which = "first" if s.setup_idx < s.n else "second"
-        v = self.pick_spot(f"place your {which} settlement (vertex id)", "vertex",
-                           s.legal_settlements(self.human, setup=True))
+        v = self.pick_spot(f"place your {which} village (vertex id)", "vertex",
+                           s.legal_villages(self.human, setup=True))
         self.info(f"vertex {v}: {s.board.describe_vertex(v)}")
         self.act(("settle", v))
 
-    def human_setup_road(self):
-        e = self.pick_spot("place a road next to it (edge id)", "edge",
-                           self.s.legal_setup_roads(self.human))
-        self.act(("road", e))
+    def human_setup_trail(self):
+        e = self.pick_spot("place a trail next to it (edge id)", "edge",
+                           self.s.legal_setup_trails(self.human))
+        self.act(("trail", e))
 
-    def human_free_road(self):
+    def human_free_trail(self):
         s = self.s
-        e = self.pick_spot(f"pathfinder: place a free road ({s.free_roads} left)", "edge",
-                           s.legal_roads(self.human))
-        self.act(("road", e))
+        e = self.pick_spot(f"pathfinder: place a free trail ({s.free_trails} left)", "edge",
+                           s.legal_trails(self.human))
+        self.act(("trail", e))
 
     # discard / bandit ----------------------------------------------------
     def human_discard(self):
@@ -721,7 +721,7 @@ class Game:
         self.out("")
         self.out("  " + self.r.hand_chips(hand))
         while True:
-            # cards first: 'c t t' is clay, timber, timber here, not the city command
+            # cards first: 'c t t' is clay, timber, timber here, not a command
             counts = self.command(f"a 7! discard {k} cards (e.g. '2 timber stone')", parse=parse_cards)
             if isinstance(counts[0], str):
                 self.warn("couldn't parse that - try e.g. 'timber 2 stone'")
@@ -800,7 +800,7 @@ class Game:
     # main turn -----------------------------------------------------------
     def human_main(self):
         s = self.s
-        # only a ranger is worth playing before the roll; other dev cards can wait until after it
+        # only a ranger is worth playing before the roll; other ventures can wait until after it
         if s.phase == PRE_ROLL and self.args.autoroll and not s.playable(self.human, RANGER):
             self.apply(("roll",))
             self.flush_events()
@@ -830,7 +830,7 @@ class Game:
             except IllegalAction as ex:
                 self.warn(str(ex))
                 continue
-            if a[0] in ("settle", "city", "road", "play_ranger", "play_road") and s.phase in (MAIN, SPECIAL):
+            if a[0] in ("settle", "town", "trail", "play_ranger", "play_pathfinder") and s.phase in (MAIN, SPECIAL):
                 self.flush_events()
                 self.show()
             return
@@ -839,21 +839,21 @@ class Game:
         """(kind, id) for a build command; with no id, mark the legal ones and ask."""
         if self.s.phase not in (MAIN, SPECIAL):
             raise IllegalAction("roll first")
-        spot = "edge" if kind == "road" else "vertex"
+        spot = "edge" if kind == "trail" else "vertex"
         if not args:
             if not legal:
                 raise IllegalAction(none_left)
-            if kind == "city" and len(legal) == 1:
-                return ("city", legal[0])
+            if kind == "town" and len(legal) == 1:
+                return ("town", legal[0])
             self.show(**{f"{spot}_ids": legal})
             if kind == "settle":
                 self.spot_list(legal)
             args = [self.ask(f"{noun} at ({spot} id, blank to cancel)")]
             if not args[0]:
                 return None
-        last = (self.s.board.E if kind == "road" else self.s.board.V) - 1
+        last = (self.s.board.E if kind == "trail" else self.s.board.V) - 1
         if not args[0].isdigit():
-            short = {"settle": "s", "city": "c", "road": "rd"}[kind]
+            short = {"settle": "v", "town": "tn", "trail": "tr"}[kind]
             raise IllegalAction(f"'{args[0]}' isn't a {spot} id - type '{short}' alone to see them marked")
         if int(args[0]) > last:
             raise IllegalAction(f"there is no {spot} {args[0]} (ids run 0-{last})")
@@ -866,19 +866,19 @@ class Game:
             return ("roll",)
         if cmd in ("e", "end", "done", "pass"):
             return ("end",)
-        if cmd in ("s", "settle", "settlement"):
-            return self.build("settle", "settlement", s.legal_settlements(p), args,
-                              "no legal settlement spots (need a road leading to an open spot)")
-        if cmd in ("c", "city"):
-            return self.build("city", "city", s.legal_cities(p), args, "no settlements to upgrade")
-        if cmd in ("rd", "road"):
-            return self.build("road", "road", s.legal_roads(p), args, "nowhere to build a road")
-        if cmd in ("d", "dev", "buy"):
-            return ("buy_dev",)
+        if cmd in ("v", "village"):
+            return self.build("settle", "village", s.legal_villages(p), args,
+                              "no legal village spots (need a trail leading to an open spot)")
+        if cmd in ("tn", "town"):
+            return self.build("town", "town", s.legal_towns(p), args, "no villages to upgrade")
+        if cmd in ("tr", "trail"):
+            return self.build("trail", "trail", s.legal_trails(p), args, "nowhere to build a trail")
+        if cmd in ("vn", "venture"):
+            return ("buy_venture",)
         if cmd in ("rg", "ranger"):
             return ("play_ranger",)
         if cmd in ("pf", "pathfinder"):
-            return ("play_road",)
+            return ("play_pathfinder",)
         if cmd == "play" and args:
             return self.parse_main(args[0], args[1:])
         if cmd == "hoard":
@@ -976,15 +976,15 @@ class Game:
             self.out(st(f"  {s.names[w]} wins.", fg=PLAYER_COLORS[w], bold=True))
         self.out("")
         self.out(st("  Final scores", bold=True))
-        for p in sorted(range(s.n), key=lambda q: -s.vp(q)):
-            parts = [plural(len(s.settlements[p]), "settlement"), plural(len(s.cities[p]), "city", "cities")]
+        for p in sorted(range(s.n), key=lambda q: -s.fame(q)):
+            parts = [plural(len(s.villages[p]), "village"), plural(len(s.towns[p]), "town", "towns")]
             if s.longest == p:
-                parts.append("great road")
+                parts.append("great trail")
             if s.patrol == p:
                 parts.append("great patrol")
-            if s.vp_cards(p):
-                parts.append(plural(s.vp_cards(p), "VP card"))
-            self.out(f"   {self.r.pname(p, 9)} {s.vp(p):>2} VP  ({', '.join(parts)})")
+            if s.landmarks(p):
+                parts.append(plural(s.landmarks(p), "landmark"))
+            self.out(f"   {self.r.pname(p, 9)} {s.fame(p):>2} fame  ({', '.join(parts)})")
         if self.reviews:
             self.out("")
             self.out(st("  Your decision review", bold=True))
@@ -993,7 +993,7 @@ class Game:
                                      for _, name, col, _ in VERDICTS))
             loss = sum(r[4] for r in self.reviews)
             acc = 100.0 * sum(1 for r in self.reviews if r[4] < 0.2) / len(self.reviews)
-            self.out(f"   accuracy {acc:.0f}% of {len(self.reviews)} decisions  ·  total value lost {loss:.2f} VP-eq")
+            self.out(f"   accuracy {acc:.0f}% of {len(self.reviews)} decisions  ·  total value lost {loss:.2f} fame-eq")
             worst = [r for r in sorted(self.reviews, key=lambda r: -r[4])[:5] if r[4] >= 0.2]
             if worst:
                 self.out(st("   Biggest misses:", bold=True))
@@ -1086,7 +1086,7 @@ def show_stats():
     print(f"  {len(games)} finished games, {st['won']} won ({100 * st['won'] / len(games):.0f}%).")
     if rated:
         print(f"  Accuracy {sum(g['accuracy'] for g in rated) / len(rated):.0f}% on average, "
-              f"{sum(g['lost'] for g in rated) / len(rated):.2f} VP-eq lost per game.")
+              f"{sum(g['lost'] for g in rated) / len(rated):.2f} fame-eq lost per game.")
         print("\n  Last games (oldest first): accuracy %")
         print("   " + "  ".join(f"{g['accuracy']:.0f}{'*' if g['won'] else ''}" for g in rated[-20:]) + "    (* = won)")
     if st["groups"]:
@@ -1120,7 +1120,7 @@ def replay_game(args):
             rv = reviews.get(i)
             if rec.entries[i][0] == "m" and rv:
                 print(f"  ◆ you played: {rv['label']}  -  {rv['verdict']}"
-                      + (f" (-{rv['delta']:.2f} VP-eq; engine: {rv['best']})" if rv["delta"] >= 0.05 else ""))
+                      + (f" (-{rv['delta']:.2f} fame-eq; engine: {rv['best']})" if rv["delta"] >= 0.05 else ""))
         try:
             cmd = input("  replay › ").strip().lower()
         except (EOFError, KeyboardInterrupt):

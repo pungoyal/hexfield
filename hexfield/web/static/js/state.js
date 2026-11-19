@@ -12,7 +12,7 @@ export function setB(v) { B = v; }
 export const G = {
   evCount: 0,          // events received so far
   prev: null,          // previous S for diffing
-  mode: null,          // main-phase build mode: road | settle | city
+  mode: null,          // main-phase build mode: trail | settle | town
   busy: false,
   pumping: false,
   stopPump: false,     // set by undo: the bot loop stops after its current step

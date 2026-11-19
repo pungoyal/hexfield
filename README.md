@@ -45,30 +45,30 @@ hexfield --stats                       # accuracy across your finished games, an
 
 The browser client uses the same engine, bots and coach. It has an SVG board drawn as
 vector art (every hex is its own small landscape, and there are no image files), animated
-dice and production, a card dock, trade dialogs for the bank, ports and players, and a
+dice and production, a card tray, trade dialogs for the bank, docks and players, and a
 coach panel. Reloading the page resumes the game, and so does restarting the server.
 
 * **What you can do stands out.** On your move, everything you can press is drawn larger:
-  the Roll button, the builds you can afford, a playable development card, the spots on the
+  the Roll button, the builds you can afford, a playable venture, the spots on the
   board. When the choices sit close together, the board zooms in on them.
 * **Information where you decide.** The left panel shows your income: pips per resource,
-  the numbers you collect on, what the bandit blocks, and your trade rates. Settlement
+  the numbers you collect on, what the bandit blocks, and your trade rates. Village
   spots show their pip value. When the bandit moves, each hex shows whose income it would
   block. Every dialog that changes your hand says which builds it unlocks or gives up, and
   a **While you waited** card sums up what happened since your last turn.
-* **Coach panel.** **Hint** shows the engine's top options on the board ("2 roads toward
-  8 grain · 3:1 port"), and **Play** carries one out, bank trades included. **Evaluate**
+* **Coach panel.** **Hint** shows the engine's top options on the board ("2 trails toward
+  8 grain · 3:1 dock"), and **Play** carries one out, bank trades included. **Evaluate**
   scores every player. Each of your decisions gets a verdict, and only inaccuracies and
   worse pop up. Bots explain why they decline your offers.
 * **Undo** works at any moment: while the bots play, in the discard and offer dialogs,
   and after the game ends.
 * **Accessible.** Every spot you can build on is a real button that a screen reader can
-  announce ("Build a settlement: 8 grain, 5 wool, 9 pips"). **Marks** (`Shift+C`)
+  announce ("Build a village: 8 grain, 5 wool, 9 pips"). **Marks** (`Shift+C`)
   switches to a colour-blind-safe palette and puts each player's seat number on their
   pieces. Animations follow the system's reduced-motion setting.
 
-Everything can be done from the keyboard: `R` roll, `1/2/3` road/settlement/city,
-`D` development card, `T` trade, `E` end turn, `H` hint, `U` undo (on every screen and in
+Everything can be done from the keyboard: `R` roll, `1/2/3` trail/village/town,
+`D` venture, `T` trade, `E` end turn, `H` hint, `U` undo (on every screen and in
 every dialog), `?` help. When you place something, every clickable spot shows a letter,
 ranked rather than positional: the best spot is always **A** (in green), then S, F, G…
 along the home row. **Space** always makes the obvious move: the A spot, the roll, or the
@@ -85,19 +85,19 @@ panel moves below the board. The game uses 256-colour ANSI. `--no-color` (or
 `NO_COLOR=1`) turns colour off.
 
 Before each move a status line says what you can build now, or how many trades away the
-nearest build is. Placing a settlement lists the open spots with the most pips. Moving the
+nearest build is. Placing a village lists the open spots with the most pips. Moving the
 bandit shows whom each hex blocks and whom you can rob. A bot's offer shows your hand
 before and after. Hints show the command to type, e.g. `→ t wool clay`.
 
 | command | |
 |---|---|
 | `r` | roll (rolled for you unless you can play a ranger first; `--no-autoroll` to always ask) |
-| `s 23` / `s` | settlement at vertex 23 (bare `s` shows the legal vertex ids on the map) |
-| `c 23` | city |
-| `rd 41` / `rd` | road on edge 41 (bare `rd` shows the legal edge ids) |
-| `d` | buy a development card |
-| `rg`, `pf`, `hoard stone`, `windfall grain stone` | play development cards |
-| `t timber stone` / `t timber stone 3` | bank/port trade at your best rate; the number is how many trades (all or none) |
+| `v 23` / `v` | village at vertex 23 (bare `v` shows the legal vertex ids on the map) |
+| `tn 23` | town |
+| `tr 41` / `tr` | trail on edge 41 (bare `tr` shows the legal edge ids) |
+| `vn` | buy a venture |
+| `rg`, `pf`, `hoard stone`, `windfall grain stone` | play ventures |
+| `t timber stone` / `t timber stone 3` | bank/dock trade at your best rate; the number is how many trades (all or none) |
 | `offer 2 timber for stone` | offer a trade to the bots; one that says no may name its price |
 | `c timber for stone` | at a bot's offer: your counter-offer (you give timber, you get stone) |
 | `e` | end turn (or pass, in the special building phase) |
@@ -108,8 +108,8 @@ before and after. Hints show the command to type, e.g. `→ t wool clay`.
 | `b`, `ids`, `log 30`, `stats`, `cost`, `help`, `q` | view and help commands |
 
 Hexes have fixed letters for the bandit, e.g. `F` or `F vera`. The letters never clash
-with a command (no B, D, E, H, Q, R or T). `c` and `s` are commands at the main
-prompt and hex letters at the bandit prompt. At the discard prompt, card names come first:
+with a command (no B, D, E, H, Q, R or T). `v` is a command at the main
+prompt and a hex letter at the bandit prompt. At the discard prompt, card names come first:
 `c t t` discards clay, timber, timber.
 
 ## Saved games, replays and progress
@@ -196,31 +196,31 @@ process holds every live game, and the bots think on the server's CPU.
 
 ## Rules
 
-* A random board with balanced tile, number and harbour distributions. The red numbers
-  (6 and 8) never touch, and neither do two of the same number. There are 9 harbours
+* A random board with balanced tile, number and dock distributions. The red numbers
+  (6 and 8) never touch, and neither do two of the same number. There are 9 docks
   (four 3:1, five 2:1).
-* Snake-draft setup. Your second settlement pays its starting resources.
-* Distance rule: no two settlements on neighbouring corners. Roads must connect to your
+* Snake-draft setup. Your second village pays its starting resources.
+* Distance rule: no two villages on neighbouring corners. Trails must connect to your
   network, and an opponent's building cuts it.
 * Production follows the bank-shortage rule: if the bank can't pay everyone, nobody gets
   that resource (unless only one player is owed it).
 * On a 7, everyone holding more than 7 cards discards half. Then the player who rolled
   moves the bandit and steals a card from someone next to it.
-* Development cards: 14 rangers, 5 victory points, 2 pathfinders, 2 hoards and 2
+* Ventures: 14 rangers, 5 landmarks, 2 pathfinders, 2 hoards and 2
   windfalls. You can't play a card on the turn you buy it, and you can play at most one per
   turn. Rangers may be played before you roll.
 * Hidden hands: you see only how many cards each opponent holds.
-* Great Patrol (3+ rangers) and Great Road (5+, recomputed when a settlement cuts a road).
-* Bank trades at 4:1, or 3:1 and 2:1 at harbours. Players trade with each other: you can
+* Great Patrol (3+ rangers) and Great Trail (5+, recomputed when a village cuts a trail).
+* Bank trades at 4:1, or 3:1 and 2:1 at docks. Players trade with each other: you can
   make offers to the bots, and bots make offers to you and to each other.
-* The first player to reach 10 VP **on their own turn** wins. Hidden VP cards count.
+* The first player to reach 10 fame **on their own turn** wins. Hidden landmarks count.
 
 Options (all off unless you ask, so an old seed still deals the same game):
 
 * **5 or 6 players.** A large board of 30 hexes in rows of 3-4-5-6-5-4-3, with two
-  badlands, 28 number tokens, 11 harbours, 24 cards of each resource and a 34-card
-  development deck (20 rangers). After every turn comes the **special building phase**:
-  each other player in turn may build or buy a development card with the cards in hand,
+  badlands, 28 number tokens, 11 docks, 24 cards of each resource and a 34-card
+  venture deck (20 rangers). After every turn comes the **special building phase**:
+  each other player in turn may build or buy a venture with the cards in hand,
   without trading or playing cards. Players who can't afford anything are skipped.
 * **Beginner board.** A fixed, balanced starting map for up to 4 players.
 * **Balanced dice.** The 36 combinations are dealt from a shuffled deck, which is
@@ -233,11 +233,11 @@ Options (all off unless you ask, so an old seed still deals the same game):
 ## The coach
 
 * **Post-move review.** After each decision with real alternatives, the engine compares
-  your move with its best line. The difference is measured in *VP-equivalents*:
+  your move with its best line. The difference is measured in *fame-equivalents*:
   `✓ best` < 0.05 ≤ `✓ good` < 0.2 ≤ `?! inaccuracy` < 0.5 ≤ `? mistake` < 1.0 ≤ `?? blunder`.
-  It covers setup placements, roads, the bandit and its victim, discards, rangers before
+  It covers setup placements, trails, the bandit and its victim, discards, rangers before
   rolling, builds, trades, and answers to offers. Opening placements are scored in pips
-  and rescaled to VP-equivalents, so a reasonable alternative road reads as `good`, not as
+  and rescaled to fame-equivalents, so a reasonable alternative trail reads as `good`, not as
   a blunder. Rolling with a ranger in hand is judged against playing the ranger *after*
   the roll. If you can win this turn, the hint and the review show the winning line, and
   any move that gives the win away is a blunder.
@@ -245,7 +245,7 @@ Options (all off unless you ask, so an old seed still deals the same game):
   five biggest misses with the engine's preferred line.
 * **Across games.** `--stats` (or **Your progress** in the browser) shows accuracy over
   time and which kinds of decision cost you the most.
-* **Seeds.** The board, dice, development deck and steals each use their own random
+* **Seeds.** The board, dice, venture deck and steals each use their own random
   stream, so the same `--seed` replays the same board and dice even if you play
   differently. Undo uses the same mechanism inside a game.
 
@@ -254,40 +254,40 @@ Options (all off unless you ask, so an old seed still deals the same game):
 All of this lives in `hexfield/ai.py`, and every evaluation weight is in one table,
 `PARAMS`.
 
-1. **Evaluation.** Each player's position is scored in VP-equivalents from:
-   * real VP;
+1. **Evaluation.** Each player's position is scored in fame-equivalents from:
+   * real fame;
    * expected production per resource, aware of the bandit and with diminishing returns.
-     Surplus counts for more when you own the matching harbour, and missing resources
+     Surplus counts for more when you own the matching dock, and missing resources
      are penalised;
-   * room to expand: open spots within 2 roads, discounted when an opponent is closer;
-   * hand quality: cards that complete a settlement, city or development card are worth
+   * room to expand: open spots within 2 trails, discounted when an opponent is closer;
+   * hand quality: cards that complete a village, town or venture are worth
      more, and large hands are penalised for the risk of a 7;
-   * development cards and the Great Patrol and Great Road races.
+   * ventures and the Great Patrol and Great Trail races.
 
    The weights shift from timber and clay early to grain and stone late, and production
-   matters less as someone nears 10 VP.
+   matters less as someone nears 10 fame.
 2. **Decision score.** A bot's own value minus a weighted share of each opponent's. The
-   weights rise for the leader and for anyone at 8+ VP, so the bots gang up on whoever is
+   weights rise for the leader and for anyone at 8+ fame, so the bots gang up on whoever is
    winning, including you.
-3. **Turn search.** A beam search over the actions in a turn: builds, bank and harbour
-   trades, and development cards (ranger and bandit, hoard, windfall,
+3. **Turn search.** A beam search over the actions in a turn: builds, bank and dock
+   trades, and ventures (ranger and bandit, hoard, windfall,
    pathfinder). It includes *macro moves* ("trade 3 wool→stone, trade 4 timber→grain, build
-   city"), so builds that need several trades aren't pruned.
-4. **Win-now search.** From 7 VP up, every bot first runs an exhaustive search for a line
+   town"), so builds that need several trades aren't pruned.
+4. **Win-now search.** From 7 fame up, every bot first runs an exhaustive search for a line
    that wins *this turn*, capped at 4000 nodes. An optimistic bound cuts dead branches, so
    it usually takes well under a millisecond. It uses only what the player knows, and a
    ranger's steal is never counted on. The coach runs the same search for hints and
    reviews.
-5. **Opening.** A snake-draft lookahead. For each candidate first settlement, the bot
+5. **Opening.** A snake-draft lookahead. For each candidate first village, the bot
    simulates every opponent's greedy pick up to its own second pick, then takes the best
-   pair. It scores resource coverage, scarcity, number diversity, harbours and room to
+   pair. It scores resource coverage, scarcity, number diversity, docks and room to
    expand.
 6. **Bandit, discards, rangers and trades** all use the same evaluation. A bot accepts a
    trade only if it gains more than the proposer does, measured by simulating the
-   proposer's best turn with and without the trade. It never feeds a player at 8+ VP.
-7. **Styles.** Every bot has a style: *balanced*, *builder* (roads, settlements, Great
-   Road), *citizen* (grain and stone, early cities), *general* (development cards, Great
-   Patrol) or *trader* (harbours and deals). A style is a handful of multipliers on the
+   proposer's best turn with and without the trade. It never feeds a player at 8+ fame.
+7. **Styles.** Every bot has a style: *balanced*, *builder* (trails, villages, Great
+   Trail), *citizen* (grain and stone, early towns), *general* (ventures, Great
+   Patrol) or *trader* (docks and deals). A style is a handful of multipliers on the
    evaluation weights. By default each bot gets a random style (`--styles balanced` turns
    that off). In 96-game matches between hard bots, no style was distinguishable from
    *balanced*: the styles add variety, not a handicap.
@@ -296,8 +296,8 @@ All of this lives in `hexfield/ai.py`, and every evaluation weight is in one tab
 (production, builds, trades, discards). When two other players steal from each other, the
 tracker estimates the stolen card from the victim's likely hand. Every bot decision runs
 on that tracked view, never on the real hands. The coach uses *your* tracker, so hints,
-evaluations and reviews can't leak hidden cards. Nobody sees other players' development
-cards or the deck order.
+evaluations and reviews can't leak hidden cards. Nobody sees other players' ventures
+or the deck order.
 
 ### Measuring and tuning
 
@@ -330,8 +330,8 @@ order of a thousand games per comparison.
 
 ```
 hexfield/constants.py   rules data
-hexfield/board.py       geometry (screen-coordinate vertices), board and harbour generation, both sizes
-hexfield/game.py        state, legal moves, transitions, great road, rule options
+hexfield/board.py       geometry (screen-coordinate vertices), board and dock generation, both sizes
+hexfield/game.py        state, legal moves, transitions, great trail, rule options
 hexfield/ai.py          evaluation weights and styles, beam search, setup lookahead, trading
 hexfield/match.py       seating, trade resolution with counter-offers, headless games
 hexfield/record.py      a game as data: seed + decisions, replayed exactly

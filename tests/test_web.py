@@ -100,7 +100,7 @@ class WebTests(unittest.TestCase):
     def test_illegal_and_hidden(self):
         st = self.c.call("new", {"opponents": 2, "seed": 9, "seat": 1})
         self.assertEqual(st["human"], 0)
-        bad = self.c.call("act", {"action": ["city", 0]})
+        bad = self.c.call("act", {"action": ["town", 0]})
         self.assertEqual(bad["status"], 400)
         for p in st["players"]:
             self.assertNotIn("hand", p)
@@ -108,7 +108,7 @@ class WebTests(unittest.TestCase):
     def test_malformed_input_is_rejected(self):
         c = self.c
         st = c.call("new", {"opponents": 2, "seed": 5, "seat": 1})
-        for action in (["end", 1], ["settle"], ["discard"], ["trade", 1], ["road", "x"],
+        for action in (["end", 1], ["settle"], ["discard"], ["trade", 1], ["trail", "x"],
                        ["discard", 5], ["discard", [0, 0, 0, 0, 0, 4]], ["roll", 7], "x", None):
             r = c.call("act", {"action": action})
             self.assertEqual(r.get("status"), 400, action)
@@ -116,7 +116,7 @@ class WebTests(unittest.TestCase):
             self.assertEqual(c.call("offer", {"give": give, "get": get}).get("status"), 400)
         self.assertEqual(c.call("new", {"opponents": "x"}).get("status"), 400)
         self.assertEqual(c.call("state?since=abc").get("status"), 400)
-        self.assertEqual(st["phase"], "setup_settlement")
+        self.assertEqual(st["phase"], "setup_village")
 
     def test_discard_needs_five_counts(self):
         g = WebGame(2, "easy", seed=11, seat=1)
@@ -147,8 +147,8 @@ class WebTests(unittest.TestCase):
         g.offer = {"from": 1, "give": (1, 0, 0, 0, 0), "get": (0, 1, 0, 0, 0), "answers": {0: None, 2: True},
                    "counters": {}, "tries": {}, "notes": {}, "bot": True}
         self.assertNotIn("answers", g.view()["pending_offer"])
-        self.assertEqual(public_reason("plan: buy development card -> play Ranger  (eval +0.40)"),
-                         "plan: buy development card  (eval +0.40)")
+        self.assertEqual(public_reason("plan: buy venture -> play Ranger  (eval +0.40)"),
+                         "plan: buy venture  (eval +0.40)")
 
     def test_playtest_view_details(self):
         g = WebGame(3, "medium", seed=31, seat=1, name="Tester")
@@ -163,7 +163,7 @@ class WebTests(unittest.TestCase):
         msgs = [e["msg"] for e in v["events"]]
         self.assertFalse([m for m in msgs if "Tester" in m], "the human reads the log in second person")
         self.assertTrue(any(m.startswith("You build") for m in msgs))
-        # a hand that needs one bank trade before a city: Play covers trade and build
+        # a hand that needs one bank trade before a town: Play covers trade and build
         g.s.phase, g.s.rolled = "main", True
         g.s.hands[0] = [4, 1, 0, 2, 2]
         opts = g.hint()["options"]
@@ -172,7 +172,7 @@ class WebTests(unittest.TestCase):
         multi = [o for o in opts if len(o["steps"]) > 1]
         self.assertTrue(multi)
         self.assertEqual(multi[0]["steps"][0][0], "bank")
-        self.assertIn(multi[0]["steps"][-1][0], ("city", "settle", "road", "buy_dev"))
+        self.assertIn(multi[0]["steps"][-1][0], ("town", "settle", "trail", "buy_venture"))
         # offers come back with a reason for every refusal
         g.s.hands[1] = [0, 0, 0, 0, 0]
         replies = g.make_offer([1, 0, 0, 0, 0], [0, 0, 0, 0, 1])["replies"]

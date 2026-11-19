@@ -4,21 +4,21 @@ import { RES } from "./logic.js";
 export { RES, parseCards } from "./logic.js";
 
 
-export const COSTS = { road: [1, 1, 0, 0, 0], settle: [1, 1, 1, 1, 0], city: [0, 0, 0, 2, 3], dev: [0, 0, 1, 1, 1] };
-export const DEVS = [
+export const COSTS = { trail: [1, 1, 0, 0, 0], settle: [1, 1, 1, 1, 0], town: [0, 0, 0, 2, 3], venture: [0, 0, 1, 1, 1] };
+export const VENTURES = [
   { key: "ranger", name: "Ranger", icon: "i-ranger", art: "a-ranger", play: "play_ranger", hot: "4" },
-  { key: "vp", name: "Victory pt", icon: "i-vp", art: "a-vp", play: null },
-  { key: "roadb", name: "Pathfinder", icon: "i-roadb", art: "a-roadb", play: "play_road", hot: "5" },
+  { key: "landmark", name: "Landmark", icon: "i-fame", art: "a-landmark", play: null },
+  { key: "pathfinder", name: "Pathfinder", icon: "i-pathfinder", art: "a-pathfinder", play: "play_pathfinder", hot: "5" },
   { key: "hoard", name: "Hoard", icon: "i-hoard", art: "a-hoard", play: "play_hoard", hot: "6" },
   { key: "windfall", name: "Windfall", icon: "i-windfall", art: "a-windfall", play: "play_windfall", hot: "7" },
 ];
 export const VERDICT_COLORS = { forced: "var(--muted)", best: "var(--good)", good: "var(--ok)", inaccuracy: "var(--warn)", mistake: "var(--bad)", blunder: "var(--worst)" };
-export const LOG_ICONS = { build: "⌂", roll: "⚄", produce: "+", bandit: "☗", steal: "✋", dev: "★", trade: "⇄", award: "♛",
+export const LOG_ICONS = { build: "⌂", roll: "⚄", produce: "+", bandit: "☗", steal: "✋", venture: "★", trade: "⇄", award: "♛",
   discard: "−", offer: "?", reply: "·", info: "·", win: "♛", private: "👁", private_steal: "👁" };
 export const STYLE_NOTES = {
-  balanced: "plays the position", builder: "expands fast and races for the Great Road",
-  citizen: "wants grain and stone, and builds cities early", general: "buys development cards and goes for the Great Patrol",
-  trader: "settles on harbours and trades often",
+  balanced: "plays the position", builder: "expands fast and races for the Great Trail",
+  citizen: "wants grain and stone, and builds towns early", general: "buys ventures and goes for the Great Patrol",
+  trader: "settles on docks and trades often",
 };
 export const SPEEDS = { fast: 60, normal: 380, slow: 900 };
 export const SVGNS = "http://www.w3.org/2000/svg";

@@ -9,21 +9,21 @@ import unittest
 from hexfield import cli
 from hexfield.ai import AIPlayer
 from hexfield.constants import RES_NAMES
-from hexfield.game import DISCARD, MAIN, OVER, ROAD_BUILD, BANDIT, SETUP_ROAD, SETUP_SETTLE, IllegalAction
+from hexfield.game import DISCARD, MAIN, OVER, FREE_TRAILS, BANDIT, SETUP_TRAIL, SETUP_SETTLE, IllegalAction
 
 
 def to_command(game, a):
     s = game.s
     k = a[0]
-    bare = s.phase in (SETUP_SETTLE, SETUP_ROAD, ROAD_BUILD)
+    bare = s.phase in (SETUP_SETTLE, SETUP_TRAIL, FREE_TRAILS)
     if k == "macro":
         a, k = a[1][0], "bank"
     if k == "settle":
-        return str(a[1]) if bare else f"s {a[1]}"
-    if k == "road":
-        return str(a[1]) if bare else f"rd {a[1]}"
-    simple = {"city": f"c {a[1] if len(a) > 1 else ''}", "buy_dev": "d", "play_ranger": "rg",
-              "play_road": "pf", "roll": "r", "end": "e", "end_road_building": "e"}
+        return str(a[1]) if bare else f"v {a[1]}"
+    if k == "trail":
+        return str(a[1]) if bare else f"tr {a[1]}"
+    simple = {"town": f"tn {a[1] if len(a) > 1 else ''}", "buy_venture": "vn", "play_ranger": "rg",
+              "play_pathfinder": "pf", "roll": "r", "end": "e", "end_free_trails": "e"}
     if k in simple:
         return simple[k]
     if k == "play_hoard":
@@ -128,19 +128,19 @@ def run_quiet(fn, *args):
 
 
 class CLIInputTests(unittest.TestCase):
-    def test_out_of_range_road_is_rejected(self):
+    def test_out_of_range_trail_is_rejected(self):
         game = make_game()
         to_my_main(game)
         s = game.s
         s.hands[game.human] = [5, 5, 0, 0, 0]
-        before = (list(s.roads[game.human]), s.hands[game.human][:])
-        scripted(game, ["rd 999", "s abc", "e"])
+        before = (list(s.trails[game.human]), s.hands[game.human][:])
+        scripted(game, ["tr 999", "v abc", "e"])
         text = run_quiet(game.human_turn_step)  # warns twice, then ends the turn
         self.assertIn("no edge 999", text)
         self.assertIn("isn't a vertex id", text)
-        self.assertEqual((s.roads[game.human], s.hands[game.human]), before)
+        self.assertEqual((s.trails[game.human], s.hands[game.human]), before)
         with self.assertRaises(IllegalAction):  # the engine checks too
-            s.clone(sim=False).apply(("road", 999))
+            s.clone(sim=False).apply(("trail", 999))
 
     def test_repeated_trade_is_all_or_nothing_and_one_undo_step(self):
         game = make_game()
@@ -179,7 +179,7 @@ class CLIInputTests(unittest.TestCase):
         vs = s.board.hex_vertices[h]
         for q, v in ((0, vs[0]), (1, vs[3])):
             s.v_owner[v], s.v_level[v] = q, 1
-            s.settlements[q].append(v)
+            s.villages[q].append(v)
             s.hands[q] = [1, 1, 0, 0, 0]
         s.phase, s.current = BANDIT, game.human
         s.bandit_return = MAIN
@@ -262,7 +262,7 @@ class CLIInputTests(unittest.TestCase):
         scripted(game, ["e"])
         run_quiet(game.step)
         to_my_main(game)
-        scripted(game, ["s", "undo"])  # undo at "settlement at (vertex id, blank to cancel)"
+        scripted(game, ["v", "undo"])  # undo at "village at (vertex id, blank to cancel)"
         with self.assertRaises(cli.Undo):
             run_quiet(game.human_main)
 
@@ -274,10 +274,10 @@ class CLIInputTests(unittest.TestCase):
             to_my_main(game)
             game.show = lambda *a, **k: None
             s, me = game.s, game.human
-            s.phase, s.dev_played = PRE_ROLL, False
-            s.devs[me] = [0] * len(s.devs[me])
-            s.new_devs[me] = [0] * len(s.new_devs[me])
-            s.devs[me][card] = 1
+            s.phase, s.venture_played = PRE_ROLL, False
+            s.ventures[me] = [0] * len(s.ventures[me])
+            s.new_ventures[me] = [0] * len(s.new_ventures[me])
+            s.ventures[me][card] = 1
             left = scripted(game, ["r"])
             run_quiet(game.human_main)
             self.assertEqual(bool(left), not waits, card)

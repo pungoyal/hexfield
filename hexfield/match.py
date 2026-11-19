@@ -56,7 +56,7 @@ def public_reason(why):
 
 def pick_partner(s, accepters):
     """A proposer with several takers trades with the one furthest behind."""
-    return min(accepters, key=lambda q: (s.public_vp(q), s.hand_size(q)))
+    return min(accepters, key=lambda q: (s.public_fame(q), s.hand_size(q)))
 
 
 def bot_counters(s, agents, proposer, give, get, declined):

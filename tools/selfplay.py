@@ -36,18 +36,18 @@ def wilson(wins, n, z=1.96):
 
 
 def one_game(job):
-    """(seed, perm, levels, styles, params, options) -> (winner entry or -1, turns, vp by entry, secs)."""
+    """(seed, perm, levels, styles, params, options) -> (winner entry or -1, turns, fame by entry, secs)."""
     seed, perm, levels, styles, params, options = job
     seat = lambda xs: [xs[i] for i in perm] if xs else None  # noqa: E731
     s, dt = play_headless(seed, seat(levels), styles=seat(styles), params=seat(params), **options)
-    vp = [0] * len(perm)
+    fame = [0] * len(perm)
     for q, entry in enumerate(perm):
-        vp[entry] = s.vp(q)
-    return (perm[s.winner] if s.winner >= 0 else -1), s.turn, vp, dt
+        fame[entry] = s.fame(q)
+    return (perm[s.winner] if s.winner >= 0 else -1), s.turn, fame, dt
 
 
 def run_match(levels, games, seed=1000, styles=None, params=None, options=None, jobs=None, on_game=None):
-    """Play `games` games; returns (wins by entry, mean turns, mean VP by entry, unfinished)."""
+    """Play `games` games; returns (wins by entry, mean turns, mean fame by entry, unfinished)."""
     n = len(levels)
     perms = list(itertools.permutations(range(n)))
     random.Random(n).shuffle(perms)  # a short run still spreads the seats (6 players: 720 orders)
@@ -59,15 +59,15 @@ def run_match(levels, games, seed=1000, styles=None, params=None, options=None, 
     else:
         pool = ProcessPoolExecutor(max_workers=min(jobs, games))
         results = pool.map(one_game, work, chunksize=max(1, games // (jobs * 4)))
-    for g, (w, t, vp, dt) in enumerate(results):
+    for g, (w, t, fame, dt) in enumerate(results):
         if w >= 0:
             wins[w] += 1
         else:
             unfinished += 1
         turns.append(t)
-        vps = [a + b for a, b in zip(vps, vp)]
+        vps = [a + b for a, b in zip(vps, fame)]
         if on_game:
-            on_game(g, work[g], w, t, vp, dt)
+            on_game(g, work[g], w, t, fame, dt)
     if jobs != 1:
         pool.shutdown()
     return wins, sum(turns) / len(turns), [v / games for v in vps], unfinished
@@ -93,10 +93,10 @@ def main():
     if styles and (len(styles) != len(levels) or any(st not in STYLES for st in styles)):
         ap.error(f"--styles needs one of {', '.join(STYLES)} per seat")
 
-    def show(g, job, w, t, vp, dt):
+    def show(g, job, w, t, fame, dt):
         if args.verbose:
             who = "nobody" if w < 0 else f"{levels[w]}#{w}"
-            print(f"game {g:3d}  seed {job[0]}  turns {t:3d}  won by {who:<10} VP {vp}  ({dt:.1f}s)")
+            print(f"game {g:3d}  seed {job[0]}  turns {t:3d}  won by {who:<10} fame {fame}  ({dt:.1f}s)")
 
     t0 = time.time()
     wins, turns, vps, unfinished = run_match(levels, args.games, args.seed, styles,
@@ -109,7 +109,7 @@ def main():
         lo, hi = wilson(wins[i], args.games)
         name = f"{lv}#{i}" + (f" {styles[i]}" if styles else "")
         print(f"  {name:<18} won {wins[i]:3d}/{args.games:<3d}  {wins[i] / args.games:6.1%}  "
-              f"(95% {lo:.0%}-{hi:.0%})   avg {vps[i]:.1f} VP   fair share {fair:.1%}")
+              f"(95% {lo:.0%}-{hi:.0%})   avg {vps[i]:.1f} fame   fair share {fair:.1%}")
 
 
 if __name__ == "__main__":

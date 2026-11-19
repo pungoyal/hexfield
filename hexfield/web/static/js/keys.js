@@ -41,7 +41,7 @@ export function neighbours(v) {
 }
 export const openSpot = (v) => S.v_owner[v] === -1 && neighbours(v).every((u) => S.v_owner[u] === -1);
 
-// resources the human already collects (setup's second settlement and later builds favour new ones)
+// resources the human already collects (setup's second village and later builds favour new ones)
 export function myResources() {
   const have = new Set();
   S.v_owner.forEach((o, v) => {
@@ -54,13 +54,13 @@ export function spotScore(v, have) {
   const p = B.vertices[v];
   const res = new Set(p.hexes.map((h) => B.hexes[h].res).filter(Boolean));
   let sc = p.pips + 0.6 * res.size + 0.8 * [...res].filter((r) => !have.has(r)).length;
-  // a 3:1 port always helps; a 2:1 port only for a resource you will collect
-  if (p.port) sc += p.port === "any" || res.has(p.port) || have.has(p.port) ? 1.2 : 0.4;
+  // a 3:1 dock always helps; a 2:1 dock only for a resource you will collect
+  if (p.dock) sc += p.dock === "any" || res.has(p.dock) || have.has(p.dock) ? 1.2 : 0.4;
   return sc;
 }
 
-// a road is worth the best open spot it leads to (one more road away counts a bit less)
-export function roadScore(e, have) {
+// a trail is worth the best open spot it leads to (one more trail away counts a bit less)
+export function trailScore(e, have) {
   let best = 0;
   for (const u of B.edges[e]) {
     if (openSpot(u)) best = Math.max(best, spotScore(u, have));
@@ -74,7 +74,7 @@ export function banditScore(h) {
   const hit = banditHits(h);
   let sc = 0;
   for (const [q, pips] of Object.entries(hit)) {
-    sc += Number(q) === S.human ? -3 * pips : pips * (1 + S.players[q].vp / 5);
+    sc += Number(q) === S.human ? -3 * pips : pips * (1 + S.players[q].fame / 5);
   }
   return sc + ((S.legal.bandit?.[h] || []).length ? 2 : 0);
 }
@@ -82,16 +82,16 @@ export function banditScore(h) {
 export function keyTargets() {
   if (!myDecision()) return [];
   const t = targetsNow();
-  const labelled = G.mode || ["setup_settlement", "setup_road", "road_building", "move_bandit"].includes(S.phase);
+  const labelled = G.mode || ["setup_village", "setup_trail", "free_trails", "move_bandit"].includes(S.phase);
   if (!labelled) return [];
   const have = myResources();
   const items = [
     ...t.h.map((h) => ({ hex: h, x: B.hexes[h].x, y: B.hexes[h].y - 26, score: banditScore(h) })),
     ...t.v.map(([v, kind]) => ({ v, kind, x: B.vertices[v].x, y: B.vertices[v].y,
-      score: kind === "city" ? B.vertices[v].pips : spotScore(v, have) })),
+      score: kind === "town" ? B.vertices[v].pips : spotScore(v, have) })),
     ...t.e.map((e) => {
       const [a, b] = B.edges[e].map((v) => B.vertices[v]);
-      return { e, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, score: roadScore(e, have) };
+      return { e, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, score: trailScore(e, have) };
     }),
   ];
   // best first; equal spots in reading order, so the codes are easy to find
@@ -136,7 +136,7 @@ export function pickKey(ch) {
       const m = $("#board").getScreenCTM();
       moveBandit(exact.hex, { clientX: m.a * exact.x + m.e, clientY: m.d * exact.y + m.f });
     } else if (exact.v !== undefined) act([exact.kind, exact.v]);
-    else act(["road", exact.e]);
+    else act(["trail", exact.e]);
     return true;
   }
   keyBuf = next;

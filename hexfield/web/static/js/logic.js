@@ -13,7 +13,7 @@ export function parseCards(msg) {
 export const covers = (hand, cost) => cost.every((n, r) => hand[r] >= n);
 export const handPlus = (hand, d) => hand.map((n, r) => n + (d[r] || 0));
 
-// bank/port trades needed before `hand` covers `cost` (Infinity if the spare cards can't make it)
+// bank/dock trades needed before `hand` covers `cost` (Infinity if the spare cards can't make it)
 export function tradesNeeded(hand, cost, ratios) {
   const miss = cost.reduce((a, n, r) => a + Math.max(0, n - hand[r]), 0);
   const spare = hand.reduce((a, n, r) => a + Math.floor(Math.max(0, n - cost[r]) / ratios[r]), 0);
@@ -89,7 +89,7 @@ export function sparkPoints(values, W, H, lo, hi, pad = 12) {
   });
 }
 
-// the viewBox that frames a board of any size, harbours included
+// the viewBox that frames a board of any size, docks included
 export function boardBox(vertices, marginX = 40, marginY = 54) {
   const xs = vertices.map((v) => v.x), ys = vertices.map((v) => v.y);
   const x0 = Math.min(...xs) - marginX, y0 = Math.min(...ys) - marginY;

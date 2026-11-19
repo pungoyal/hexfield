@@ -1,8 +1,8 @@
-// The side panels and the dock: players, hand, actions, status, dice, bank, income, log.
+// The side panels and the tray: players, hand, actions, status, dice, bank, income, log.
 
 import { B, G, S, TOUCH, can, myDecision, roundName, session } from "./state.js";
 import { BUILD_NAMES, hexName, plain, production, tradesShort } from "./text.js";
-import { $, COSTS, DEVS, LOG_ICONS, RES, STYLE_NOTES, esc, icon, pc, resIcon, setHTML } from "./util.js";
+import { $, COSTS, VENTURES, LOG_ICONS, RES, STYLE_NOTES, esc, icon, pc, resIcon, setHTML } from "./util.js";
 
 export function renderPlayers() {
   const box = $("#players");
@@ -18,35 +18,35 @@ export function renderPlayers() {
     const el = box.children[p];
     el.classList.toggle("active", p === S.current && S.phase !== "game_over");
     el.classList.toggle("me", p === S.human);
-    const hid = p === S.human && pl.hidden_vp ? `<span class="hid" title="includes ${pl.hidden_vp} hidden victory-point card(s)">★${pl.hidden_vp}</span>` : "";
+    const hid = p === S.human && pl.hidden_fame ? `<span class="hid" title="includes ${pl.hidden_fame} hidden landmark(s)">★${pl.hidden_fame}</span>` : "";
     const badges = [];
-    // the two awards ride in the header as icon chips (2 VP each); warnings get a line of their own
-    const awards = (S.longest === p ? `<span class="badge award" title="Great Road: 2 VP">${icon("i-longest")}</span>` : "") +
-      (S.patrol === p ? `<span class="badge award" title="Great Patrol: 2 VP">${icon("i-patrol")}</span>` : "");
-    // a player within two points of winning is the one to stop (bots may also hold hidden VP cards)
-    const close = S.phase !== "game_over" && pl.vp >= 8;
+    // the two awards ride in the header as icon chips (2 fame each); warnings get a line of their own
+    const awards = (S.longest === p ? `<span class="badge award" title="Great Trail: 2 fame">${icon("i-longest")}</span>` : "") +
+      (S.patrol === p ? `<span class="badge award" title="Great Patrol: 2 fame">${icon("i-patrol")}</span>` : "");
+    // a player within two points of winning is the one to stop (bots may also hold hidden Landmarks)
+    const close = S.phase !== "game_over" && pl.fame >= 8;
     el.classList.toggle("threat", close && p !== S.human);
-    if (close) badges.push(`<span class="badge near">${10 - pl.vp} VP from winning${pl.bot ? " (or fewer)" : ""}</span>`);
+    if (close) badges.push(`<span class="badge near">${10 - pl.fame} fame from winning${pl.bot ? " (or fewer)" : ""}</span>`);
     const owe = S.discards_pending[p] ? ` · discarding ${S.discards_pending[p]}` : "";
     const inc = production(p).total;
     const perRoll = (inc / 36).toFixed(1);
-    const race = Array.from({ length: 10 }, (_, k) => `<i class="${k < pl.vp ? "on" : ""}"></i>`).join("");
+    const race = Array.from({ length: 10 }, (_, k) => `<i class="${k < pl.fame ? "on" : ""}"></i>`).join("");
     const html = `
       <div class="p-head">
         <span class="p-seat" title="Seat ${p + 1}">${p + 1}</span><span class="p-name">${esc(pl.name)}</span>
         <span class="p-tag" ${pl.bot && pl.style ? `title="${esc(pl.level)} bot, ${esc(pl.style)}: ${esc(STYLE_NOTES[pl.style] || "")}"` : ""}>${pl.open ? "open" : pl.bot ? esc(pl.style || pl.level) : p === S.human ? "you" : "player"}</span>${awards}
-        <span class="p-vp">${hid}<b>${pl.vp}</b><small>VP</small></span>
+        <span class="p-fame">${hid}<b>${pl.fame}</b><small>fame</small></span>
       </div>
-      <div class="p-race" title="${pl.vp} of 10 victory points${pl.bot ? " (hidden VP cards not shown)" : ""}">${race}</div>
+      <div class="p-race" title="${pl.fame} of 10 fame${pl.bot ? " (hidden landmarks not shown)" : ""}">${race}</div>
       <div class="p-stats">
         <span class="st-cards ${pl.cards > 7 ? "warn" : ""}" title="Resource cards in hand${pl.cards > 7 ? " — over 7, exposed to a 7" : ""}"><b>${pl.cards}</b>&nbsp;card${pl.cards === 1 ? "" : "s"}</span>
-        <span title="Development cards held"><b>${pl.devs}</b>&nbsp;dev</span>
+        <span title="Ventures held"><b>${pl.ventures}</b>&nbsp;vn</span>
         <span title="Rangers played (3+ and the most wins Great Patrol)"><b>${pl.rangers}</b>&nbsp;rg</span>
-        <span title="Great Road (5+ and the longest wins Great Road)">road&nbsp;<b>${pl.road}</b></span>
+        <span title="Great Trail (5+ and the longest wins Great Trail)">trail&nbsp;<b>${pl.trail}</b></span>
         <span title="Income: ${inc} pips — about ${(inc / 36).toFixed(2)} cards per roll${p === S.human ? "" : " (from their buildings)"}"><b>${perRoll}</b>/roll</span>
       </div>
       ${badges.length || owe ? `<div class="p-badges">${badges.join("")}${owe ? `<span class="muted" style="font-size:12px">${owe}</span>` : ""}</div>` : ""}
-      ${pl.hand ? `<div class="p-open" title="This player's cards (replay with all cards shown)">${pl.hand.map((n, r) => (n ? `<span>${resIcon(r)}${n}</span>` : "")).join("") || `<span class="muted">no cards</span>`}${pl.dev_cards.some(Boolean) ? `<span class="muted">· ${pl.dev_cards.map((n, k) => (n ? `${n} ${DEVS[k].name.toLowerCase()}` : "")).filter(Boolean).join(", ")}</span>` : ""}</div>` : ""}
+      ${pl.hand ? `<div class="p-open" title="This player's cards (replay with all cards shown)">${pl.hand.map((n, r) => (n ? `<span>${resIcon(r)}${n}</span>` : "")).join("") || `<span class="muted">no cards</span>`}${pl.venture_cards.some(Boolean) ? `<span class="muted">· ${pl.venture_cards.map((n, k) => (n ? `${n} ${VENTURES[k].name.toLowerCase()}` : "")).filter(Boolean).join(", ")}</span>` : ""}</div>` : ""}
       <div class="p-think"><div class="spinner" style="--pc:${pc(p)}"></div></div>`;
     setHTML(el, html);
   });
@@ -71,42 +71,42 @@ export function renderHand() {
   });
   const size = S.hand.reduce((a, b) => a + b, 0);
   setHTML($("#hand-cap"), `<span>Your hand</span><b>${size}</b>${size > 7 ? `<span class="cap-warn" title="Over 7 cards: a rolled 7 makes you discard half">a 7 costs you ${Math.floor(size / 2)}</span>` : ""}`);
-  const dh = $("#devhand");
+  const dh = $("#venturehand");
   const cards = [];
-  DEVS.forEach((d, k) => {
+  VENTURES.forEach((d, k) => {
     const play = d.play && can(d.play);
-    if (S.devs[k]) cards.push(devCard(d, k, S.devs[k], play, false));
-    if (S.new_devs[k]) cards.push(devCard(d, k, S.new_devs[k], false, true));
+    if (S.ventures[k]) cards.push(ventureCard(d, k, S.ventures[k], play, false));
+    if (S.new_ventures[k]) cards.push(ventureCard(d, k, S.new_ventures[k], false, true));
   });
   setHTML(dh, cards.join(""));
-  const nDev = S.devs.reduce((a, b) => a + b, 0) + S.new_devs.reduce((a, b) => a + b, 0);
-  setHTML($("#dev-cap"), `<span>Development cards</span>${nDev ? `<b>${nDev}</b>` : ""}`);
+  const nVenture = S.ventures.reduce((a, b) => a + b, 0) + S.new_ventures.reduce((a, b) => a + b, 0);
+  setHTML($("#venture-cap"), `<span>Ventures</span>${nVenture ? `<b>${nVenture}</b>` : ""}`);
 }
 
-// why a dev card can't be played right now (shown on the card), or "" if it can / it's not your turn
-export function devBlock(d, playable, isNew) {
+// why a venture can't be played right now (shown on the card), or "" if it can / it's not your turn
+export function ventureBlock(d, playable, isNew) {
   if (!d.play || playable) return "";
   if (isNew) return "next turn";
   if (!myDecision() || !["main", "pre_roll"].includes(S.phase)) return "";
-  if (S.dev_played) return "1 per turn";
-  if (d.key === "roadb" && !(S.legal.road || []).length) return "no road spot";
+  if (S.venture_played) return "1 per turn";
+  if (d.key === "pathfinder" && !(S.legal.trail || []).length) return "no trail spot";
   if (S.phase === "pre_roll") return "after roll";
   return "not now";
 }
 
-export function devCard(d, k, n, playable, isNew) {
-  const why = devBlock(d, playable, isNew);
-  const tip = isNew ? `${d.name} — bought this turn, playable next turn` : playable ? `Play ${d.name} (${d.hot})` : d.key === "vp" ? "Victory point (counts automatically)"
-    : `${d.name}${why === "1 per turn" ? " — you already played a development card this turn" : why ? ` — ${why}` : ""}`;
-  return `<button class="dcard ${d.key === "vp" ? "vp" : ""} ${playable ? "playable" : ""} ${isNew ? "new" : ""} ${why ? "blocked" : ""}" data-dev="${k}" ${playable ? `data-key="${d.hot}"` : "tabindex=-1"} title="${esc(tip)}">${icon(d.art)}<span class="lbl">${d.name}</span>${n > 1 ? `<span class="n">${n}</span>` : ""}${why ? `<span class="why-tag">${why}</span>` : ""}</button>`;
+export function ventureCard(d, k, n, playable, isNew) {
+  const why = ventureBlock(d, playable, isNew);
+  const tip = isNew ? `${d.name} — bought this turn, playable next turn` : playable ? `Play ${d.name} (${d.hot})` : d.key === "landmark" ? "Landmark: 1 fame (counts automatically)"
+    : `${d.name}${why === "1 per turn" ? " — you already played a venture this turn" : why ? ` — ${why}` : ""}`;
+  return `<button class="dcard ${d.key === "landmark" ? "landmark" : ""} ${playable ? "playable" : ""} ${isNew ? "new" : ""} ${why ? "blocked" : ""}" data-venture="${k}" ${playable ? `data-key="${d.hot}"` : "tabindex=-1"} title="${esc(tip)}">${icon(d.art)}<span class="lbl">${d.name}</span>${n > 1 ? `<span class="n">${n}</span>` : ""}${why ? `<span class="why-tag">${why}</span>` : ""}</button>`;
 }
 
 // [button, legal kind, cost, tooltip]
 export const BUILD_BUTTONS = [
-  ["#btn-road", "road", "road", "Build a road (1)"],
-  ["#btn-settle", "settle", "settle", "Build a settlement (2)"],
-  ["#btn-city", "city", "city", "Upgrade to a city (3)"],
-  ["#btn-dev", "buy_dev", "dev", "Buy a development card (D)"],
+  ["#btn-trail", "trail", "trail", "Build a trail (1)"],
+  ["#btn-settle", "settle", "settle", "Build a village (2)"],
+  ["#btn-town", "town", "town", "Upgrade to a town (3)"],
+  ["#btn-venture", "buy_venture", "venture", "Buy a venture (D)"],
 ];
 
 export function renderActions() {
@@ -129,7 +129,7 @@ export function renderActions() {
     if (S.phase !== "main" && S.phase !== "special_build") return `${base} — ${S.phase === "pre_roll" ? "roll first" : "finish the current step first"}`;
     const miss = cost.map((n, r) => Math.max(0, n - S.hand[r]));
     if (miss.some(Boolean)) return `${base} — need ${miss.map((n, r) => n ? `${n} ${RES[r]}` : "").filter(Boolean).join(", ")}`;
-    if (!can(kind)) return `${base} — ${kind === "buy_dev" ? "deck is empty" : kind === "city" ? "no settlement to upgrade" : "no legal spot (extend your roads)"}`;
+    if (!can(kind)) return `${base} — ${kind === "buy_venture" ? "deck is empty" : kind === "town" ? "no village to upgrade" : "no legal spot (extend your trails)"}`;
     return base;
   };
   for (const [id, kind, cost, label] of BUILD_BUTTONS) {
@@ -186,13 +186,13 @@ export function renderStatus(thinker) {
   } else if (S.actor === S.human && myDecision()) {
     mine = true; p = S.human;
     switch (S.phase) {
-      case "setup_settlement": text = `Place your ${S.setup_idx < S.n ? "first" : "second"} settlement — ${TOUCH ? "tap a spot" : "click or type its letters"}`; break;
-      case "setup_road": text = `Place a road next to it — ${TOUCH ? "tap one" : "click or type its letter"}`; break;
-      case "pre_roll": text = (L.kinds || []).length > 1 ? "Roll the dice — or play a development card first" : "Roll the dice"; break;
+      case "setup_village": text = `Place your ${S.setup_idx < S.n ? "first" : "second"} village — ${TOUCH ? "tap a spot" : "click or type its letters"}`; break;
+      case "setup_trail": text = `Place a trail next to it — ${TOUCH ? "tap one" : "click or type its letter"}`; break;
+      case "pre_roll": text = (L.kinds || []).length > 1 ? "Roll the dice — or play a venture first" : "Roll the dice"; break;
       case "main": text = G.mode ? `${BUILD_NAMES[G.mode]}: ${TOUCH ? "tap a spot · tap the button again to cancel" : "click a spot or type its letter · Esc to cancel"}` : mainStatus(); break;
       case "discard": text = `Discard ${S.discard_owed} cards`; break;
       case "move_bandit": text = `Move the bandit — ${TOUCH ? "tap a hex" : "click a hex or type its letter"}`; break;
-      case "road_building": text = `Place a free road (${S.free_roads} left)`; break;
+      case "free_trails": text = `Place a free trail (${S.free_trails} left)`; break;
       case "special_build": text = G.mode ? `${BUILD_NAMES[G.mode]}: ${TOUCH ? "tap a spot" : "click a spot or type its letter · Esc to cancel"}`
         : `Special building phase after ${name(S.current)}'s turn — build, or pass <kbd>E</kbd>`; break;
       default: text = S.phase;
@@ -230,7 +230,7 @@ export function renderDice(animate) {
 
 export function renderBank() {
   const html = RES.map((r, i) => `<div class="bk ${S.bank[i] === 0 ? "out" : S.bank[i] <= 3 ? "low" : ""}" title="${S.bank[i]} ${r} left in the bank${S.bank[i] === 0 ? ": nobody collects it until some come back" : ""}">${resIcon(i)}${S.bank[i]}</div>`).join("") +
-    `<div class="bk bk-deck" title="${S.deck} development cards left">${icon("i-dev", "ri")}${S.deck}</div>`;
+    `<div class="bk bk-deck" title="${S.deck} ventures left">${icon("i-venture", "ri")}${S.deck}</div>`;
   setHTML($("#bank"), html);
 }
 
@@ -247,7 +247,7 @@ export function renderEcon() {
       <span class="ec-bar"><i style="width:${(100 * n) / top}%;background:var(--${r})"></i>${bl ? `<i class="bl" style="width:${(100 * bl) / top}%"></i>` : ""}</span>
       <span class="ec-n">${n || "—"}</span>
       <span class="ec-nums">${nums || (bl ? `<span class="muted">blocked</span>` : `<span class="muted">no income</span>`)}</span>
-      <span class="ec-ratio ${ratio < 4 ? "port" : ""}">${ratio}:1</span></div>`;
+      <span class="ec-ratio ${ratio < 4 ? "dock" : ""}">${ratio}:1</span></div>`;
   }).join("");
   setHTML($("#econ"), rows);
   $("#econ-sum").textContent = `≈ ${(pr.total / 36).toFixed(1)} cards / roll`;
@@ -281,7 +281,7 @@ export function appendLog(evs) {
     const m = msg.match(/ (?:at|upgrades) (\d+)/);
     if (e.kind === "build" && m) {
       const id = Number(m[1]);
-      if (/road/.test(msg)) li.dataset.e = id; else li.dataset.v = id;
+      if (/trail/.test(msg)) li.dataset.e = id; else li.dataset.v = id;
       msg = msg.replace(/ at \d+/, "").replace(/upgrades? \d+ to/, (s) => s.replace(/ \d+/, ""));
     }
     const rm = msg.match(/bandit to ([A-Z]{1,2})$/);

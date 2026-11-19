@@ -6,8 +6,8 @@ import re
 import shutil
 from itertools import zip_longest
 
-from .constants import (COSTS, DEV_NAMES, RANGER, HOARD, PIPS, RES_NAMES, PATHFINDER,
-                        VP_CARD, WINDFALL, MAX_ROADS, MAX_SETTLEMENTS, MAX_CITIES)
+from .constants import (COSTS, VENTURE_NAMES, RANGER, HOARD, PIPS, RES_NAMES, PATHFINDER,
+                        LANDMARK, WINDFALL, MAX_TRAILS, MAX_VILLAGES, MAX_TOWNS)
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -27,7 +27,7 @@ TOKEN_BG = 230
 DICE = "⚀⚁⚂⚃⚄⚅"
 RES_ABBR = [name[:2].title() for name in RES_NAMES]     # Ti Cl Wo Gr St
 EVENT_ICONS = {"build": "⌂", "roll": "⚄", "produce": "+", "bandit": "☗", "steal": "✋",
-               "dev": "★", "trade": "⇄", "award": "♛", "discard": "−", "win": "♛"}
+               "venture": "★", "trade": "⇄", "award": "♛", "discard": "−", "win": "♛"}
 
 
 class Style:
@@ -69,12 +69,12 @@ def plural(n, word, many=None):
 
 
 # what you can build, in the web's order: (label, cost, command)
-BUILDS = (("road", COSTS["road"], "rd"), ("settlement", COSTS["settlement"], "s"),
-          ("city", COSTS["city"], "c"), ("dev card", COSTS["dev"], "d"))
+BUILDS = (("trail", COSTS["trail"], "tr"), ("village", COSTS["village"], "v"),
+          ("town", COSTS["town"], "tn"), ("venture", COSTS["venture"], "vn"))
 
 
 def trades_short(hand, cost, ratios):
-    """Bank/port trades needed before `hand` covers `cost` (None if spare cards can't make it)."""
+    """Bank/dock trades needed before `hand` covers `cost` (None if spare cards can't make it)."""
     miss = sum(max(0, c - h) for h, c in zip(hand, cost))
     spare = sum(max(0, h - c) // q for h, c, q in zip(hand, cost, ratios))
     return miss if spare >= miss else None
@@ -181,9 +181,9 @@ class Renderer:
                     cv.put(x, y, "┃" if ch == "│" else ch, 16, PLAYER_COLORS[owner], bold=True)
                 else:
                     cv.put(x, y, str(owner + 1), 16, PLAYER_COLORS[owner], bold=True)
-        # ports
+        # docks
         cxm, cym = b.center
-        for e, kind in b.ports:
+        for e, kind in b.docks:
             a, c = b.edge_vertices[e]
             (x1, y1), (x2, y2) = b.vertex_xy[a], b.vertex_xy[c]
             mx, my = (x1 + x2) / 2, (y1 + y2) / 2
@@ -198,7 +198,7 @@ class Renderer:
             lx = int(round(mx + ux * 7))
             ly = int(round(my + uy * 2.6))
             cv.ctext(lx, ly, label, fg=fg, bg=bg, bold=True)
-            # little dock marks next to the two port corners
+            # little dock marks next to the two dock corners
             for vx, vy in ((x1, y1), (x2, y2)):
                 px = int(round(vx + ux * 2))
                 py = int(round(vy + uy * 1))
@@ -276,42 +276,42 @@ class Renderer:
         L.append(st("│", fg=240) + pad(st(title, bold=True), width - 2) + st("│", fg=240))
         L.append(st("│", fg=240) + pad(" Dice " + self.dice(), width - 2) + st("│", fg=240))
         L.append(st("╰" + "─" * (width - 2) + "╯", fg=240))
-        hdr = f"   {'player':<9}{'VP':>3} {'cards':>5} {'dev':>3} {'rg':>3} {'road':>4}  awards"
+        hdr = f"   {'player':<9}{'fame':>4} {'cards':>5} {'vn':>3} {'rg':>3} {'trail':>5}  awards"
         L.append(st(hdr, dim=True))
         for p in range(s.n):
-            vp = s.public_vp(p) + (s.vp_cards(p) if p == self.human else 0)
+            fame = s.public_fame(p) + (s.landmarks(p) if p == self.human else 0)
             awards = []
             if s.longest == p:
-                awards.append(st("GREAT ROAD", fg=226, bold=True))
+                awards.append(st("GREAT TRAIL", fg=226, bold=True))
             if s.patrol == p:
-                awards.append(st("PATROL", fg=213, bold=True))
+                awards.append(st("GREAT PATROL", fg=213, bold=True))
             marker = st("▶", fg=226, bold=True) if p == cur else " "
             row = (f"{marker} {self.swatch(p)}{self.pname(p, 8)}"
-                   f"{st(f'{vp:>3}', bold=True)} {s.hand_size(p):>5} {s.dev_count(p):>3} "
-                   f"{s.rangers[p]:>3} {s.road_len[p]:>4}  {' '.join(awards)}")
+                   f"{st(f'{fame:>4}', bold=True)} {s.hand_size(p):>5} {s.venture_count(p):>3} "
+                   f"{s.rangers[p]:>3} {s.trail_len[p]:>5}  {' '.join(awards)}")
             L.append(row)
             if p == self.human:
                 L.append("      " + " ".join(self.chip(r, s.hands[p][r]) for r in range(5)))
         L.append("")
         # human detail
         h = self.human
-        dv, nd = s.devs[h], s.new_devs[h]
+        dv, nd = s.ventures[h], s.new_ventures[h]
         cards = []
-        for c in (RANGER, PATHFINDER, HOARD, WINDFALL, VP_CARD):
+        for c in (RANGER, PATHFINDER, HOARD, WINDFALL, LANDMARK):
             if dv[c] + nd[c]:
-                tag = f"{DEV_NAMES[c]} x{dv[c] + nd[c]}"
+                tag = f"{VENTURE_NAMES[c]} x{dv[c] + nd[c]}"
                 if nd[c]:
                     tag += st(f" ({nd[c]} new)", dim=True)
                 cards.append(tag)
-        L.append(st(" Your dev cards: ", bold=True) + (", ".join(cards) if cards else st("none", dim=True)))
-        hidden_vp = s.vp_cards(h)
-        L.append(f" Pieces left: {MAX_SETTLEMENTS - len(s.settlements[h])} settl, "
-                 f"{MAX_CITIES - len(s.cities[h])} city, {MAX_ROADS - len(s.roads[h])} road"
-                 + (st(f"  (+{hidden_vp} hidden VP)", fg=213) if hidden_vp else ""))
+        L.append(st(" Your ventures: ", bold=True) + (", ".join(cards) if cards else st("none", dim=True)))
+        hidden_fame = s.landmarks(h)
+        L.append(f" Pieces left: {MAX_VILLAGES - len(s.villages[h])} village, "
+                 f"{MAX_TOWNS - len(s.towns[h])} town, {MAX_TRAILS - len(s.trails[h])} trail"
+                 + (st(f"  (+{hidden_fame} hidden fame)", fg=213) if hidden_fame else ""))
         rat = s.ratios(h)
         L.append(" Trade ratios: " + " ".join(f"{RES_ABBR[r]} {rat[r]}:1" for r in range(5)))
         bank = " ".join(f"{RES_ABBR[r]}{s.bank[r]}" for r in range(5))
-        L.append(st(f" Bank {bank}  ·  dev deck {s.deck_size()}", dim=True))
+        L.append(st(f" Bank {bank}  ·  venture deck {s.deck_size()}", dim=True))
         L.append(st(" " + "─" * (width - 2), fg=240))
         return L + self.recent_log(log_lines)
 
@@ -349,11 +349,11 @@ class Renderer:
 
     def _has_spot(self, p, name):
         s = self.s
-        return bool({"road": s.legal_roads, "settlement": s.legal_settlements,
-                     "city": s.legal_cities}.get(name, lambda q: s.deck_size() > 0)(p))
+        return bool({"trail": s.legal_trails, "village": s.legal_villages,
+                     "town": s.legal_towns}.get(name, lambda q: s.deck_size() > 0)(p))
 
     def build_status(self, p):
-        """'Can build: city [c] · settlement 1 trade away [t]' for the main phase."""
+        """'Can build: town [tn] · village 1 trade away [t]' for the main phase."""
         s, st = self.s, self.st
         ready = self.buildable(p)
         txt = "Can build: " + (", ".join(f"{n} [{c}]" for n, _, c in BUILDS if n in ready) or "nothing")
@@ -365,7 +365,7 @@ class Renderer:
         return st("  " + txt, fg=151)
 
     def hand_change(self, before, after, p):
-        """'unlocks city · gives up road' for a change of hand."""
+        """'unlocks town · gives up trail' for a change of hand."""
         gain = [n for n in self.buildable(p, after) if n not in self.buildable(p, before)]
         lost = [n for n in self.buildable(p, before) if n not in self.buildable(p, after)]
         parts = ([f"unlocks {', '.join(gain)}"] if gain else []) + ([f"gives up {', '.join(lost)}"] if lost else [])

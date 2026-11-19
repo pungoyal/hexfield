@@ -2,8 +2,8 @@
 //
 //   boardDefs()        gradients and the small reusable drawings (trees, sheep, peaks...)
 //   terrain(hex, i)    the landscape painted on one hex; no two hexes come out the same
-//   settlement / city / road / bandit / token / portBadge   the playing pieces
-//   installSprites()   full-colour emblems for the resource and development cards
+//   village / town / trail / bandit / token / dockBadge   the playing pieces
+//   installSprites()   full-colour emblems for the resource and ventures
 //
 // Everything is lit from the upper left. Shadows are plain offset shapes, not filters, so
 // the board stays cheap to repaint while targets pulse on top of it.
@@ -290,7 +290,7 @@ export function terrain(hex, index) {
 
 // ------------------------------------------------------------------ pieces
 // Wooden playing pieces in the owner's colour (--pc), shaded on the sides that face away.
-export function settlementArt() {
+export function villageArt() {
   return `
     <ellipse class="p-shadow" cx="2.5" cy="9.6" rx="13.5" ry="4"/>
     <path class="p-dark" d="M3.4 9.4V-2.2l8.4-3v11.4z"/>
@@ -302,7 +302,7 @@ export function settlementArt() {
     <path class="p-shine" d="M-9.4-1.8-3.6-8.6"/>`;
 }
 
-export function cityArt() {
+export function townArt() {
   return `
     <ellipse class="p-shadow" cx="3" cy="11.6" rx="19" ry="4.6"/>
     <path class="p-dark" d="M10.6 11.4V.4l6.4-2.6v11z"/>
@@ -318,8 +318,8 @@ export function cityArt() {
     <path class="p-shine" d="M-14.2-6.2-8.9-12.6"/>`;
 }
 
-// a road is a plank between two corners, lit along its upper side
-export function roadArt({ x1, y1, x2, y2 }) {
+// a trail is a plank between two corners, lit along its upper side
+export function trailArt({ x1, y1, x2, y2 }) {
   const len = Math.hypot(x2 - x1, y2 - y1) || 1;
   let nx = -(y2 - y1) / len, ny = (x2 - x1) / len;
   if (ny > 0 || (ny === 0 && nx > 0)) { nx = -nx; ny = -ny; } // the normal that points up the screen
@@ -343,7 +343,7 @@ export function tokenArt(num, pips) {
   return s;
 }
 
-export function portBadge(kind) {
+export function dockBadge(kind) {
   const inner = kind === "any"
     ? `<text class="rate big" y="4.6">3:1</text><text class="any" y="-6.4">any</text>`
     : `<use href="#a-${kind}" x="-9.5" y="-15.5" width="19" height="19"/><text class="rate" y="12.4">2:1</text>`;
@@ -351,7 +351,7 @@ export function portBadge(kind) {
 }
 
 // ------------------------------------------------------------------ card emblems
-// Full-colour pictures for the faces of resource and development cards.
+// Full-colour pictures for the faces of resource and ventures.
 const SPRITES = `
   <linearGradient id="a-gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe98a"/><stop offset=".5" stop-color="#f3b92b"/><stop offset="1" stop-color="#b9780c"/></linearGradient>
   <linearGradient id="a-steel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f4f7fb"/><stop offset=".5" stop-color="#aeb9c9"/><stop offset="1" stop-color="#5f6b80"/></linearGradient>
@@ -422,7 +422,7 @@ const SPRITES = `
     <path d="M32.400 25h2.600v4.400h3.800v2.600H35V38h-2.600v-6h-3.800v-2.600h3.800z" fill="#fff" opacity=".92"/>
   </symbol>
 
-  <symbol id="a-vp" viewBox="0 0 48 48">
+  <symbol id="a-landmark" viewBox="0 0 48 48">
     <path d="M14 3h8l4 14h-8zM34 3h-8l-4 14h8z" fill="#c8323c"/><path d="M14 3h4l4 14h-4zM34 3h-4l-4 14h4z" fill="#f0606a"/>
     <circle cx="24" cy="29" r="15" fill="url(#a-gold)" stroke="#8a5a06" stroke-width="1.4"/>
     <circle cx="24" cy="29" r="11.6" fill="none" stroke="#fff3b8" stroke-width="1" opacity=".8"/>
@@ -430,7 +430,7 @@ const SPRITES = `
     <path d="M13.600 23.400a11.600 11.600 0 0 1 5.800-5.600" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".8"/>
   </symbol>
 
-  <symbol id="a-roadb" viewBox="0 0 48 48">
+  <symbol id="a-pathfinder" viewBox="0 0 48 48">
     <ellipse cx="24" cy="42" rx="19" ry="3" fill="#000" opacity=".22"/>
     <g stroke="#3f230c" stroke-width="1.2" stroke-linejoin="round">
       <path d="M4 31.600 21.600 13l5 4.700L9 36.400z" fill="#c98d52"/><path d="M26.600 17.700 44 36l-5 4.700-17.400-18.300z" fill="#a8702f"/></g>
