@@ -5,6 +5,10 @@
 * Hexfield is open source under the MIT license.
 * Needs Python 3.15. CI uses Node 26 and the latest GitHub Actions, and runs on arm64.
 * The Docker image is built for linux/arm64, on `python:3.15-slim`.
+* Deployment to hex.vaari.dev. Every push to `main` that passes CI publishes
+  `ghcr.io/vaari-dev/hexfield`. With `DEPLOY_ENABLED` set, CI deploys it over SSH as its own
+  Compose project behind the shared Caddy, writes the server's settings from GitHub, waits
+  for the health check and puts the previous release back if it fails.
 * Keys never appear in a URL, so a reverse proxy's access log can't record them. The
   browser sends its seat key in an `Authorization: Bearer` header instead of `?t=`, and the
   host link is `/#host=<key>`: the page posts the key to `/api/host` and drops it from the

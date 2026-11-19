@@ -1,0 +1,201 @@
+name: CI
+
+# Pull requests and main run every check. On main, once they all pass, the image is built and
+# pushed to GHCR, and (with DEPLOY_ENABLED) deployed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Never cancel main: that could stop a deploy halfway.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # rules, bots, terminal UI, web server, and the browser client's logic (node --test);
+  # one process per test module, stopping at the first failure
+  test:
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: printf '%s\n' tests/test_*.py | sed 's#/#.#; s#\.py$##' | xargs -P0 -n1 python -m unittest -f
+
+  # a real (headless) Chromium plays through the main screens
+  browser:
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      # Google Chrome has no Linux arm64 build; Playwright's Chromium does
+      - run: |
+          npx -y playwright@1.65.1 install chromium
+          bin=$(find ~/.cache/ms-playwright -path '*/chromium-*' -type f -name chrome | head -1)
+          if ldd "$bin" | grep -q "not found"; then sudo npx -y playwright@1.65.1 install-deps chromium; fi
+          echo "CHROME_BIN=$bin" >> "$GITHUB_ENV"
+      - run: python -m unittest tests.test_js.ClientTests.test_in_a_real_browser
+        env:
+          HEXFIELD_BROWSER_TESTS: "1"
+
+  # the wheel passes PyPI's checks, installs and runs; the container starts, answers its
+  # health check and stops cleanly on SIGTERM
+  package:
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+      - run: |
+          pip install -q build twine
+          python -m build
+          twine check --strict dist/*
+          pip install -q dist/*.whl
+          cd / && hexfield --games && hexfield-web --version
+          python -c "import os; from hexfield.web.server import STATIC; assert os.path.isfile(os.path.join(STATIC, 'js', 'art.js'))"
+      - run: |
+          docker build -t hexfield .
+          docker run -d --name hexfield -p 8765:8765 -e HEXFIELD_HOST_KEY=ci-only-0123456789abcdef hexfield
+          for _ in $(seq 20); do curl -fs http://127.0.0.1:8765/healthz && break; sleep 0.5; done
+          curl -fs http://127.0.0.1:8765/healthz
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/api/games)" = 403
+          docker stop -t 5 hexfield
+          test "$(docker inspect -f '{{.State.ExitCode}}' hexfield)" = 0
+
+  # linux/arm64, matching the OCI server; tagged with the commit and `main`
+  image:
+    needs: [test, browser, package]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:main
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Settings come from the oracle-cloud environment, which only main may use. Switched on by
+  # the DEPLOY_ENABLED repository variable, since a job's `if` runs before the environment's
+  # variables are loaded. Touches only /opt/hexfield and the hexfield compose project.
+  deploy:
+    needs: image
+    if: vars.DEPLOY_ENABLED == 'true'
+    environment: oracle-cloud
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    env:
+      TARGET: ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}
+      DEPLOY_DIR: /opt/hexfield
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<'CONFIG'
+          Host *
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 15
+            ServerAliveInterval 15
+            ServerAliveCountMax 4
+          CONFIG
+      # Writes $DEPLOY_DIR/.env.next with every key named in deploy/.env.example, each
+      # single-quoted so compose takes it literally. Fails before touching the server if any
+      # value is missing, still a placeholder, or unquotable.
+      - name: Copy the settings and stack file
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          DOCKER_NETWORK: ${{ vars.DOCKER_NETWORK }}
+          HEXFIELD_DOMAIN: ${{ vars.HEXFIELD_DOMAIN }}
+          HEXFIELD_HOST_KEY: ${{ secrets.HEXFIELD_HOST_KEY }}
+        run: |
+          settings=$(for k in $(grep -oE '^[A-Z][A-Z0-9_]*' deploy/.env.example); do
+            v=${!k}
+            if [[ -z $v || $v == REPLACE_ME || $v == *"'"* || $v == *$'\n'* ]]; then
+              echo "::error::$k is empty, REPLACE_ME, or contains a quote or newline" >&2
+              exit 1
+            fi
+            if [[ $k == HEXFIELD_HOST_KEY && ${#v} -lt 16 ]]; then
+              echo "::error::HEXFIELD_HOST_KEY must be at least 16 characters" >&2
+              exit 1
+            fi
+            printf "%s='%s'\n" "$k" "$v"
+          done)
+          printf '%s\n' "$settings" |
+            ssh "$TARGET" "
+              set -e
+              # /opt is root's: create the directory once, owned by the deploy user.
+              [ -w $DEPLOY_DIR ] || sudo -n install -d -o \$(id -u) -g \$(id -g) -m 700 $DEPLOY_DIR
+              install -m 600 /dev/stdin $DEPLOY_DIR/.env.next
+            "
+          scp deploy/compose.yaml "$TARGET:$DEPLOY_DIR/compose.yaml.next"
+      # The token goes over stdin, not the remote command line. The new files replace the old
+      # ones only once the image is pulled, so a failed pull leaves the running stack as it was.
+      # If the new release never turns healthy, the previous one is started again.
+      - name: Pull and restart
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | ssh "$TARGET" "
+            set -e
+            cd $DEPLOY_DIR
+            docker login ghcr.io -u '${{ github.actor }}' --password-stdin > /dev/null
+            trap 'docker logout ghcr.io > /dev/null' EXIT
+            docker compose -f compose.yaml.next --env-file .env.next pull --quiet
+            for f in compose.yaml .env; do [ ! -e \$f ] || cp -p \$f \$f.prev; mv \$f.next \$f; done
+            if ! docker compose up -d --wait --wait-timeout 120 --remove-orphans; then
+              docker compose logs --tail 50
+              if [ -e .env.prev ]; then
+                echo '::error::The new release never became healthy; starting the previous one again.'
+                mv compose.yaml.prev compose.yaml
+                mv .env.prev .env
+                docker compose up -d --wait --wait-timeout 120 --remove-orphans
+              fi
+              exit 1
+            fi
+            # Only this project's images, and never the one running.
+            docker image prune -af --filter label=org.opencontainers.image.source=https://github.com/vaari-dev/hexfield > /dev/null
+          "
+          echo "Deployed \`ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}\` to https://${{ vars.HEXFIELD_DOMAIN }}" >> "$GITHUB_STEP_SUMMARY"
