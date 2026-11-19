@@ -43,9 +43,28 @@ export async function act(action) {
 }
 
 // ------------------------------------------------------------------ boot
+// /#host=<key> makes this browser the host. The fragment never leaves the browser, so no
+// proxy logs the key: it is posted, then dropped from the address bar. True once accepted.
+async function hostLogin() {
+  const key = new URLSearchParams(location.hash.slice(1)).get("host");
+  if (key === null) return false;
+  history.replaceState(null, "", location.pathname + location.search);
+  try {
+    const res = await fetch("/api/host", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }) });
+    if (res.ok) toast("You are the host", "This browser can start, resume and delete games.", "var(--muted)", 2600);
+    else toast("Wrong host key", "", "var(--worst)");
+    return res.ok;
+  } catch {
+    toast("Couldn't reach the server", "", "var(--worst)");
+    return false;
+  }
+}
+
 export async function boot() {
   installSprites();
   wireUI();
+  await hostLogin();
+  addEventListener("hashchange", async () => { if (await hostLogin()) location.reload(); });
   const want = new URLSearchParams(location.search).get("g");
   if (want && want !== session.gid) setSession(want, {}, null); // an invite link to another game
   try {

@@ -21,10 +21,13 @@ class Client:
     def __init__(self, port):
         self.base = f"http://127.0.0.1:{port}/api/"
 
-    def call(self, route, body=None):
+    def call(self, route, body=None, seat=None):
         data = None if body is None else json.dumps(body).encode()
+        headers = {"Content-Type": "application/json"}
+        if seat is not None:
+            headers["Authorization"] = f"Bearer {seat}"
         req = urllib.request.Request(self.base + route, data=data, method="POST" if body is not None else "GET",
-                                     headers={"Content-Type": "application/json"})
+                                     headers=headers)
         try:
             with urllib.request.urlopen(req) as r:
                 return json.loads(r.read())
@@ -436,14 +439,14 @@ class OnlineTests(unittest.TestCase):
         (host_seat, host_key), = st["tokens"].items()
         self.assertEqual(sum(pl["open"] for pl in st["players"]), 1)
         # nothing moves until everyone is in
-        self.assertEqual(c.call(f"act?g={gid}&t={host_key}", {"action": ["end"]})["status"], 400)
-        c.call(f"step?g={gid}&t={host_key}", {})
-        self.assertEqual(c.call(f"state?g={gid}&t={host_key}")["ev_total"], 0)
+        self.assertEqual(c.call(f"act?g={gid}", {"action": ["end"]}, seat=host_key)["status"], 400)
+        c.call(f"step?g={gid}", {}, seat=host_key)
+        self.assertEqual(c.call(f"state?g={gid}", seat=host_key)["ev_total"], 0)
         # a visitor without a key sees the lobby only: no board state, no hands
         peek = c.call(f"state?g={gid}")
         self.assertTrue(peek["join"])
         self.assertNotIn("hand", peek)
-        self.assertEqual(c.call(f"state?g={gid}&t=wrong")["status"], 403)
+        self.assertEqual(c.call(f"state?g={gid}", seat="wrong")["status"], 403)
         joined = c.call(f"join?g={gid}", {"name": "Guest"})
         (guest_seat, guest_key), = joined["tokens"].items()
         self.assertNotEqual(guest_seat, host_seat)
@@ -452,23 +455,23 @@ class OnlineTests(unittest.TestCase):
         self.assertEqual(joined["players"][int(guest_seat)]["name"], "Guest")
         self.assertEqual(c.call(f"join?g={gid}", {"name": "Late"})["status"], 400)
         # each key acts for its own seat and sees its own hand
-        host = c.call(f"state?g={gid}&t={host_key}")
-        guest = c.call(f"state?g={gid}&t={guest_key}")
+        host = c.call(f"state?g={gid}", seat=host_key)
+        guest = c.call(f"state?g={gid}", seat=guest_key)
         self.assertEqual((host["human"], guest["human"]), (int(host_seat), int(guest_seat)))
         self.assertFalse(host["can_undo"])
-        self.assertEqual(c.call(f"undo?g={gid}&t={host_key}", {})["status"], 400)
+        self.assertEqual(c.call(f"undo?g={gid}", {}, seat=host_key)["status"], 400)
         # the right player can move; the other can't move for them
         for _ in range(40):
-            now = c.call(f"state?g={gid}&t={host_key}")
+            now = c.call(f"state?g={gid}", seat=host_key)
             if now["waiting_on"]:
                 break
-            c.call(f"step?g={gid}&t={host_key}", {"v": now["version"]})
+            c.call(f"step?g={gid}", {"v": now["version"]}, seat=host_key)
         seat = now["waiting_on"][0]
         key, other = (host_key, guest_key) if seat == int(host_seat) else (guest_key, host_key)
-        mine = c.call(f"state?g={gid}&t={key}")
+        mine = c.call(f"state?g={gid}", seat=key)
         spot = mine["legal"]["settle"][0]
-        self.assertEqual(c.call(f"act?g={gid}&t={other}", {"action": ["settle", spot]})["status"], 400)
-        done = c.call(f"act?g={gid}&t={key}", {"action": ["settle", spot]})
+        self.assertEqual(c.call(f"act?g={gid}", {"action": ["settle", spot]}, seat=other)["status"], 400)
+        done = c.call(f"act?g={gid}", {"action": ["settle", spot]}, seat=key)
         self.assertNotIn("error", done)
         self.assertEqual(done["v_owner"][spot], seat)
 
@@ -489,7 +492,7 @@ class OnlineTests(unittest.TestCase):
         c = self.c
         st = c.call("new", {"mode": "online", "humans": 3, "opponents": 0, "seed": 53})
         gid, (seat, key) = st["gid"], next(iter(st["tokens"].items()))
-        started = c.call(f"start?g={gid}&t={key}", {})
+        started = c.call(f"start?g={gid}", {}, seat=key)
         self.assertFalse(started["lobby"])
         self.assertEqual(sum(pl["bot"] for pl in started["players"]), 2)
         # saved games, export, import, replay, delete
@@ -560,7 +563,7 @@ class HardeningTests(unittest.TestCase):
         for path in ("/", "/api/games", "/nope"):
             _, h, _ = self.req(path)
             self.assertIn("script-src 'self'", h["Content-Security-Policy"])
-            self.assertEqual(h["Referrer-Policy"], "no-referrer")  # seat keys are in the URL
+            self.assertEqual(h["Referrer-Policy"], "no-referrer")  # game ids are in the URL
             self.assertEqual(h["X-Frame-Options"], "DENY")
             self.assertEqual(h["X-Content-Type-Options"], "nosniff")
             self.assertNotIn("Python", h["Server"])
@@ -619,9 +622,10 @@ class HardeningTests(unittest.TestCase):
         key = "k" * 24
         server.APP.set_host_key(key)
         self.assertEqual(self.req("/api/games")[0], 403)          # this machine is no longer special
-        self.assertEqual(self.req("/?host=wrong")[0], 403)
-        code, h, _ = self.req(f"/?host={key}&g=abc", X_Forwarded_Proto="https")
-        self.assertEqual((code, h["Location"]), (303, "/?g=abc"))   # the key leaves the address bar
+        self.assertEqual(self.req("/api/host", {"key": "wrong"})[0], 403)
+        self.assertEqual(self.req("/api/host", {"key": 7})[0], 403)
+        code, h, _ = self.req("/api/host", {"key": key}, X_Forwarded_Proto="https")
+        self.assertEqual(code, 200)
         cookie = h["Set-Cookie"]
         for flag in ("HttpOnly", "SameSite=Strict", "Secure"):
             self.assertIn(flag, cookie)
@@ -629,8 +633,29 @@ class HardeningTests(unittest.TestCase):
         pair = cookie.split(";")[0]
         self.assertEqual(self.req("/api/games", Cookie=pair, X_Forwarded_For="203.0.113.9")[0], 200)
         self.assertEqual(self.req("/api/games", Cookie="hexfield_host=nope")[0], 403)
+        # the key in a URL logs nobody in: a proxy would have written it to its access log
+        code, h, _ = self.req(f"/?host={key}")
+        self.assertEqual((code, h["Set-Cookie"]), (200, None))
+        # a cross-site page can't log a visitor in (or out) as the host
+        self.assertEqual(self.req("/api/host", {"key": key}, Origin="https://evil.example")[0], 403)
         server.APP.set_host_key(None)
-        self.assertEqual(self.req("/?host=" + key)[0], 403)        # no key set: nothing to log in to
+        self.assertEqual(self.req("/api/host", {"key": key})[0], 403)   # no key set: nothing to log in to
+
+    def test_the_seat_key_travels_in_a_header_never_the_url(self):
+        c = Client(self.port)
+        made = c.call("new", {"mode": "online", "humans": 2, "opponents": 1, "seed": 9})
+        gid, key = made["gid"], next(iter(made["tokens"].values()))
+        try:
+            away = {"X_Forwarded_For": "203.0.113.9"}
+            seated = json.loads(self.req(f"/api/state?g={gid}", Authorization=f"Bearer {key}", **away)[2])
+            self.assertNotIn("join", seated)
+            self.assertEqual(seated["human"], int(next(iter(made["tokens"]))))
+            # the old query parameter is ignored: that request is a stranger at the lobby
+            self.assertTrue(json.loads(self.req(f"/api/state?g={gid}&t={key}", **away)[2])["join"])
+            self.assertEqual(self.req(f"/api/state?g={gid}", Authorization="Bearer wrong", **away)[0], 403)
+            self.assertTrue(json.loads(self.req(f"/api/state?g={gid}", Authorization=f"Basic {key}", **away)[2])["join"])
+        finally:
+            c.call("delete", {"id": gid})
 
     def test_remote_addresses_are_rate_limited(self):
         self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.7")[0], 200)

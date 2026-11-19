@@ -157,8 +157,10 @@ export HEXFIELD_HOST_KEY="$(python3 -c 'import secrets; print(secrets.token_urls
 hexfield-web --lan --no-browser --allow-host play.example.com
 ```
 
-Open `https://play.example.com/?host=<the key>` once. That browser is now the host (a
-cookie remembers it for 30 days) and can start, resume and delete games. Everyone else
+Open `https://play.example.com/#host=<the key>` once. That browser is now the host (a
+cookie remembers it for 30 days) and can start, resume and delete games. The key goes after
+`#`, which browsers never send to a server, so no proxy can log it: the page posts it and
+then removes it from the address bar. Everyone else
 only gets into games they hold an invite link for. With a host key set, requests from
 the server's own machine are no longer treated as the host.
 
@@ -176,7 +178,8 @@ On an x86-64 machine, Docker can only build and run it under arm64 emulation (QE
 ### Behind a proxy
 
 The server speaks plain HTTP. On the open internet, put a reverse proxy with TLS in front
-of it, because invite links carry seat keys. With Caddy that's `reverse_proxy
+of it, because every request carries the player's seat key (in an `Authorization` header,
+never the URL, so access logs that drop that header never hold one). With Caddy that's `reverse_proxy
 127.0.0.1:8765`; with nginx, `proxy_pass` plus `proxy_set_header Host $host` and
 `X-Forwarded-For`. Allow a read timeout of 60 s or more for the long poll.
 
@@ -189,8 +192,8 @@ The server also protects itself and its players:
   `Referer`.
 * Each remote address gets a request allowance (HTTP 429 beyond it). At most 200 requests
   run at once, bodies are capped, and a stalled connection is dropped after 30 s.
-* Errors are logged on the server. `--verbose` adds an access log, with seat keys left
-  out. Remote callers only see "internal error".
+* Errors are logged on the server. `--verbose` adds an access log; it can't hold a key,
+  because no key is ever in a URL. Remote callers only see "internal error".
 * `GET /healthz` answers health checks, and SIGTERM stops the server cleanly. Games are
   written after every decision, so a restart loses nothing.
 

@@ -6,15 +6,18 @@
     HEXFIELD_HOST_KEY=... python3 -m hexfield.web --lan --no-browser --allow-host play.example.com
 
 The server can run several games at once. A browser names its game with ?g=<id> and
-proves its seat with ?t=<token>; without a token a request from this machine acts for
-the first human seat, so a single-player game needs no ceremony. Starting, resuming,
-listing and deleting games is only allowed from this machine: someone who joins over
-the network can play in the game they were invited to and nothing else.
+proves its seat with an `Authorization: Bearer <seat key>` header; without one a request
+from this machine acts for the first human seat, so a single-player game needs no
+ceremony. Starting, resuming, listing and deleting games is only allowed from this
+machine: someone who joins over the network can play in the game they were invited to
+and nothing else.
 
 When the server runs where you can't sit at it (a container, a small VM behind a reverse
-proxy), set a host key. Opening /?host=<key> once makes that browser the host, and
-requests from the machine itself stop being special. See "Hosting it for others" in the
-README for the whole picture.
+proxy), set a host key. Opening /#host=<key> once makes that browser the host, and
+requests from the machine itself stop being special. Neither key is ever in a URL the
+server sees, so a proxy's access log can't record one: the fragment stays in the browser,
+which posts the host key to /api/host, and proxies redact Authorization. See "Hosting" in
+the README for the whole picture.
 """
 
 import argparse
@@ -51,7 +54,7 @@ MIN_HOST_KEY = 16
 COOKIE = "hexfield_host"
 PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP")
 # the client is plain files from this server: nothing else may run, frame it or be sent a
-# Referer (seat keys travel in the query string)
+# Referer (game ids travel in the query string)
 SECURITY_HEADERS = (
     ("X-Content-Type-Options", "nosniff"),
     ("Referrer-Policy", "no-referrer"),
@@ -223,12 +226,9 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # http.server's own complaints (bad request lines, timeouts)
         log.debug("%s %s", self.client_address[0], fmt % args)
 
-    def log_request(self, code="-", size="-"):  # the access log (--verbose); never the seat keys
+    def log_request(self, code="-", size="-"):  # the access log (--verbose); keys are never in a URL
         if log.isEnabledFor(logging.INFO):
-            url = urlparse(self.path)
-            keep = [(k, v) for k, vs in parse_qs(url.query).items() for v in vs if k not in ("t", "host")]
-            log.info("%s %s %s%s %s", self.remote(), self.command, url.path,
-                     "?" + urlencode(keep) if keep else "", code)
+            log.info("%s %s %s %s", self.remote(), self.command, self.path, code)
 
     # ------------------------------------------------------------ plumbing
     def _send(self, code, body, ctype="application/json; charset=utf-8", headers=(), cache="no-store"):
@@ -271,6 +271,12 @@ class Handler(BaseHTTPRequestHandler):
         if peer in LOCAL and fwd:
             return fwd.split(",")[-1].strip()[:64] or peer
         return peer
+
+    def seat_key(self):
+        """The seat key from `Authorization: Bearer <key>`, or None. A header, not the query
+        string, so it never reaches an access log or a browser's history."""
+        scheme, _, key = (self.headers.get("Authorization") or "").partition(" ")
+        return (key.strip() or None) if scheme.lower() == "bearer" else None
 
     def has_host_key(self):
         if not APP.host_key:
@@ -316,16 +322,15 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return name in APP.hosts or name.endswith(".local")
 
-    def _login(self, url, query):
-        """/?host=<key>: make this browser the host, then drop the key from the address bar."""
-        key = query.get("host", [""])[0]
-        if not APP.host_key or not hmac.compare_digest(
+    def _login(self, body):
+        """POST /api/host {"key": ...}: make this browser the host. The page sends it from
+        /#host=<key>, whose fragment no server or proxy ever sees."""
+        key = body.get("key")
+        if not APP.host_key or not isinstance(key, str) or not hmac.compare_digest(
                 hashlib.sha256(key.encode()).hexdigest().encode(), APP.host_key.encode()):
             return self._send(403, {"error": "wrong host key"})
-        rest = urlencode([(k, v) for k, vs in query.items() for v in vs if k != "host"])
         secure = "; Secure" if (self.headers.get("X-Forwarded-Proto") or "").lower() == "https" else ""
-        return self._send(303, b"", headers=[
-            ("Location", url.path + ("?" + rest if rest else "")),
+        return self._send(200, {"ok": True}, headers=[
             ("Set-Cookie", f"{COOKIE}={APP.host_key}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Strict{secure}")])
 
     def do_GET(self):
@@ -338,9 +343,6 @@ class Handler(BaseHTTPRequestHandler):
             if self.command == "HEAD":
                 return self._send(405, {"error": "use GET"}, headers=[("Allow", "GET, POST")])
             return self._api("GET", url.path[5:], parse_qs(url.query), {})
-        query = parse_qs(url.query)
-        if "host" in query and url.path in ("/", ""):
-            return self._login(url, query)
         path = "index.html" if url.path in ("/", "") else url.path.lstrip("/")
         full = os.path.normpath(os.path.join(STATIC, path))
         if not full.startswith(STATIC + os.sep) or not os.path.isfile(full):
@@ -367,6 +369,8 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body(MAX_IMPORT if route == "import" else MAX_BODY)
         except ValueError as ex:
             return self._send(400, {"error": f"bad request body: {ex}"})
+        if route == "host":
+            return self._login(body)
         self._api("POST", route, parse_qs(url.query), body)
 
     # ------------------------------------------------------------ routes
@@ -404,8 +408,9 @@ class Handler(BaseHTTPRequestHandler):
                     seat, token = g.join(body.get("name"))
                     extra["tokens"] = {str(seat): token}
                 else:
-                    seat = g.seat_of(q("t"))
-                    if seat is None and q("t"):
+                    key = self.seat_key()
+                    seat = g.seat_of(key)
+                    if seat is None and key:
                         raise Forbidden("that seat key doesn't belong to this game")
                     if new:
                         seat = g.humans[0]
@@ -589,7 +594,7 @@ def main(argv=None):
     ap.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     ap.add_argument("--no-save", action="store_true", help="don't write games to disk")
     ap.add_argument("--host-key", default=os.environ.get("HEXFIELD_HOST_KEY"), metavar="KEY",
-                    help="for a server you can't sit at: whoever opens /?host=KEY is the host, and requests "
+                    help="for a server you can't sit at: whoever opens /#host=KEY is the host, and requests "
                          "from this machine no longer are (or set HEXFIELD_HOST_KEY)")
     ap.add_argument("--allow-host", action="append", default=[], metavar="NAME",
                     help="a domain name this server is reached by (repeatable); addresses, localhost "
@@ -624,8 +629,8 @@ def main(argv=None):
         print(f"  Others on your network can join an online game at http://{addr or '<this machine>'}:{args.port}/"
               "  (they need the invite link from the game)")
     if args.host_key:
-        url += "?" + urlencode({"host": args.host_key})
-        print("  Host key set: open  /?host=<your key>  once in the browser that runs the games")
+        url += "#" + urlencode({"host": args.host_key})
+        print("  Host key set: open  /#host=<your key>  once in the browser that runs the games")
     if APP.persist:
         print(f"  Games are saved in {store.games_dir()}", flush=True)
     if not args.no_browser:
