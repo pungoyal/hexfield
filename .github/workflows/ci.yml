@@ -1,8 +1,8 @@
 name: CI
 
-# Every check runs once, in two parallel jobs, on pull requests and on main. The image is
-# built once and smoke-tested; on main that same image is pushed to GHCR and, with
-# DEPLOY_ENABLED, deployed once every check has passed.
+# Every check runs once, in parallel, on pull requests and on main. The image is built once,
+# smoke-tested, and on main that same image is pushed to GHCR and (with DEPLOY_ENABLED)
+# deployed once every check has passed.
 on:
   push:
     branches: [main]
@@ -17,10 +17,27 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # rules, bots, terminal UI, web server, the browser client's logic (node --test) and a real
-  # headless Chromium playing through the main screens, one process per test module in
-  # parallel, stopping at the first failure; then the wheel passes PyPI's checks
+  # rules, bots, terminal UI, web server and the browser client's logic (node --test), one
+  # process per test module, stopping at the first failure; then the wheel passes PyPI's checks
   test:
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: printf '%s\n' tests/test_*.py | sed 's#/#.#; s#\.py$##' | xargs -P0 -n1 python -m unittest -f
+      - run: |
+          pip install -q build twine
+          python -m build
+          twine check --strict dist/*
+
+  # a real (headless) Chromium plays through the main screens
+  browser:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 5
     steps:
@@ -37,13 +54,9 @@ jobs:
           bin=$(find ~/.cache/ms-playwright -path '*/chromium-*' -type f -name chrome | head -1)
           if ldd "$bin" | grep -q "not found"; then sudo npx -y playwright@1.65.1 install-deps chromium; fi
           echo "CHROME_BIN=$bin" >> "$GITHUB_ENV"
-      - run: printf '%s\n' tests/test_*.py | sed 's#/#.#; s#\.py$##' | xargs -P0 -n1 python -m unittest -f
+      - run: python -m unittest tests.test_js.ClientTests.test_in_a_real_browser
         env:
           HEXFIELD_BROWSER_TESTS: "1"
-      - run: |
-          pip install -q build twine
-          python -m build
-          twine check --strict dist/*
 
   # linux/arm64, matching the OCI server. Built once: the image that passes the smoke test is
   # the one pushed on main.
@@ -89,7 +102,7 @@ jobs:
   # variables are loaded. The server is shared with other apps: this touches only
   # /opt/hexfield, the `hexfield` Compose project and its own images.
   deploy:
-    needs: [test, image]
+    needs: [test, browser, image]
     if: vars.DEPLOY_ENABLED == 'true'
     environment: oracle-cloud
     runs-on: ubuntu-26.04-arm
