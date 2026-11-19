@@ -234,7 +234,7 @@ Settings live in the `oracle-cloud` GitHub environment, which only `main` may de
 | `DEPLOY_KNOWN_HOSTS` | environment variable   | `ssh-keyscan -t ed25519 <host>` output                  |
 | `HEXFIELD_DOMAIN`    | environment variable   | `hex.vaari.dev`                                         |
 | `DEPLOY_SSH_KEY`     | environment secret     | private half of a deploy key whose public half is on the server |
-| `HEXFIELD_HOST_KEY`  | environment secret     | 16+ characters: `python3 -c "import secrets; print(secrets.token_urlsafe(24))"` |
+| `HEXFIELD_HOST_KEY`  | environment secret     | the admin key for starting, resuming and deleting games: `openssl rand -hex 32` |
 
 ```sh
 gh api -X PUT repos/vaari-dev/hexfield/environments/oracle-cloud \
@@ -246,7 +246,7 @@ gh variable set DEPLOY_HOST --env oracle-cloud --body <ip>
 gh variable set DEPLOY_USER --env oracle-cloud --body ubuntu
 ssh-keyscan -t ed25519 <ip> | gh variable set DEPLOY_KNOWN_HOSTS --env oracle-cloud
 gh secret set DEPLOY_SSH_KEY --env oracle-cloud < deploy_key
-python3 -c "import secrets; print(secrets.token_urlsafe(24))" | gh secret set HEXFIELD_HOST_KEY --env oracle-cloud
+openssl rand -hex 32 | gh secret set HEXFIELD_HOST_KEY --env oracle-cloud
 gh variable set DEPLOY_ENABLED --body true      # last
 ```
 
