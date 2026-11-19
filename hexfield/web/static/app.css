@@ -596,6 +596,7 @@ dialog.botoffer { width: min(480px, calc(100vw - 32px)); }
 .bo-coach.no b { color: var(--worst); }
 .bo-actions { flex-wrap: nowrap; }
 .bo-actions .dlg-undo { margin-right: auto; }
+.dlg-head .dlg-undo { margin-left: auto; }
 .mini-cards { display: flex; gap: 6px; flex-wrap: wrap; }
 .mini-cards .rcard { width: 42px; height: 56px; }
 .mini-cards .rcard::before { inset: 3px; }
@@ -1370,4 +1371,5 @@ dialog .dlg-actions .btn, dialog .offer-bar .btn { transition: scale .25s cubic-
   dialog .bo-actions .btn { padding-inline: 10px; }
   dialog .bo-actions .dlg-undo { font-size: 0; padding-inline: 8px; } /* the arrow alone: four answers on one row */
   dialog .bo-actions .dlg-undo svg { margin: 0; }
+  .dlg-head .dlg-undo { font-size: 0; padding-inline: 8px; } /* the arrow alone beside the title */
 }
