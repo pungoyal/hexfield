@@ -5,12 +5,10 @@
 #   cd /opt/hexfield && docker compose ps | logs -f | restart
 #
 # No ports are published: Caddy reaches the server over the shared network as hexfield:8765.
-# deploy/deploy.sh (run by CI) lists everything a deploy may touch on the shared server.
 name: hexfield
 
 services:
-  # Named after the app, not `web`: Compose puts the service name on every network the
-  # service joins, and a generic name on the shared one could take another app's traffic.
+  # Not `web`: the service name is its name on the shared network, where Caddy finds it.
   hexfield:
     image: ghcr.io/vaari-dev/hexfield:${IMAGE_TAG:?IMAGE_TAG is not set}
     restart: unless-stopped
@@ -49,8 +47,6 @@ services:
       retries: 3
       start_period: 20s
       start_interval: 1s
-    # On the shared network it answers to `hexfield` (the service name) and nothing generic;
-    # the edge's sites/hexfield.caddy proxies to hexfield:8765.
     networks:
       - edge
 

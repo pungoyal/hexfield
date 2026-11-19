@@ -110,7 +110,7 @@ jobs:
   # Settings come from the oracle-cloud environment, which only main may use. Switched on by
   # the DEPLOY_ENABLED repository variable, since a job's `if` runs before the environment's
   # variables are loaded. The server is shared with other apps: this touches only
-  # /opt/hexfield, the `hexfield` Compose project and its own images (deploy/deploy.sh).
+  # /opt/hexfield, the `hexfield` Compose project and its own images.
   deploy:
     needs: image
     if: vars.DEPLOY_ENABLED == 'true'
@@ -122,7 +122,6 @@ jobs:
       packages: read
     env:
       TARGET: ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}
-      # One folder directly under /opt; deploy.sh refuses anything else.
       DEPLOY_DIR: /opt/hexfield
       IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
     steps:
@@ -132,7 +131,6 @@ jobs:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |
-          [[ $DEPLOY_DIR =~ ^/opt/[a-z0-9][a-z0-9._-]*$ ]] || { echo "::error::DEPLOY_DIR must be one folder directly under /opt" >&2; exit 1; }
           install -d -m 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
@@ -172,13 +170,13 @@ jobs:
               set -e
               # /opt is root's: create the directory once, owned by the deploy user.
               [ -w $DEPLOY_DIR ] || sudo -n install -d -o \$(id -u) -g \$(id -g) -m 700 $DEPLOY_DIR
-              # Not install(1) from stdin: uutils' (newer Ubuntu) can't copy it over a file.
+              # Not install(1): uutils' (newer Ubuntu) can't copy stdin over an existing file.
               rm -f $DEPLOY_DIR/.env.next
               (umask 077 && cat > $DEPLOY_DIR/.env.next)
             "
           scp deploy/compose.yaml "$TARGET:$DEPLOY_DIR/compose.yaml.next"
-      # The server's Docker pulls with this runner's GHCR login, sent with the request:
-      # nothing is written to the server's ~/.docker, which other apps share.
+      # The server's Docker pulls with this runner's GHCR login, so no login is written to
+      # the server's ~/.docker, which other apps share.
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -186,9 +184,26 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Pull the image on the server
         run: DOCKER_HOST="ssh://$TARGET" docker pull --quiet "$IMAGE"
-      # Swaps the files in, restarts, waits for the health check and puts the previous
-      # release back if it fails. See deploy/deploy.sh for everything it may touch.
+      # The new files replace the old ones only now that the image is pulled. If the new
+      # release never turns healthy, the previous one is started again.
       - name: Restart
         run: |
-          ssh "$TARGET" bash -s -- "$DEPLOY_DIR" < deploy/deploy.sh
+          ssh "$TARGET" "
+            set -e
+            cd $DEPLOY_DIR
+            for f in compose.yaml .env; do [ ! -e \$f ] || cp -p \$f \$f.prev; mv \$f.next \$f; done
+            if ! docker compose up -d --wait --wait-timeout 120 --remove-orphans; then
+              docker compose logs --tail 50
+              if [ -e .env.prev ]; then
+                echo '::error::The new release never became healthy; starting the previous one again.'
+                mv compose.yaml.prev compose.yaml
+                mv .env.prev .env
+                docker compose up -d --wait --wait-timeout 120 --remove-orphans
+              fi
+              exit 1
+            fi
+            # Older Hexfield images only; nothing system-wide.
+            docker images ghcr.io/vaari-dev/hexfield --format '{{.Repository}}:{{.Tag}}' |
+              grep -vxF '$IMAGE' | xargs -r docker rmi > /dev/null 2>&1 || true
+          "
           echo "Deployed \`$IMAGE\` to https://${{ vars.HEXFIELD_DOMAIN }}" >> "$GITHUB_STEP_SUMMARY"

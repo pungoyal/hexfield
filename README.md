@@ -220,23 +220,11 @@ repository variable is `true`, the deploy job then:
 3. restarts the stack and waits up to 2 minutes for the health check. If the new release
    doesn't become healthy, it starts the previous one again and fails the run.
 
-The server is shared with other apps, so a deploy ([`deploy/deploy.sh`](deploy/deploy.sh))
-touches nothing but its own:
-
-* **Directory:** `/opt/hexfield`. The deploy refuses any path that isn't a single folder
-  directly under `/opt/`.
-* **Compose project:** `hexfield`, which is one container and the `hexfield_data` volume
-  where games live (they survive every deploy). Its service is also called `hexfield`, so
-  that is the only name it adds to the shared network. A generic name like `web` could take
-  another app's traffic.
-* **Images:** `ghcr.io/vaari-dev/hexfield` tags. It keeps the running release and the one
-  before it, and removes older ones. It never runs a system-wide prune.
-
-It joins the edge's network but never creates, changes or removes it. It stores no registry
-login on the server: the server's Docker pulls with the CI runner's login, which is sent
-with that pull only, so the `~/.docker` shared by other apps is left alone. Before changing
-anything it checks that no other project is called `hexfield` and that no other container
-answers to `hexfield` on the network; if either is true, it stops.
+The server is shared with other apps, so a deploy touches only `/opt/hexfield`, the
+`hexfield` Compose project (one container, and the `hexfield_data` volume where games live)
+and older `ghcr.io/vaari-dev/hexfield` images. It joins the edge's network without creating
+or changing it, and stores no registry login on the server: the server's Docker pulls with
+the CI runner's login.
 
 Settings live in the `oracle-cloud` GitHub environment, which only `main` may deploy to:
 
