@@ -160,7 +160,7 @@ try {
 
   step = "page errors";
   check(page.errors.length === 0, page.errors.join(" | "));
-  console.log(`ok: solo, hint, reload, saved games, replay, pass and play, online, six players`);
+  console.log("ok: solo, hint, reload, saved games, replay, pass and play, online, six players");
 } catch (e) {
   console.error("FAILED " + e.message);
   if (page.errors.length) console.error("page errors: " + page.errors.join(" | "));
