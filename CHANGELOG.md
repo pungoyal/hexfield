@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+* Phones: the whole game fits one screen. A slim bar, the players as a strip of counters
+  (tap for the full cards), the board from edge to edge, your cards as five counters, the
+  builds and one big button. News is a single line across the top, never over the line
+  that says what to do.
+* Number markers, docks and the bandit are quieter: flat paper plaques with ink numbers
+  and a five-dot gauge; the two busiest numbers are heavier and warmer, nothing glows.
+
 ## 3.0.0
 
 Games saved by 2.x no longer load (see the renaming below). They are kept on disk; the saved

@@ -1292,3 +1292,82 @@ dialog .dlg-actions .btn, dialog .offer-bar .btn { transition: scale .25s cubic-
   .v-target circle.ring.scored { r: 15px; }
   .v-target .v-pips { font-size: 15px; }
 }
+
+/* ------------------------------------------------------------ phones: the whole game on one screen
+   Top to bottom: a slim bar, who is winning, the board from edge to edge, your cards and the
+   one thing to press. Everything you look up now and then (coach, income, bank, log) is below. */
+@media (max-width: 560px) {
+  .app { grid-template-areas: "top" "players" "board" "tray" "coach" "econ" "bank" "log"; gap: 8px; padding: 6px 10px 8px; }
+  /* the board takes what the bar, the strip and the tray leave (the tray reports its own height) */
+  :root { --bh: max(260px, min(100vw, calc(100dvh - 166px - var(--tray-h, 152px)))); }
+
+  /* bar: the mark, the tools, and under them one quiet line saying what to do */
+  .topbar { gap: 6px 8px; }
+  .brand > div { display: none; }
+  .brand-mark { width: 26px; height: 26px; filter: none; }
+  .top-actions { margin-left: auto; gap: 2px; }
+  .top-actions .btn { padding: 6px 9px; min-height: 34px; border-color: transparent; background: none; }
+  .pill { width: 100%; padding: 7px 12px; font-size: 14px; border-radius: 12px; gap: 8px; }
+  .pill.mine { box-shadow: none; }
+  .pill > span.muted { display: none; }
+  .pill > span:not(.dot):not(.spinner) { overflow: visible; }
+
+  /* news is one line across the tools, never over the line that says what to do */
+  .toasts { inset: 4px auto auto 50%; width: calc(100vw - 16px); }
+  .toast { padding: 7px 10px; border-radius: 10px; min-height: 0; }
+  .toast .t-body { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
+  .toast .t-title { font-size: 13px; flex: none; }
+  .toast .t-sub { font-size: 13px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* the others at a glance: name, fame, cards. Tap for the full cards. */
+  #players { display: grid; grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; cursor: pointer; }
+  #players:not(.open) .player { padding: 6px 8px 6px 11px; border-radius: 12px; min-width: 0; }
+  #players:not(.open) :is(.p-seat, .p-tag, .p-race, .p-badges, .p-open, .badge, .p-fame small, .p-fame .hid) { display: none; }
+  #players:not(.open) .p-head { gap: 4px; }
+  #players:not(.open) .p-name { font-size: 12.5px; min-width: 0; }
+  #players:not(.open) .p-fame b { font-size: 18px; }
+  #players:not(.open) .p-stats { margin-top: 1px; font-size: 11px; justify-content: flex-start; color: var(--muted); }
+  #players:not(.open) .p-stats > span:not(.st-cards) { display: none; }
+  #players:not(.open) .p-stats .st-cards b { font-size: inherit; }
+  /* five or six at the table: the name on its own line, fame and the card count under it */
+  body.many #players:not(.open) { gap: 4px; }
+  body.many #players:not(.open) .player { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 0 5px; padding: 5px 5px 5px 9px; }
+  body.many #players:not(.open) .p-head { display: contents; }
+  body.many #players:not(.open) .p-name { grid-column: 1 / -1; font-size: 11.5px; }
+  body.many #players:not(.open) .p-fame { margin: 0; }
+  body.many #players:not(.open) .p-fame b { font-size: 16px; }
+  body.many #players:not(.open) .p-stats { margin: 0; }
+  body.many #players:not(.open) .st-cards { font-size: 0; }
+  body.many #players:not(.open) .st-cards b { font-size: 11.5px; font-weight: 600; }
+  body.many #players:not(.open) .st-cards b::after { content: ""; display: inline-block; width: 6px; height: 8px; margin-left: 3px; border: 1px solid currentColor; border-radius: 1.5px; opacity: .7; }
+  #players.open { grid-auto-flow: row; grid-auto-columns: auto; }
+
+  /* the board runs from edge to edge */
+  .board-wrap { margin-inline: -10px; border-radius: 0; border-inline: 0; }
+  /* what happened while you waited shows on your counters (+1) and in the log: no strip pushing the tray down */
+  .recap, .recap.show { display: none; }
+
+  /* your cards as five counters, then the builds, then the one big button */
+  .tray { padding: 8px; gap: 8px; bottom: 6px; border-radius: 16px; }
+  #hand-cap:not(:has(.cap-warn)) { display: none; }
+  #hand-cap > span:first-child, #hand-cap > b { display: none; }
+  #hand { gap: 6px; }
+  #hand .rcard { display: flex; flex: 1; width: auto; max-width: none; height: 38px; flex-direction: row; align-items: center; justify-content: center; gap: 5px; border-radius: 10px;
+    background: color-mix(in srgb, var(--rc) 20%, var(--panel-2)); border: 1px solid color-mix(in srgb, var(--rc) 55%, transparent); box-shadow: none; }
+  #hand .rcard::before, #hand .rcard .lbl { display: none; }
+  #hand .rcard svg { width: 22px; height: 22px; margin: 0; filter: none; }
+  #hand .rcard .n { position: static; min-width: 0; height: auto; border: 0; background: none; font-size: 16px; color: var(--text); }
+  #hand .rcard.zero { opacity: .45; filter: saturate(.3); border-color: var(--line); background: none; }
+  .actions { gap: 6px; }
+  .actions .build { gap: 6px; }
+  .btn.tool { padding: 5px 2px 4px; border-radius: 10px; }
+  .btn.big { padding: 11px 16px; }
+  /* one big button at a time: while something has to be answered, End turn waits out of sight */
+  .actions:has(#btn-answer:not([hidden]), #btn-discard:not([hidden])) #btn-end { display: none; }
+  /* dialogs: every action stays on the screen */
+  dialog .dlg-actions { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  dialog .bo-actions { flex-wrap: nowrap; gap: 6px; }
+  dialog .bo-actions .btn { padding-inline: 10px; }
+  dialog .bo-actions .dlg-undo { font-size: 0; padding-inline: 8px; } /* the arrow alone: four answers on one row */
+  dialog .bo-actions .dlg-undo svg { margin: 0; }
+}

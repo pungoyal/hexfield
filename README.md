@@ -65,9 +65,10 @@ coach panel. Reloading the page resumes the game, and so does restarting the ser
   worse pop up. Bots explain why they decline your offers.
 * **Undo** works at any moment when you play alone: while the bots play, in the discard
   and offer dialogs, and after the game ends. (Shared games: see take-backs below.)
-* **On a phone** the board keeps its place and nothing covers it: the turn recap and the
-  replay controls sit under it, a hint is one tap from your hand, and saved games are a
-  list of cards.
+* **On a phone** the whole game is one screen: a slim bar that says what to do, the
+  players as a strip of counters (tap it for the full cards), the board from edge to
+  edge, your cards as five counters and one big button. Coach, income, bank and log are
+  a scroll away, a hint is one tap from your hand, and saved games are a list of cards.
 * **No bot offers** (`Shift+M`, beside the log) stops the bots asking you to trade. You
   can still make offers to them, and they keep trading with each other.
 * **Accessible.** Every spot you can build on is a real button that a screen reader can
