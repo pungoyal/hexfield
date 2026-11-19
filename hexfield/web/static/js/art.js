@@ -335,14 +335,14 @@ export const BANDIT = `
   <path d="M0-2.4 5.6 14.4H-5.6z" fill="#07080b" opacity=".9"/>
   <circle class="eye" cx="-1.7" cy="7.2" r="1.15"/><circle class="eye" cx="1.7" cy="7.2" r="1.15"/>`;
 
-// A number marker is a dark, flat-topped plaque: the number, and under it a five-step
-// gauge of how often it is rolled. The two busiest numbers are lit in gold.
+// A number marker is a flat-topped paper plaque: the number in ink, and under it five dots
+// that fill with how often it is rolled. The two busiest numbers are heavier and warmer.
 const flatHex = (r) => Array.from({ length: 6 }, (_, i) => `${f1(Math.cos((Math.PI / 3) * i) * r)},${f1(Math.sin((Math.PI / 3) * i) * r)}`).join(" ");
-const PLAQUE = [flatHex(19), flatHex(18.4), flatHex(15)];
+const PLAQUE = [flatHex(19), flatHex(18.4)];
 export function tokenArt(num, pips) {
-  let s = `<polygon class="t-shadow" points="${PLAQUE[0]}" transform="translate(0 2.6)"/><polygon class="disc" points="${PLAQUE[1]}"/><polygon class="t-ring" points="${PLAQUE[2]}"/>
+  let s = `<polygon class="t-shadow" points="${PLAQUE[0]}" transform="translate(0 2.6)"/><polygon class="disc" points="${PLAQUE[1]}"/>
     <text y="-3.8">${num}</text>`;
-  for (let k = 0; k < 5; k++) s += `<circle class="pip ${k < pips ? "on" : ""}" cx="${f1((k - 2) * 4.4)}" cy="9" r="1.35"/>`;
+  for (let k = 0; k < 5; k++) s += `<circle class="pip ${k < pips ? "on" : ""}" cx="${f1((k - 2) * 4.6)}" cy="9" r="1.6"/>`;
   return s;
 }
 
