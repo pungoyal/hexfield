@@ -302,7 +302,7 @@ again without a new commit, re-run the workflow's latest run on `main`.
 ## Rules
 
 * A random board with balanced tile, number and dock distributions. The two busiest numbers
-  (6 and 8, lit in gold) never touch, and neither do two of the same number. There are 9 docks
+  (6 and 8, the heavier ones) never touch, and neither do two of the same number. There are 9 docks
   (four 3:1, five 2:1).
 * Snake-draft setup. Your second village pays its starting resources.
 * Distance rule: no two villages on neighbouring corners. Trails must connect to your

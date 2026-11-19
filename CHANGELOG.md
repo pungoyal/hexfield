@@ -15,8 +15,9 @@ games list says how many there are, and opening one says which version wrote it.
 * Take-backs in shared games: your own last decision, until someone else has decided.
   Around one screen it asks first; online every other player has to allow it.
 * **No bot offers** (`Shift+M`): bots stop asking you to trade.
-* Number markers, docks and the bandit have a look of their own: dark flat-topped plaques
-  with a five-step gauge (the two busiest numbers lit in gold), and a bandit's camp.
+* Number markers, docks and the bandit have a quiet look of their own: flat paper plaques
+  with ink numbers and a five-dot gauge of how often each is rolled (the two busiest
+  numbers are heavier and warmer, nothing glows), and a plain dark tent for the bandit.
 * Choosing Online or Pass and play keeps the table at four players unless you pick the bots
   yourself, and the dialog says what that mode is. An online host called "You" is "Host".
 * Space ends the turn once nothing else is left to do.
