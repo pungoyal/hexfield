@@ -3,6 +3,7 @@
 * tests/js/*.test.mjs  - unit tests of the DOM-free logic
 * tools/e2e.mjs        - a real browser plays through the main screens (needs Chrome or
                          Chromium; opt in with HEXFIELD_BROWSER_TESTS=1 because it takes a while)
+* tools/e2e-accounts.mjs - three browsers sign up, host and join with passkeys (the same)
 
 Both need Node 26.
 
@@ -72,6 +73,30 @@ class ClientTests(unittest.TestCase):
         finally:
             httpd.shutdown()
             httpd.server_close()
+
+    @unittest.skipUnless(os.environ.get("HEXFIELD_BROWSER_TESTS") and NODE and node_major() >= NODE_MIN,
+                         f"set HEXFIELD_BROWSER_TESTS=1 (needs Node {NODE_MIN} and Chrome or Chromium)")
+    def test_accounts_in_a_real_browser(self):
+        import tempfile
+        from hexfield.web import server
+        from hexfield.web.accounts import Accounts
+        key = "admin-key-for-the-browser-test"
+        with tempfile.TemporaryDirectory() as d:
+            server.APP.accounts = Accounts(os.path.join(d, "accounts.db"))
+            server.APP.set_host_key(key)
+            httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+            threading.Thread(target=httpd.serve_forever, daemon=True).start()
+            try:
+                url = f"http://localhost:{httpd.server_address[1]}/"
+                r = subprocess.run([NODE, str(ROOT / "tools/e2e-accounts.mjs"), url, key],
+                                   capture_output=True, text=True, timeout=120)
+                self.assertEqual(r.returncode, 0, r.stdout[-4000:] + r.stderr[-2000:])
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+                server.APP.accounts.close()
+                server.APP.accounts = None
+                server.APP.set_host_key(None)
 
 
 if __name__ == "__main__":

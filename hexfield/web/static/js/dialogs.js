@@ -1,6 +1,7 @@
 // Dialogs: discard, offers, trading, ventures, help, game over, new game.
 
 import { act, apply, pump, render } from "./app.js";
+import { openAccount } from "./account.js";
 import { askCoachOffer } from "./coach.js";
 import { modal, toast } from "./effects.js";
 import { setObvious } from "./keys.js";
@@ -449,6 +450,7 @@ export function showGameOver() {
 }
 
 export function openNewGame(cancellable = true) {
+  if (G.me?.accounts && !G.me.host) return openAccount(); // sign in, or wait for the admin's approval
   const dlg = $("#dlg-new");
   if (dlg.open) return;
   $("#new-cancel").hidden = !cancellable || !S;

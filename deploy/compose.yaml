@@ -12,12 +12,14 @@ services:
   hexfield:
     image: ghcr.io/vaari-dev/hexfield:${IMAGE_TAG:?IMAGE_TAG is not set}
     restart: unless-stopped
-    # The image runs `hexfield-web --lan --no-browser`; these are added to it.
-    command: ["--allow-host", "${HEXFIELD_DOMAIN:?HEXFIELD_DOMAIN is not set}"]
+    # The image runs `hexfield-web --lan --no-browser`; these are added to it. Accounts:
+    # anyone can sign up with a passkey and join games, the admin (host key) chooses who
+    # hosts. Only Caddy can reach the server, so its X-Forwarded-For names the client.
+    command: ["--allow-host", "${HEXFIELD_DOMAIN:?HEXFIELD_DOMAIN is not set}", "--accounts", "--behind-proxy"]
     environment:
       HEXFIELD_HOST_KEY: ${HEXFIELD_HOST_KEY:?HEXFIELD_HOST_KEY is not set}
     volumes:
-      # Every saved game, written after each decision.
+      # Every saved game, written after each decision, and the accounts (accounts.db).
       - data:/data
     # The server writes only to /data. SIGTERM saves and stops it within a second or two.
     read_only: true

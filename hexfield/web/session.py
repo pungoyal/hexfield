@@ -415,7 +415,7 @@ class WebGame(Table):
 
     def __init__(self, opponents=3, level="hard", seed=None, seat=None, name="You", review=True,
                  styles="mixed", dice="random", layout="random", humans=None, mode="solo",
-                 persist=True, record=None, saved=None, gid=None):
+                 persist=True, record=None, saved=None, gid=None, owner=""):
         if record is None:
             seed = seed if seed is not None else random.randrange(1, 10 ** 6)
             if level not in LEVELS or (styles != "mixed" and styles not in STYLES):
@@ -429,6 +429,7 @@ class WebGame(Table):
         self._table(record, gid or store.new_id())
         s = self.s
         self.persist = persist
+        self.owner = owner         # whose saved games this is one of (see store.py)
         self.agents = [self._agent(p) for p in range(s.n)]
         self.lock = threading.RLock()
         self.changed = threading.Condition(self.lock)
@@ -457,18 +458,18 @@ class WebGame(Table):
 
     # ============================================================ persistence
     @classmethod
-    def resume(cls, gid, upto=None, persist=True):
+    def resume(cls, gid, upto=None, persist=True, owner=""):
         """A saved game, live again. With `upto`, a new game that plays on from that
         point of the record (the original file is left as it is)."""
-        rec, saved = store.load(gid)
+        rec, saved = store.load(gid, owner)
         if upto is not None:
             rec = rec.copy(upto)
             rec.meta.pop("result", None)
             rec.meta.pop("coach", None)
             rec.meta["branched_from"] = gid
             rec.meta["created"] = time.time()
-            return cls(record=rec, saved={}, persist=persist)
-        return cls(record=rec, saved=saved, gid=gid, persist=persist)
+            return cls(record=rec, saved={}, persist=persist, owner=owner)
+        return cls(record=rec, saved=saved, gid=gid, persist=persist, owner=owner)
 
     def _restore(self, saved):
         """Play the record back onto the fresh state, rebuilding the undo points."""
@@ -503,7 +504,7 @@ class WebGame(Table):
             meta.pop("result", None)
             meta.pop("coach", None)
         try:
-            store.save(self.gid, self.rec, offer=_offer_out(self.offer), tokens=self.tokens,
+            store.save(self.gid, self.rec, self.owner, offer=_offer_out(self.offer), tokens=self.tokens,
                        open=sorted(self.open))
             self._saved_at = time.time()
         except OSError as ex:  # a full disk must not stop the game
@@ -938,9 +939,9 @@ class Replay(Table):
 
     EVERY = 40  # a checkpoint every this many entries, so stepping back is quick
 
-    def __init__(self, gid, rec=None):
+    def __init__(self, gid, rec=None, owner=""):
         if rec is None:
-            rec, _ = store.load(gid)
+            rec, _ = store.load(gid, owner)
         self._table(rec, gid)
         self.lock = threading.RLock()
         self.touched = time.time()

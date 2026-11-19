@@ -18,6 +18,11 @@ requests from the machine itself stop being special. Neither key is ever in a UR
 server sees, so a proxy's access log can't record one: the fragment stays in the browser,
 which posts the host key to /api/host, and proxies redact Authorization. See "Hosting" in
 the README for the whole picture.
+
+With --accounts (a public server) anyone can make an account with a passkey and join the
+games they are invited to. Hosting, that is starting games and keeping saved games, is
+for the accounts the admin allows: the admin is whoever holds the host key. Each account
+sees only its own saved games.
 """
 
 import argparse
@@ -30,8 +35,10 @@ import json
 import logging
 import mimetypes
 import os
+import secrets
 import signal
 import socket
+import sqlite3
 import threading
 import time
 import webbrowser
@@ -41,6 +48,8 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from .. import __version__, store
 from ..game import IllegalAction
 from ..record import Record
+from . import passkey
+from .accounts import Accounts
 from .session import MODES, Replay, WebGame
 
 MAX_BODY = 64 * 1024
@@ -52,6 +61,12 @@ MAX_CONN = 200          # requests in flight; more are turned away instead of pi
 RATE, BURST = 100.0, 300.0   # requests a second one remote address may make, and its allowance
 MIN_HOST_KEY = 16
 COOKIE = "hexfield_host"
+SESSION = "hexfield_session"
+USER_GAMES = 50         # saved games an account keeps; the oldest finished ones go first
+MAX_USERS = 5000
+SIGNUP_RATE, SIGNUP_BURST = 5 / 3600, 5.0   # new accounts one remote address may make: 5 an hour
+CHALLENGE_TTL = 300     # seconds a passkey prompt stays good for
+MAX_CHALLENGES = 10000
 PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP")
 # the client is plain files from this server: nothing else may run, frame it or be sent a
 # Referer (game ids travel in the query string)
@@ -68,6 +83,7 @@ SECURITY_HEADERS = (
 )
 log = logging.getLogger("hexfield.web")
 HOST_ONLY = {"new", "games", "resume", "delete", "stats", "replay", "replay_hint", "export", "import", "branch"}
+ACCOUNT_ROUTES = {"me", "signup-options", "signup", "signin-options", "signin", "signout", "accounts"}
 
 
 class Forbidden(Exception):
@@ -79,32 +95,61 @@ class App:
 
     def __init__(self):
         self.games = {}     # gid -> WebGame
-        self.replays = {}   # gid -> Replay
-        self.game = None    # the newest game: what a request without ?g= means
+        self.replays = {}   # (owner, gid) -> Replay
+        self.latest = {}    # owner -> their newest game: what a request without ?g= means
         self.lock = threading.Lock()
         self.persist = True
         self.lan = None     # this machine's network address when others can reach the server
         self.host_key = None  # sha256 of the host key; when set, it is the only way to be the host
         self.hosts = {"localhost", socket.gethostname().lower()}  # names this server answers to
         self.buckets = {}   # remote address -> [allowance, last seen]
+        self.behind_proxy = False  # every request comes through a reverse proxy: trust its X-Forwarded-For
+        self.accounts = None       # Accounts, on a server with --accounts
+        self.challenges = {}       # passkey challenge -> (what for, expiry, details)
         atexit.register(self.close)
+
+    @property
+    def game(self):
+        """The newest game of whoever runs the server."""
+        return self.latest.get("")
 
     def set_host_key(self, key):
         self.host_key = hashlib.sha256(key.encode()).hexdigest() if key else None
 
-    def allow(self, addr, now=None):
+    def allow(self, addr, now=None, rate=RATE, burst=BURST):
         """Spend one request from this address's allowance; False when it has run out."""
         now = time.monotonic() if now is None else now
         with self.lock:
             if len(self.buckets) > 4096:
-                self.buckets = {a: b for a, b in self.buckets.items() if now - b[1] < 60}
-            b = self.buckets.setdefault(addr, [BURST, now])
-            b[0] = min(BURST, b[0] + (now - b[1]) * RATE) - 1
+                # an idle allowance is full again after a minute; a sign-up allowance after an hour
+                self.buckets = {a: b for a, b in self.buckets.items() if now - b[1] < (3600 if isinstance(a, tuple) else 60)}
+            b = self.buckets.setdefault(addr, [burst, now])
+            b[0] = min(burst, b[0] + (now - b[1]) * rate) - 1
             b[1] = now
             if b[0] < 0:
                 b[0] = 0
                 return False
             return True
+
+    def challenge(self, kind, **details):
+        """A fresh passkey challenge, good for one answer."""
+        now = time.monotonic()
+        with self.lock:
+            if len(self.challenges) >= MAX_CHALLENGES:
+                self.challenges = {c: v for c, v in self.challenges.items() if v[1] > now}
+                if len(self.challenges) >= MAX_CHALLENGES:
+                    raise Forbidden("too many sign-ins at once, try again in a minute")
+            c = passkey.b64u(secrets.token_bytes(32))
+            self.challenges[c] = (kind, now + CHALLENGE_TTL, details)
+        return c
+
+    def answer(self, kind, challenge):
+        """The details of a challenge this server gave out and nobody has answered yet."""
+        with self.lock:
+            got = self.challenges.pop(challenge, None)
+        if got is None or got[0] != kind or got[1] < time.monotonic():
+            raise Forbidden("that passkey prompt has expired, try again")
+        return got[2]
 
     def close(self):
         for g in list(self.games.values()):
@@ -113,29 +158,37 @@ class App:
     def add(self, game):
         with self.lock:
             self.games[game.gid] = game
-            self.game = game
+            self.latest[game.owner] = game
             idle = sorted(self.games.values(), key=lambda g: g.touched)
             drop = idle[:max(0, len(idle) - MAX_LIVE)]
             for g in drop:
                 del self.games[g.gid]
+                if self.latest.get(g.owner) is g:
+                    del self.latest[g.owner]
         for g in drop:
             g.close()
         return game
 
-    def get(self, gid, disk=True):
-        """A live game by id; one that is only on disk is brought back first."""
+    def get(self, gid, owner=None):
+        """A live game by id. For an owner (see Handler.owner), their newest game when no
+        id is given, and one of their games that is only on disk, brought back first."""
         if not gid:
-            return self.game
+            return self.latest.get(owner) if owner is not None else None
         g = self.games.get(gid)
-        if g is None and self.persist and disk:
+        if g is None and self.persist and owner is not None:
             try:
-                g = WebGame.resume(gid)
+                g = WebGame.resume(gid, owner=owner)
             except (OSError, ValueError, KeyError):
                 return None
             self.add(g)
         return g
 
-    def new(self, body):
+    def own(self, gid, owner):
+        """One of this owner's games, or None."""
+        g = self.get(gid, owner)
+        return g if g is not None and g.owner == owner else None
+
+    def new(self, body, owner=""):
         def num(key, default=None):
             v = body.get(key, default)
             try:
@@ -165,22 +218,26 @@ class App:
         game = WebGame(opp, body.get("level", "hard"), seed, seat, body.get("name") or "You",
                        review=bool(body.get("review", True)), styles=body.get("styles", "mixed"),
                        dice=body.get("dice", "random"), layout=body.get("layout", "random"),
-                       humans=humans, mode=mode, persist=self.persist)
+                       humans=humans, mode=mode, persist=self.persist, owner=owner)
+        if owner and self.persist:
+            store.prune(USER_GAMES, owner)
         if mode == "online":
             game.save()  # the seat keys must survive a restart; other games are saved at the first move
         return self.add(game)
 
-    def replay(self, gid):
-        r = self.replays.get(gid)
+    def replay(self, gid, owner=""):
+        r = self.replays.get((owner, gid))
         live = self.games.get(gid)
+        if live is not None and live.owner != owner:
+            live = None
         if live is not None:
             live.save()
         if r is None or (live is not None and len(live.rec.entries) != len(r.rec.entries)):
-            r = Replay(gid)
+            r = Replay(gid, owner=owner)
             with self.lock:
-                self.replays[gid] = r
-                for old in sorted(self.replays.values(), key=lambda x: x.touched)[:-8]:
-                    self.replays.pop(old.gid, None)
+                self.replays[(owner, gid)] = r
+                for key, old in sorted(self.replays.items(), key=lambda x: x[1].touched)[:-8]:
+                    self.replays.pop(key, None)
         return r
 
 
@@ -265,10 +322,11 @@ class Handler(BaseHTTPRequestHandler):
         return any(self.headers.get(h) for h in PROXY_HEADERS)
 
     def remote(self):
-        """Who is asking: the peer, or the client a reverse proxy on this machine names."""
+        """Who is asking: the peer, or the client a reverse proxy names (one on this machine,
+        or with --behind-proxy, the one every request comes through)."""
         peer = self.client_address[0]
         fwd = self.headers.get("X-Forwarded-For") or self.headers.get("X-Real-IP")
-        if peer in LOCAL and fwd:
+        if fwd and (peer in LOCAL or APP.behind_proxy):
             return fwd.split(",")[-1].strip()[:64] or peer
         return peer
 
@@ -278,14 +336,31 @@ class Handler(BaseHTTPRequestHandler):
         scheme, _, key = (self.headers.get("Authorization") or "").partition(" ")
         return (key.strip() or None) if scheme.lower() == "bearer" else None
 
-    def has_host_key(self):
-        if not APP.host_key:
-            return False
+    def cookie(self, name):
         for part in (self.headers.get("Cookie") or "").split(";"):
             k, _, v = part.strip().partition("=")
-            if k == COOKIE and hmac.compare_digest(v.encode(), APP.host_key.encode()):
-                return True
-        return False
+            if k == name:
+                return v
+        return None
+
+    def has_host_key(self):
+        return bool(APP.host_key) and hmac.compare_digest((self.cookie(COOKIE) or "").encode(), APP.host_key.encode())
+
+    def account(self):
+        """The signed-in account ({"id", "name", "host"}), or None."""
+        if APP.accounts is None:
+            return None
+        if not hasattr(self, "_account"):
+            self._account = APP.accounts.user(self.cookie(SESSION))
+        return self._account
+
+    def owner(self):
+        """Whose games this request may host: "" for the host (see local()), an account's id
+        when the admin lets it host, None for anyone else."""
+        if self.local():
+            return ""
+        u = self.account()
+        return u["id"] if u and u["host"] else None
 
     def local(self):
         """Is this the host? With a host key, whoever holds it. Otherwise a request made on
@@ -296,6 +371,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _guard(self):
         """Checks every request passes first. False when it has been answered already."""
+        self.__dict__.pop("_account", None)  # worked out afresh for every request
         # A web page can point its own domain at 127.0.0.1 and then talk to this server as
         # "same origin" (DNS rebinding). Its requests still carry that domain in Host, so
         # only answer to an address or to a name we know.
@@ -322,6 +398,10 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return name in APP.hosts or name.endswith(".local")
 
+    def _cookie_header(self, name, value, days):
+        secure = "; Secure" if (self.headers.get("X-Forwarded-Proto") or "").lower() == "https" else ""
+        return ("Set-Cookie", f"{name}={value}; Path=/; Max-Age={days * 86400}; HttpOnly; SameSite=Strict{secure}")
+
     def _login(self, body):
         """POST /api/host {"key": ...}: make this browser the host. The page sends it from
         /#host=<key>, whose fragment no server or proxy ever sees."""
@@ -329,9 +409,88 @@ class Handler(BaseHTTPRequestHandler):
         if not APP.host_key or not isinstance(key, str) or not hmac.compare_digest(
                 hashlib.sha256(key.encode()).hexdigest().encode(), APP.host_key.encode()):
             return self._send(403, {"error": "wrong host key"})
-        secure = "; Secure" if (self.headers.get("X-Forwarded-Proto") or "").lower() == "https" else ""
-        return self._send(200, {"ok": True}, headers=[
-            ("Set-Cookie", f"{COOKIE}={APP.host_key}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Strict{secure}")])
+        return self._send(200, {"ok": True}, headers=[self._cookie_header(COOKIE, APP.host_key, 30)])
+
+    def _me(self):
+        u = self.account()
+        return {"accounts": APP.accounts is not None, "admin": APP.accounts is not None and self.local(),
+                "host": self.owner() is not None, "user": u and {"name": u["name"], "host": u["host"]}}
+
+    def _auth(self, route, body):
+        """Accounts: passkey sign-up and sign-in, signing out, and the admin's list."""
+        if route == "me":
+            return self._send(200, self._me())
+        acc = APP.accounts
+        if acc is None:
+            return self._send(404, {"error": "this server has no accounts"})
+        rp = host_name(self.headers.get("Host"))
+        proto = "https" if (self.headers.get("X-Forwarded-Proto") or "").lower() == "https" else "http"
+        origin = f"{proto}://{self.headers.get('Host')}"
+        try:
+            if route == "accounts":
+                if not self.local():
+                    raise Forbidden("only the admin can do that")
+                if self.command == "POST" and not acc.set_host(body.get("id"), body.get("host")):
+                    raise IllegalAction("no such account")
+                return self._send(200, {"users": acc.users()})
+            if self.command != "POST":
+                return self._send(405, {"error": "use POST"}, headers=[("Allow", "POST")])
+            if route == "signup-options":
+                name = " ".join(str(body.get("name") or "").split())[:14]  # a player's name: see clean_name
+                if not name:
+                    raise IllegalAction("choose a name")
+                if acc.count() >= MAX_USERS:
+                    raise Forbidden("this server isn't taking new accounts")
+                handle = secrets.token_bytes(16)
+                return self._send(200, {
+                    "challenge": APP.challenge("signup", name=name, id=handle.hex()),
+                    "rp": {"id": rp, "name": "Hexfield"},
+                    "user": {"id": passkey.b64u(handle), "name": name, "displayName": name},
+                    "pubKeyCredParams": [{"type": "public-key", "alg": passkey.ES256}],
+                    "authenticatorSelection": {"residentKey": "required", "userVerification": "preferred"},
+                    "attestation": "none", "timeout": CHALLENGE_TTL * 1000})
+            if route == "signin-options":
+                return self._send(200, {"challenge": APP.challenge("signin"), "rpId": rp,
+                                        "userVerification": "preferred", "timeout": CHALLENGE_TTL * 1000})
+            if route == "signout":
+                token = self.cookie(SESSION)
+                if token:
+                    acc.end_session(token)
+                return self._send(200, {"ok": True}, headers=[self._cookie_header(SESSION, "", 0)])
+            client_data = passkey.unb64u(body.get("clientData", ""))
+            auth_data = passkey.unb64u(body.get("authData", ""))
+            if route == "signup":
+                if not APP.allow(("signup", self.remote()), rate=SIGNUP_RATE, burst=SIGNUP_BURST):
+                    return self._send(429, {"error": "too many new accounts from your address, try again later"})
+                challenge, cred, key, count = passkey.registration(
+                    client_data, auth_data, passkey.unb64u(body.get("publicKey", "")), body.get("alg"), rp, origin)
+                want = APP.answer("signup", challenge)
+                try:
+                    acc.create(want["id"], want["name"], cred, key, count)
+                except sqlite3.IntegrityError:
+                    raise IllegalAction("that passkey already has an account: sign in with it")
+                uid = want["id"]
+            elif route == "signin":
+                cred = passkey.unb64u(body.get("id", ""))
+                known = acc.passkey(cred)
+                if known is None:
+                    raise Forbidden("this server doesn't know that passkey (was its account deleted?)")
+                uid, key, last = known
+                challenge, count = passkey.assertion(client_data, auth_data, passkey.unb64u(body.get("signature", "")),
+                                                     key, rp, origin)
+                APP.answer("signin", challenge)
+                if count and count <= last:
+                    raise Forbidden("that passkey looks copied; sign in with another")
+                acc.used(cred, count)
+            else:
+                return self._send(404, {"error": "unknown route"})
+            return self._send(200, {"ok": True}, headers=[self._cookie_header(SESSION, acc.start_session(uid), 30)])
+        except passkey.Invalid as ex:
+            return self._send(400, {"error": str(ex)})
+        except IllegalAction as ex:
+            return self._send(400, {"error": str(ex)})
+        except Forbidden as ex:
+            return self._send(403, {"error": str(ex)})
 
     def do_GET(self):
         if not self._guard():
@@ -342,6 +501,8 @@ class Handler(BaseHTTPRequestHandler):
         if url.path.startswith("/api/"):
             if self.command == "HEAD":
                 return self._send(405, {"error": "use GET"}, headers=[("Allow", "GET, POST")])
+            if url.path[5:] in ACCOUNT_ROUTES:
+                return self._auth(url.path[5:], {})
             return self._api("GET", url.path[5:], parse_qs(url.query), {})
         path = "index.html" if url.path in ("/", "") else url.path.lstrip("/")
         full = os.path.normpath(os.path.join(STATIC, path))
@@ -371,6 +532,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {"error": f"bad request body: {ex}"})
         if route == "host":
             return self._login(body)
+        if route in ACCOUNT_ROUTES:
+            return self._auth(route, body)
         self._api("POST", route, parse_qs(url.query), body)
 
     # ------------------------------------------------------------ routes
@@ -384,17 +547,20 @@ class Handler(BaseHTTPRequestHandler):
                 since = max(0, int(q("since", "0")))
             except ValueError:
                 raise IllegalAction("since must be a number")
-            if route in HOST_ONLY and not self.local():
-                raise Forbidden("only the host can do that")
+            owner = self.owner()
+            if route in HOST_ONLY and owner is None:
+                raise Forbidden("only the host can do that" if APP.accounts is None
+                                else "hosting games needs the admin's approval" if self.account()
+                                else "sign in to host games")
             if route in HOST_ONLY and route != "new":
-                return self._host(route, post, q, body)
+                return self._host(route, post, q, body, owner)
             new = route == "new" and post
             if new:
-                g = APP.new(body)
+                g = APP.new(body, owner)
             else:
                 # "the newest game" is the host's shortcut; anyone else must name the game,
                 # which only an invite link tells them
-                g = APP.get(q("g"), disk=self.local()) if q("g") or self.local() else None
+                g = APP.get(q("g"), owner)
             if g is None:
                 return self._send(200, {"nogame": True})
             if route == "wait":  # long poll: answer when the game has moved on
@@ -405,7 +571,12 @@ class Handler(BaseHTTPRequestHandler):
             with g.lock:
                 extra = {}
                 if route == "join" and post:
-                    seat, token = g.join(body.get("name"))
+                    name = body.get("name")
+                    if APP.accounts is not None and not self.local():
+                        if self.account() is None:
+                            raise Forbidden("sign in to join a game")
+                        name = self.account()["name"]
+                    seat, token = g.join(name)
                     extra["tokens"] = {str(seat): token}
                 else:
                     key = self.seat_key()
@@ -417,7 +588,7 @@ class Handler(BaseHTTPRequestHandler):
                     if seat is None:
                         # an online game seats people by their key alone (the host gets theirs
                         # back by resuming the game from the saved-games list)
-                        if not self.local() or g.mode == "online":
+                        if owner != g.owner or g.mode == "online":
                             return self._send(200, self._lobby(g))
                         seat = g.humans[0]  # this machine, no key: the host's own seat
                 if new:
@@ -474,35 +645,42 @@ class Handler(BaseHTTPRequestHandler):
         return {"gid": g.gid, "join": True, "full": not g.open, "mode": g.mode,
                 "players": [{"name": g.s.names[p], "bot": g.is_bot(p), "open": p in g.open} for p in range(g.s.n)]}
 
-    def _host(self, route, post, q, body):
-        """Saved games, replays and statistics: this machine only."""
+    def _host(self, route, post, q, body, owner):
+        """Saved games, replays and statistics: the host's own (an account's own)."""
         gid = body.get("id") or q("id")
         if route == "games":
-            live = {g.gid for g in APP.games.values()}
-            games = store.list_games()
+            live = {g.gid for g in APP.games.values() if g.owner == owner}
+            games = store.list_games(owner=owner)
             for x in games:
                 x["live"] = x["id"] in live
             return self._send(200, {"games": games})
         if route == "stats":
-            return self._send(200, store.stats())
+            return self._send(200, store.stats(owner=owner))
         try:
             if route == "delete" and post:
-                g = APP.games.pop(gid, None)
+                with APP.lock:
+                    g = APP.games.get(gid)
+                    if g is not None and g.owner == owner:
+                        del APP.games[gid]
+                        if APP.latest.get(owner) is g:
+                            del APP.latest[owner]
+                    else:
+                        g = None
+                    APP.replays.pop((owner, gid), None)
                 if g is not None:
                     g.persist = False
                     g.close()
-                    if APP.game is g:
-                        APP.game = None
-                APP.replays.pop(gid, None)
-                return self._send(200, {"deleted": store.delete(gid)})
+                return self._send(200, {"deleted": store.delete(gid, owner)})
             if route == "import" and post:
                 rec = Record.from_dict(body.get("record"))
                 rec.replay()  # refuses a file that doesn't play back
                 gid = store.new_id()
-                store.save(gid, rec)
+                store.save(gid, rec, owner)
+                if owner:
+                    store.prune(USER_GAMES, owner)
                 return self._send(200, {"id": gid})
             if route == "export":
-                rec, _ = store.load(gid)
+                rec, _ = store.load(gid, owner)
                 return self._send(200, rec.dumps().encode(), headers=[
                     ("Content-Disposition", f'attachment; filename="hexfield-{gid}.json"')])
             if route in ("resume", "branch") and post:
@@ -510,20 +688,20 @@ class Handler(BaseHTTPRequestHandler):
                     entry = body.get("entry")
                     if not isinstance(entry, int) or entry < 0:
                         raise IllegalAction("entry must be a number")
-                    g = APP.add(WebGame.resume(gid, upto=entry))
+                    g = APP.add(WebGame.resume(gid, upto=entry, owner=owner))
                     g.save()
                 else:
-                    g = APP.get(gid)
+                    g = APP.own(gid, owner)
                     if g is None:
                         raise IllegalAction("no such saved game")
                     with APP.lock:
-                        APP.game = g
+                        APP.latest[owner] = g
                 with g.lock:
                     seat = g.humans[0]
                     return self._send(200, {**g.view(seat, 0), "board": g.geometry,
                                             "tokens": g.tokens_of(g.humans)})
             if route in ("replay", "replay_hint"):
-                r = APP.replay(gid)
+                r = APP.replay(gid, owner)
                 with r.lock:
                     try:
                         k = int(q("k", "0"))
@@ -596,6 +774,12 @@ def main(argv=None):
     ap.add_argument("--host-key", default=os.environ.get("HEXFIELD_HOST_KEY"), metavar="KEY",
                     help="for a server you can't sit at: whoever opens /#host=KEY is the host, and requests "
                          "from this machine no longer are (or set HEXFIELD_HOST_KEY)")
+    ap.add_argument("--accounts", action="store_true",
+                    help="a public server: anyone can make an account with a passkey and join games; the "
+                         "admin (whoever holds the host key) chooses who may host. Needs --host-key and HTTPS")
+    ap.add_argument("--behind-proxy", action="store_true",
+                    help="every request comes through a reverse proxy (it can't be reached any other way): "
+                         "rate limits go by the client address in its X-Forwarded-For")
     ap.add_argument("--allow-host", action="append", default=[], metavar="NAME",
                     help="a domain name this server is reached by (repeatable); addresses, localhost "
                          "and .local names always work")
@@ -605,6 +789,8 @@ def main(argv=None):
     if args.host_key and len(args.host_key) < MIN_HOST_KEY:
         ap.error(f"the host key must be at least {MIN_HOST_KEY} characters; make one with:  "
                  'python3 -c "import secrets; print(secrets.token_urlsafe(24))"')
+    if args.accounts and not args.host_key:
+        ap.error("--accounts needs a host key: whoever holds it is the admin")
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(asctime)s %(levelname)s %(message)s")
     host = "0.0.0.0" if args.lan else args.host
@@ -616,6 +802,9 @@ def main(argv=None):
     APP.persist = not args.no_save
     APP.set_host_key(args.host_key)
     APP.hosts.update(h.lower() for h in args.allow_host)
+    APP.behind_proxy = args.behind_proxy
+    if args.accounts:
+        APP.accounts = Accounts()
     if APP.persist:
         store.prune()
     try:
