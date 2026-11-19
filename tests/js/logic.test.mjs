@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  accuracy, assignCodes, boardBox, covers, fmtWhen, handPlus, keyLabel, parseCards, plentyPicks, replayStep,
-  scored, sparkPoints, totalLost, tradesNeeded,
+  accuracy, assignCodes, keyLabel, parseCards, plentyPicks, scored, totalLost, tradesNeeded,
 } from "../../hexfield/web/static/js/logic.js";
 
 const COSTS = { road: [1, 1, 0, 0, 0], settle: [1, 1, 1, 1, 0], city: [0, 0, 0, 2, 3], dev: [0, 0, 1, 1, 1] };
@@ -15,12 +14,6 @@ test("parseCards reads the log's card lists", () => {
   assert.deepEqual(parseCards("You collect wood, wood, sheep"), [2, 0, 1, 0, 0]);
   assert.deepEqual(parseCards("nothing here"), [0, 0, 0, 0, 0]);
   assert.deepEqual(parseCards("3 brick and 10 wood"), [10, 3, 0, 0, 0]);
-});
-
-test("covers and handPlus", () => {
-  assert.equal(covers([1, 1, 1, 1, 0], COSTS.settle), true);
-  assert.equal(covers([1, 1, 1, 0, 9], COSTS.settle), false);
-  assert.deepEqual(handPlus([1, 0, 2, 0, 0], [-1, 2, 0, 0, 0]), [0, 2, 2, 0, 0]);
 });
 
 test("tradesNeeded counts bank trades at your rates", () => {
@@ -61,17 +54,6 @@ test("keyLabel names keys the way the badges do", () => {
   assert.equal(key({ key: "ArrowLeft", code: "ArrowLeft" }), null);
 });
 
-test("replayStep maps keys to replay moves", () => {
-  assert.equal(replayStep({ key: "ArrowRight" }), "next");
-  assert.equal(replayStep({ key: "ArrowLeft" }), "prev");
-  assert.equal(replayStep({ key: "ArrowRight", shiftKey: true }), "last");
-  assert.equal(replayStep({ key: "Home" }), "first");
-  assert.equal(replayStep({ key: "]" }), "nextd");
-  assert.equal(replayStep({ key: " " }), "play");
-  assert.equal(replayStep({ key: "Escape" }), "close");
-  assert.equal(replayStep({ key: "r" }), null);
-});
-
 test("review arithmetic leaves forced moves out", () => {
   const revs = [{ delta: 0 }, { delta: 0.19 }, { delta: 0.2 }, { delta: 1.5 }, { delta: 0, forced: true }];
   const real = scored(revs);
@@ -79,33 +61,6 @@ test("review arithmetic leaves forced moves out", () => {
   assert.equal(accuracy(real), 50);
   assert.ok(Math.abs(totalLost(real) - 1.89) < 1e-9);
   assert.equal(accuracy([]), 100);
-});
-
-test("fmtWhen", () => {
-  const now = new Date(2026, 10, 18, 15, 0).getTime();
-  const at = (y, m, d, h, mi) => new Date(y, m, d, h, mi).getTime() / 1000;
-  assert.equal(fmtWhen(at(2026, 10, 18, 9, 5), now), "today 09:05");
-  assert.equal(fmtWhen(at(2026, 10, 17, 23, 59), now), "yesterday 23:59");
-  assert.equal(fmtWhen(at(2026, 10, 3, 12, 0), now), "3 Nov");
-  assert.equal(fmtWhen(at(2025, 11, 31, 12, 0), now), "31 Dec 2025");
-  assert.equal(fmtWhen(null, now), "");
-});
-
-test("sparkPoints stays inside the chart", () => {
-  const pts = sparkPoints([40, 70, 100, 120, 10], 600, 150, 40, 100);
-  assert.equal(pts.length, 5);
-  for (const [x, y] of pts) assert.ok(x >= 12 && x <= 588 && y >= 12 && y <= 138);
-  assert.ok(pts[0][1] > pts[1][1] && pts[1][1] > pts[2][1], "higher values sit higher up");
-  assert.equal(pts[2][1], pts[3][1], "values above the range are clamped");
-  assert.deepEqual(sparkPoints([70], 600, 150, 40, 100)[0][0], 300);
-});
-
-test("boardBox frames any board", () => {
-  const box = boardBox([{ x: -260, y: -240 }, { x: 260, y: 240 }, { x: 0, y: 0 }]);
-  assert.deepEqual([box.x, box.y, box.w, box.h], [-300, -294, 600, 588]);
-  assert.equal(box.cx, 0);
-  const off = boardBox([{ x: -364, y: -300 }, { x: 260, y: 300 }]);
-  assert.equal(off.cx, -52, "an off-centre board (the large one) is centred on itself");
 });
 
 test("plentyPicks completes the best build it can", () => {

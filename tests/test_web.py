@@ -633,9 +633,9 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(self.req("/?host=" + key)[0], 403)        # no key set: nothing to log in to
 
     def test_remote_addresses_are_rate_limited(self):
-        codes = [self.req("/healthz", X_Forwarded_For="203.0.113.7")[0] for _ in range(int(server.BURST) + 30)]
-        self.assertEqual(codes[0], 200)
-        self.assertIn(429, codes)
+        self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.7")[0], 200)
+        server.APP.buckets["203.0.113.7"] = [-60 * server.RATE, time.monotonic()]   # a minute in debt
+        self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.7")[0], 429)
         self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.8")[0], 200)   # others unaffected
         self.assertEqual({self.req("/healthz")[0] for _ in range(20)}, {200})          # nor this machine
         app = server.App()

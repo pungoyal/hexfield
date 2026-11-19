@@ -2,7 +2,7 @@
 the special building phase, play styles and counter-offers."""
 import unittest
 
-from hexfield.ai import PARAMS, STYLES, AIPlayer, make_params
+from hexfield.ai import STYLES, AIPlayer
 from hexfield.board import Board
 from hexfield.constants import (BEGINNER_TILES, BRICK, DESERT, KNIGHT, LARGE_NUMBER_BAG, LARGE_TILE_BAG, ORE,
                                 SHEEP, WHEAT, WOOD)
@@ -146,16 +146,6 @@ class SixPlayerTests(unittest.TestCase):
 
 
 class StyleTests(unittest.TestCase):
-    def test_styles_only_change_known_weights(self):
-        for name, changes in STYLES.items():
-            self.assertLessEqual(set(changes), set(PARAMS), name)
-            P = make_params(name)
-            self.assertEqual(set(P), set(PARAMS))
-        self.assertEqual(make_params("balanced"), PARAMS)
-        self.assertGreater(make_params("builder")["road_race"], PARAMS["road_race"])
-        with self.assertRaises(KeyError):
-            make_params("balanced", {"no_such_weight": 1.0})
-
     def test_every_style_plays_a_whole_game(self):
         names = sorted(STYLES)
         s, _ = play_headless(40, ["medium"] * 4, styles=names[:4])

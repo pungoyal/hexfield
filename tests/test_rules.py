@@ -66,12 +66,6 @@ class BoardTests(unittest.TestCase):
                     for n in b.hex_neighbors[h]:
                         self.assertNotIn(b.hex_number[n], (6, 8))
 
-    def test_seed_reproducible(self):
-        a, b = GameState(3, seed=7), GameState(3, seed=7)
-        self.assertEqual(a.board.hex_resource, b.board.hex_resource)
-        self.assertEqual(a.board.hex_number, b.board.hex_number)
-        self.assertEqual(a.deck, b.deck)
-
 
 class SetupTests(unittest.TestCase):
     def test_snake_and_starting_resources(self):

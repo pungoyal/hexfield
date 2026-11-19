@@ -2,6 +2,7 @@ name: tests
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -12,8 +13,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  unit:
+  # rules, bots, terminal UI, web server, and the browser client's logic (node --test);
+  # one process per test module, stopping at the first failure
+  test:
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -22,17 +26,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 26
-      # rules, bots, terminal UI, web server, and the browser client's logic (node --test)
-      - run: python -m unittest -v
-      # the package installs and its commands start
-      - run: |
-          pip install .
-          hexfield --games
-          hexfield-web --version
-          cd / && python -c "import hexfield.web.server, os; from hexfield.web.server import STATIC; assert os.path.isfile(os.path.join(STATIC, 'js', 'app.js'))"
+      - run: printf '%s\n' tests/test_*.py | sed 's#/#.#; s#\.py$##' | xargs -P0 -n1 python -m unittest -f
 
+  # a real (headless) Chromium plays through the main screens
   browser:
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -43,31 +42,35 @@ jobs:
           node-version: 26
       # Google Chrome has no Linux arm64 build; Playwright's Chromium does
       - run: |
-          npx -y playwright@1.65.1 install --with-deps chromium
-          echo "CHROME_BIN=$(find ~/.cache/ms-playwright -path '*/chromium-*' -type f -name chrome | head -1)" >> "$GITHUB_ENV"
-      # a real (headless) Chromium plays through the main screens
-      - run: python -m unittest -v tests.test_js
+          npx -y playwright@1.65.1 install chromium
+          bin=$(find ~/.cache/ms-playwright -path '*/chromium-*' -type f -name chrome | head -1)
+          if ldd "$bin" | grep -q "not found"; then sudo npx -y playwright@1.65.1 install-deps chromium; fi
+          echo "CHROME_BIN=$bin" >> "$GITHUB_ENV"
+      - run: python -m unittest tests.test_js.ClientTests.test_in_a_real_browser
         env:
           HEXFIELD_BROWSER_TESTS: "1"
 
+  # the wheel passes PyPI's checks, installs and runs; the container starts, answers its
+  # health check and stops cleanly on SIGTERM
   package:
     runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.15"
-      # the sdist and the wheel build, pass PyPI's metadata checks and carry the web client
       - run: |
-          pip install build twine
+          pip install -q build twine
           python -m build
           twine check --strict dist/*
-          unzip -l dist/*.whl | grep -q "hexfield/web/static/js/art.js"
-      # the container starts, answers its health check and stops cleanly on SIGTERM
+          pip install -q dist/*.whl
+          cd / && hexfield --games && hexfield-web --version
+          python -c "import os; from hexfield.web.server import STATIC; assert os.path.isfile(os.path.join(STATIC, 'js', 'art.js'))"
       - run: |
           docker build -t hexfield .
           docker run -d --name hexfield -p 8765:8765 -e HEXFIELD_HOST_KEY=ci-only-0123456789abcdef hexfield
-          for i in $(seq 20); do curl -fs http://127.0.0.1:8765/healthz && break; sleep 0.5; done
+          for _ in $(seq 20); do curl -fs http://127.0.0.1:8765/healthz && break; sleep 0.5; done
           curl -fs http://127.0.0.1:8765/healthz
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/api/games)" = 403
           docker stop -t 5 hexfield
