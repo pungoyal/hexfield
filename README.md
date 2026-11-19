@@ -26,7 +26,7 @@ hexfield-web                           # the same in your browser, at http://127
 ```
 
 Running from a checkout with `python3 -m hexfield` and `python3 -m hexfield.web` works
-just as well. Hexfield needs Python 3.15.
+just as well. Hexfield needs Python 3.11 or newer.
 
 ```
 hexfield -o 2                          # you + 2 bots
@@ -63,8 +63,13 @@ coach panel. Reloading the page resumes the game, and so does restarting the ser
   8 grain · 3:1 dock"), and **Play** carries one out, bank trades included. **Evaluate**
   scores every player. Each of your decisions gets a verdict, and only inaccuracies and
   worse pop up. Bots explain why they decline your offers.
-* **Undo** works at any moment: while the bots play, in the discard and offer dialogs,
-  and after the game ends.
+* **Undo** works at any moment when you play alone: while the bots play, in the discard
+  and offer dialogs, and after the game ends. (Shared games: see take-backs below.)
+* **On a phone** the board keeps its place and nothing covers it: the turn recap and the
+  replay controls sit under it, a hint is one tap from your hand, and saved games are a
+  list of cards.
+* **No bot offers** (`Shift+M`, beside the log) stops the bots asking you to trade. You
+  can still make offers to them, and they keep trading with each other.
 * **Accessible.** Every spot you can build on is a real button that a screen reader can
   announce ("Build a village: 8 grain, 5 wool, 9 pips"). **Marks** (`Shift+C`)
   switches to a colour-blind-safe palette and puts each player's seat number on their
@@ -74,8 +79,8 @@ Everything can be done from the keyboard: `R` roll, `1/2/3` trail/village/town,
 `D` venture, `T` trade, `E` end turn, `H` hint, `U` undo (on every screen and in
 every dialog), `?` help. When you place something, every clickable spot shows a letter,
 ranked rather than positional: the best spot is always **A** (in green), then S, F, G…
-along the home row. **Space** always makes the obvious move: the A spot, the roll, or the
-recommended answer in a dialog.
+along the home row. **Space** always makes the obvious move, the one ringed in green: the A spot, the
+roll, the recommended answer in a dialog, or End turn once nothing else is left to do.
 
 ```
 hexfield-web --port 9000 --no-browser
@@ -144,8 +149,11 @@ A new game can seat several humans, with bots in the other chairs (3 to 6 player
   key, kept in that browser. A player only ever receives their own hand. Only the machine
   running the server can start, resume, list or delete games.
 
-Undo is for single-player games. Offers between humans work like offers to bots: the
-others accept, decline or answer with a counter-offer, and the proposer picks.
+Alone, undo steps back as far as you like. In a shared game you can take back your own
+last decision, until someone else has decided: around one screen it asks the table first,
+and online every other player has to allow it (one refusal and the move stands). Offers
+between humans work like offers to bots: the others accept, decline or answer with a
+counter-offer, and the proposer picks.
 
 ## Hosting
 
@@ -188,14 +196,15 @@ bare IP address.
 
 ### Docker
 
-The image is built for **linux/arm64**. Games are kept in the `/data` volume.
+The image builds for the machine you build it on (x86-64 or arm64). Games are kept in the
+`/data` volume.
 
 ```
 docker build -t hexfield .
 docker run -p 8765:8765 -v hexfield-data:/data -e HEXFIELD_HOST_KEY="$HEXFIELD_HOST_KEY" hexfield
 ```
 
-On an x86-64 machine, Docker can only build and run it under arm64 emulation (QEMU).
+The image CI publishes to GHCR is linux/arm64 only, to match the server it deploys to.
 
 ### Behind a proxy
 
@@ -292,8 +301,8 @@ again without a new commit, re-run the workflow's latest run on `main`.
 
 ## Rules
 
-* A random board with balanced tile, number and dock distributions. The red numbers
-  (6 and 8) never touch, and neither do two of the same number. There are 9 docks
+* A random board with balanced tile, number and dock distributions. The two busiest numbers
+  (6 and 8, lit in gold) never touch, and neither do two of the same number. There are 9 docks
   (four 3:1, five 2:1).
 * Snake-draft setup. Your second village pays its starting resources.
 * Distance rule: no two villages on neighbouring corners. Trails must connect to your
@@ -454,7 +463,7 @@ node --test tests/js                                        # just the browser c
 HEXFIELD_BROWSER_TESTS=1 python3 -m unittest tests.test_js  # plus a real browser
 ```
 
-The suite needs Python 3.15. With Node 26 on the path it also runs the client's unit tests
+The suite runs on Python 3.11 or newer (CI runs it on 3.11 and 3.15). With Node 26 on the path it also runs the client's unit tests
 and checks that every module parses and every import resolves. Without Node those tests
 are skipped. The real-browser run also needs Chrome or Chromium (set `CHROME_BIN` if it
 isn't in a usual place) and is opt-in. GitHub Actions runs all of it on arm64 runners,

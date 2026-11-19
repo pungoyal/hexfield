@@ -63,7 +63,6 @@ export function boardDefs() {
     <clipPath id="hexclip"><polygon points="${hexPoints(0, 0, 59)}"/></clipPath>
     <linearGradient id="rim" x1=".2" y1="0" x2=".8" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></linearGradient>
     <radialGradient id="vignette" cx="50%" cy="46%" r="62%"><stop offset=".62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></radialGradient>
-    <radialGradient id="g-token" cx="38%" cy="30%" r="80%"><stop offset="0" stop-color="#fffaf0"/><stop offset=".7" stop-color="#f1e6c8"/><stop offset="1" stop-color="#d9c79b"/></radialGradient>
     <radialGradient id="g-sand" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#f0dfae"/><stop offset="1" stop-color="#d2b77c"/></radialGradient>
     <linearGradient id="g-bandit" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5a6070"/><stop offset=".45" stop-color="#2b2f39"/><stop offset="1" stop-color="#0d0f14"/></linearGradient>
     <linearGradient id="g-mound" x1=".15" y1="0" x2=".85" y2="1"><stop offset="0" stop-color="#f3a77a"/><stop offset=".5" stop-color="#cf6a43"/><stop offset="1" stop-color="#8e3b24"/></linearGradient>
@@ -328,18 +327,24 @@ export function trailArt({ x1, y1, x2, y2 }) {
     <line class="low" ${off(-2.3)}/><line class="shine" ${off(2.1)}/>`;
 }
 
+// the bandit's camp: a dark tent under a red pennant, two eyes in the doorway
 export const BANDIT = `
-  <ellipse cx="2" cy="16.5" rx="12.5" ry="3.8" fill="#000" opacity=".42"/>
-  <path d="M0-19a7.4 7.4 0 0 1 7.4 7.4c0 2.6-1.3 4.8-3.3 6.1C8-3.6 10.6 1 10.6 6.6V13c0 2.2-1.7 3.4-4.4 3.4H-6.2c-2.7 0-4.4-1.2-4.4-3.4V6.6C-10.6 1-8-3.6-4.1-5.5a7.3 7.3 0 0 1-3.3-6.1A7.4 7.4 0 0 1 0-19z" fill="url(#g-bandit)" stroke="#07080b" stroke-width="1.4"/>
-  <path d="M-6.4-13.6A6.4 6.4 0 0 1-1-17.9M-9 5.4C-8.6 1.6-7-1.6-4.4-3.4" fill="none" stroke="#aab2c4" stroke-width="1.5" stroke-linecap="round" opacity=".6"/>
-  <path d="M-4.6-12.4h9.2a4.6 4.6 0 0 1-9.2 0z" fill="#07080b" opacity=".75"/>
-  <circle class="eye" cx="-2.2" cy="-10.6" r="1.25"/><circle class="eye" cx="2.2" cy="-10.6" r="1.25"/>`;
+  <ellipse cx="1.5" cy="15.6" rx="15.5" ry="4" fill="#000" opacity=".42"/>
+  <path d="M0-23.5V-13" stroke="#07080b" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M.4-23.6 9.6-20.4.4-17.4z" fill="#e5484d" stroke="#07080b" stroke-width=".9" stroke-linejoin="round"/>
+  <path d="M0-14.5 14.2 14.4H-14.2z" fill="url(#g-bandit)" stroke="#07080b" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M-9.6 8.6-2.6-6.2" fill="none" stroke="#aab2c4" stroke-width="1.4" stroke-linecap="round" opacity=".55"/>
+  <path d="M0-2.4 5.6 14.4H-5.6z" fill="#07080b" opacity=".9"/>
+  <circle class="eye" cx="-1.7" cy="7.2" r="1.15"/><circle class="eye" cx="1.7" cy="7.2" r="1.15"/>`;
 
+// A number marker is a dark, flat-topped plaque: the number, and under it a five-step
+// gauge of how often it is rolled. The two busiest numbers are lit in gold.
+const flatHex = (r) => Array.from({ length: 6 }, (_, i) => `${f1(Math.cos((Math.PI / 3) * i) * r)},${f1(Math.sin((Math.PI / 3) * i) * r)}`).join(" ");
+const PLAQUE = [flatHex(20.8), flatHex(20), flatHex(16.6)];
 export function tokenArt(num, pips) {
-  const hot = num === 6 || num === 8;
-  let s = `<circle class="t-shadow" cy="2.6" r="19.6"/><circle class="disc" r="19"/><circle class="t-ring" r="15.6"/>
-    <text y="${hot ? -3.4 : -3}">${num}</text>`;
-  for (let k = 0; k < pips; k++) s += `<circle class="pip" r="1.75" cx="${f1((k - (pips - 1) / 2) * 4.7)}" cy="10.2"/>`;
+  let s = `<polygon class="t-shadow" points="${PLAQUE[0]}" transform="translate(0 2.6)"/><polygon class="disc" points="${PLAQUE[1]}"/><polygon class="t-ring" points="${PLAQUE[2]}"/>
+    <text y="-3.8">${num}</text>`;
+  for (let k = 0; k < 5; k++) s += `<rect class="pip ${k < pips ? "on" : ""}" x="${f1((k - 2) * 4.9 - 1.9)}" y="7.4" width="3.8" height="3.8" rx="1"/>`;
   return s;
 }
 

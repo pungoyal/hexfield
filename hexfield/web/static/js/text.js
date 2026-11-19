@@ -128,3 +128,7 @@ export function describeStep(a) {
     default: return a[0].replace("play_", "play ").replace("_", " ");
   }
 }
+
+// the coach's two numbers, said the same way wherever they appear
+export const FAME_LOST = "What your choices cost against the engine's best line, measured in fame: 1.00 is about one village.";
+export const ACCURACY_NOTE = "Accuracy is the share of your decisions rated best or good. Fame given up adds what each choice cost against the engine's best line; 1.00 is about one village.";

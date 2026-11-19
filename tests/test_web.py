@@ -307,20 +307,90 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(vb["hand"], g.s.hands[b])
         self.assertEqual((va["human"], vb["human"]), (a, b))
         for v in (va, vb):
-            self.assertFalse(v["can_undo"])
             self.assertTrue(all("hand" not in pl for pl in v["players"]))
         # each sees the log from their own chair, and nobody sees the other's private lines
         self.assertTrue(any(e["msg"].startswith("You ") for e in va["events"]))
         self.assertFalse(any("Ann" in e["msg"] for e in va["events"]))
         self.assertTrue(any("Ann" in e["msg"] for e in vb["events"]))
-        with self.assertRaises(Exception):
-            g.undo()
         # only the player whose turn it is may move
         actor = g.s.actor()
         if actor in g.humans:
             other = b if actor == a else a
             with self.assertRaises(Exception):
                 g.act(list(g.s.legal_actions()[0]), other)
+        g.close()
+
+    def test_pass_and_play_takes_back_your_own_last_decision(self):
+        g = WebGame(1, "easy", seed=24, humans=["Ann", "Bo"], mode="hotseat")
+        a, b = g.humans
+        play_until(g, lambda g: g.s.turn >= 3 and g.s.phase == "main" and g.s.actor() in g.humans)
+        me = g.s.actor()
+        other = b if me == a else a
+        before = (g.s.turn, g.s.phase, [list(h) for h in g.s.hands], len(g.s.events))
+        g.act(["end"], me)
+        self.assertTrue(g.view(me)["can_undo"], "your last decision, and nobody has decided since")
+        self.assertFalse(g.view(other)["can_undo"], "not somebody else's decision")
+        with self.assertRaises(Exception):
+            g.undo(other)
+        self.assertEqual(g.undo(me), "end turn")   # one screen: no vote
+        self.assertIsNone(g.takeback)
+        self.assertEqual((g.s.turn, g.s.phase, [list(h) for h in g.s.hands], len(g.s.events)), before)
+        self.assertEqual(g.view(me)["epoch"], 1)
+        g.close()
+
+    def test_online_take_back_needs_everyone(self):
+        g = WebGame(1, "easy", seed=26, humans=["Ann", "Bo", "Cy"], mode="online")
+        g.open.clear()
+        a, b, c = g.humans
+        play_until(g, lambda g: g.s.turn >= 4 and g.s.phase == "main" and g.s.actor() in g.humans)
+        me = g.s.actor()
+        x, y = [q for q in g.humans if q != me]
+        before = (g.s.turn, g.s.phase, len(g.s.events))
+        g.act(["end"], me)
+        after = (g.s.turn, g.s.phase, len(g.s.events))
+        # asking changes nothing yet, and nothing else moves meanwhile
+        self.assertIsNone(g.undo(me))
+        self.assertEqual((g.s.turn, g.s.phase, len(g.s.events)), after)
+        self.assertEqual(g.waiting_on(), sorted([x, y]))
+        self.assertTrue(g.view(x)["takeback"]["mine"])
+        self.assertFalse(g.view(me)["takeback"]["mine"])
+        self.assertEqual(g.view(x)["takeback"]["from"], me)
+        self.assertFalse(g.view(me)["can_undo"], "one request at a time")
+        v = g.version
+        g.step()
+        self.assertEqual(g.version, v, "the bots wait for the answer")
+        actor = g.s.actor()
+        if actor in g.humans:
+            with self.assertRaises(Exception):
+                g.act(list(g.s.legal_actions()[0]), actor)
+        with self.assertRaises(Exception):
+            g.answer_takeback(True, me)            # you can't allow your own request
+        # one refusal ends it: the move stands
+        g.answer_takeback(True, x)
+        self.assertEqual(g.waiting_on(), [y])
+        with self.assertRaises(Exception):
+            g.answer_takeback(True, x)             # one answer each
+        g.answer_takeback(False, y)
+        self.assertIsNone(g.takeback)
+        self.assertEqual((g.s.turn, g.s.phase, len(g.s.events)), after)
+        self.assertEqual(g.view(me)["takeback_result"]["ok"], False)
+        self.assertEqual(g.view(me)["takeback_result"]["by"], y)
+        # asked again and allowed by all: back to before the decision
+        self.assertTrue(g.view(me)["can_undo"])
+        g.undo(me)
+        g.answer_takeback(True, x)
+        g.answer_takeback(True, y)
+        self.assertIsNone(g.takeback)
+        self.assertEqual((g.s.turn, g.s.phase, len(g.s.events)), before)
+        self.assertTrue(g.view(x)["takeback_result"]["ok"])
+        self.assertEqual(g.s.actor(), me)
+        # the asker may withdraw
+        g.act(["end"], me)
+        self.assertTrue(g.view(me)["can_undo"])
+        g.undo(me)
+        g.answer_takeback(False, me)
+        self.assertIsNone(g.takeback)
+        self.assertEqual(g.view(x)["takeback_result"]["by"], me)
         g.close()
 
     def test_offers_between_humans(self):
@@ -344,6 +414,64 @@ class SessionTests(unittest.TestCase):
         g.act(["trade", b, [2, 0, 0, 0, 0], [0, 0, 0, 0, 1]], a)       # Ann takes the counter
         self.assertEqual((g.s.hands[a], g.s.hands[b]), ([0, 0, 0, 0, 1], [2, 0, 0, 0, 1]))
         self.assertIsNone(g.offer)
+        g.close()
+
+    def test_muting_bot_offers(self):
+        g = WebGame(2, "easy", seed=27)
+        h = g.human
+        bot = next(p for p in range(g.s.n) if p != h)
+        g.s.phase, g.s.current, g.s.turn = "main", bot, 5
+        g.s.hands = [[2, 2, 2, 2, 2] for _ in range(g.s.n)]
+        # an offer already on the table is declined when you mute
+        g._bot_propose(bot, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1), "offers")
+        self.assertEqual(g.pending_for(h)["from"], bot)
+        marks, n0 = len(g.history), len(g.s.events)
+        g.mute_offers(h, True)
+        self.assertIsNone(g.offer)
+        # ... without it counting as a decision of yours: nothing to undo, review or read
+        self.assertEqual(len(g.history), marks)
+        self.assertFalse(any(e["msg"].startswith("You ") for e in g.view(h, since=n0)["events"]))
+        g._jobs.join()
+        self.assertEqual(g.reviews, [])
+        self.assertTrue(g.view(h)["mute_offers"])
+        # from then on the bots don't ask you, and the game never waits for your answer
+        g.s.hands = [[2, 2, 2, 2, 2] for _ in range(g.s.n)]
+        n0 = len(g.s.events)
+        g._bot_propose(bot, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1), "offers")
+        self.assertIsNone(g.offer)
+        self.assertIsNone(g.pending_for(h))
+        self.assertFalse(any(e["msg"].startswith("You ") for e in g.view(h, since=n0)["events"]), "no answer in your name")
+        # your own offers still go out, and unmuting brings theirs back
+        g.s.current = h
+        self.assertTrue(g.make_offer([1, 0, 0, 0, 0], [0, 0, 0, 0, 1], h)["replies"])
+        g.offer = None
+        g.mute_offers(h, False)
+        g.s.current = bot
+        g.s.hands = [[2, 2, 2, 2, 2] for _ in range(g.s.n)]
+        g._bot_propose(bot, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1), "offers")
+        self.assertEqual(g.pending_for(h)["from"], bot)
+        g.close()
+
+    def test_a_redone_move_does_not_get_the_old_moves_review(self):
+        g = WebGame(2, "easy", seed=27)
+        g.snapshot("first try", g.human)
+        old = g.history[-1]["id"]
+        g._undo()
+        g.snapshot("second try", g.human)
+        self.assertEqual(g.history[-1]["at"], len(g.rec.entries) - 1)
+        self.assertFalse(g._live(old), "same place in the record, a different decision")
+        self.assertTrue(g._live(g.history[-1]["id"]))
+        g.close()
+
+    def test_an_undone_decision_is_worded_for_whoever_reads_it(self):
+        g = WebGame(1, "easy", seed=27, humans=["Ann", "Bo"], mode="online")
+        ann, bo = g.humans
+        g.snapshot("accept Ann's offer", bo)
+        g.takeback = {"from": bo, "label": "accept Ann's offer", "answers": {ann: None}}
+        self.assertEqual(g.view(ann)["takeback"]["label"], "accept your offer")
+        g.answer_takeback(True, ann)
+        self.assertEqual(g.view(ann)["takeback_result"]["label"], "accept your offer")
+        self.assertEqual(g.view(bo)["takeback_result"]["label"], "accept Ann's offer")
         g.close()
 
     def test_countering_a_bots_offer(self):
@@ -474,6 +602,33 @@ class OnlineTests(unittest.TestCase):
         done = c.call(f"act?g={gid}", {"action": ["settle", spot]}, seat=key)
         self.assertNotIn("error", done)
         self.assertEqual(done["v_owner"][spot], seat)
+
+    def test_take_back_over_http_and_the_log_after_an_undo(self):
+        c = self.c
+        st = c.call("new", {"mode": "online", "humans": 2, "opponents": 1, "seed": 54, "name": "Host"})
+        gid, (host_seat, host_key) = st["gid"], next(iter(st["tokens"].items()))
+        (guest_seat, guest_key), = c.call(f"join?g={gid}", {"name": "Guest"})["tokens"].items()
+        keys = {int(host_seat): host_key, int(guest_seat): guest_key}
+        game = server.APP.games[gid]
+        play_until(game, lambda g: g.s.turn >= 3 and g.s.phase == "main" and g.s.actor() in g.humans)
+        me = game.s.actor()
+        other = next(q for q in keys if q != me)
+        n0 = c.call(f"state?g={gid}", seat=keys[me])["ev_total"]
+        c.call(f"act?g={gid}", {"action": ["end"]}, seat=keys[me])
+        asked = c.call(f"undo?g={gid}", {}, seat=keys[me])
+        self.assertIsNone(asked["undone"])
+        self.assertEqual(asked["takeback"]["waiting"], [other])
+        self.assertEqual(c.call(f"takeback?g={gid}", {"ok": True}, seat=keys[me])["status"], 400)
+        done = c.call(f"takeback?g={gid}&since={n0}&ep=0", {"ok": True}, seat=keys[other])
+        self.assertIsNone(done["takeback"])
+        self.assertTrue(done["takeback_result"]["ok"])
+        self.assertEqual((done["epoch"], done["ev_total"]), (1, n0))
+        # a browser that still holds the log from before the undo gets all of it again
+        self.assertTrue(done["reset_log"])
+        self.assertEqual(done["events"][0]["i"], 0)
+        fresh = c.call(f"state?g={gid}&since={n0}&ep=1", seat=keys[me])
+        self.assertNotIn("reset_log", fresh)
+        self.assertEqual(fresh["events"], [])
 
     def test_stale_steps_do_nothing_and_waiting_returns(self):
         c = self.c

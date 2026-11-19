@@ -191,6 +191,7 @@ export function renderActions() {
     setHTML(c, COSTS[cost].flatMap((n, r) => Array.from({ length: n }, (_, k) => resIcon(r, `ri ${k < S.hand[r] ? "" : "miss"}`))).join(""));
   }
   $("#btn-trade").disabled = !main || G.busy;
+  $("#btn-hint-tray").disabled = !(mine || S.pending_offer) || !!session.replay;
   go($("#btn-trade"), main);
   $("#btn-roll").title = can("roll") ? "Roll the dice (R)" : mine && S.phase === "main" ? "Already rolled" : "Roll the dice — not now";
   // Roll and End turn share one slot: the next step is always in the same place
@@ -200,6 +201,7 @@ export function renderActions() {
   end.disabled = !can("end") || G.busy;
   const onlyEnd = (main || special) && (S.legal.kinds || []).every((k) => k === "end" || k === "bank");
   end.classList.toggle("pulse", onlyEnd);
+  end.classList.toggle("obvious", can("end") && onlyEnd); // nothing left to do: Space ends the turn
   go(end, can("end"), onlyEnd);
   const label = special ? "Pass" : "End turn";
   if (end.firstChild.nodeValue !== label) end.firstChild.nodeValue = label;
@@ -226,6 +228,11 @@ export function renderStatus(thinker) {
     p = S.phase === "game_over" ? S.winner : S.actor;
   } else if (S.lobby) {
     text = "Waiting for players to join";
+  } else if (S.takeback) {
+    const t = S.takeback;
+    p = t.from; mine = t.mine;
+    text = t.from === S.human ? "Waiting for their answer" : t.mine ? `${name(t.from)} asks to take a move back`
+      : `Waiting for the others to answer ${name(t.from)}`;
   } else if (S.phase === "game_over") {
     text = S.winner === S.human ? "You win! ♛" : `${name(S.winner)} wins`;
     p = S.winner;
@@ -253,8 +260,9 @@ export function renderStatus(thinker) {
       : away ? `Waiting for ${name(p)}…` : `${name(p)} is thinking…`;
   }
   // once the game is over the pill reopens the result (it can be dismissed to look at the board)
-  const more = S.phase === "game_over" && S.summary ? `<button class="pill-link" id="show-over">Results</button>` : "";
-  const html = `<div class="pill ${mine ? "mine" : ""}" style="--pc:${pc(p)}">${spin ? `<span class="spinner"></span>` : `<span class="dot"></span>`}<span>${text}</span><span class="muted" style="font-weight:500">· ${roundName()}</span>${more}</div>`;
+  const more = S.takeback?.from === S.human && !session.replay ? `<button class="pill-link" id="tb-withdraw">Withdraw</button>`
+    : S.phase === "game_over" && S.summary ? `<button class="pill-link" id="show-over">Results</button>` : "";
+  const html = `<div class="pill ${mine ? "mine" : ""}" style="--pc:${pc(p)}">${spin ? `<span class="spinner"></span>` : `<span class="dot"></span>`}<span>${text}</span>${more.includes("tb-withdraw") ? "" : `<span class="muted" style="font-weight:500">· ${roundName()}</span>`}${more}</div>`;
   setHTML($("#status"), html);
 }
 

@@ -158,22 +158,53 @@ export function modal(dlg) {
   if (!dlg.querySelector("[autofocus]")) { dlg.tabIndex = -1; dlg.focus(); }
   raiseToasts();
 }
-export function raiseToasts() {
+export function raiseToasts(force = false) {
   const b = $("#toasts");
-  try { if (b.matches(":popover-open")) b.hidePopover(); b.showPopover(); } catch { /* unsupported */ }
+  // (a dialog with no room around it is not covered: toasts already up step aside until it closes)
+  try { if (b.matches(":popover-open")) b.hidePopover(); if (force || !crowded()) b.showPopover(); } catch { /* unsupported */ }
   placeToasts();
 }
 // on wide screens toasts sit in the board's lower-left corner (open sea), off the panels you read
 export function placeToasts() {
   const b = $("#toasts");
-  if (innerWidth < 900) { b.style.inset = ""; b.style.width = ""; return; }
+  b.style.inset = b.style.width = b.style.translate = "";
+  // beside or above an open dialog, never across it
+  const dlg = [...document.querySelectorAll("dialog[open]")].at(-1);
+  if (dlg) {
+    const d = dlg.getBoundingClientRect();
+    if (d.left >= 230) { b.style.inset = `auto auto 14px 10px`; b.style.width = `${Math.min(300, d.left - 20)}px`; b.style.translate = "none"; return; }
+    // no room beside it: under it, or over it, wherever a toast fits (toast() holds them back otherwise)
+    if (innerHeight - d.bottom >= TOAST_ROOM) b.style.inset = `${d.bottom + 6}px auto auto 50%`;
+    else b.style.inset = `6px auto auto 50%`;
+    b.style.translate = "-50% 0";
+    return;
+  }
+  if (innerWidth < 900) return;
   const r = $(".board-wrap").getBoundingClientRect();
   b.style.inset = `auto auto ${Math.max(8, innerHeight - r.bottom + 8)}px ${r.left + 6}px`;
   b.style.width = `${Math.min(270, r.width * 0.42)}px`; // narrow: the island now reaches into this corner
 }
+// A dialog that leaves no room around it (most of them on a phone) is not talked over:
+// what the game has to say waits until it closes. Problems are shown at once.
+const TOAST_ROOM = 64;
+const held = [];
+function crowded() {
+  const dlg = [...document.querySelectorAll("dialog[open]")].at(-1);
+  if (!dlg) return false;
+  const d = dlg.getBoundingClientRect();
+  return d.left < 230 && innerHeight - d.bottom < TOAST_ROOM && d.top < TOAST_ROOM;
+}
+document.addEventListener("close", () => {
+  if (crowded()) return;
+  if ($("#toasts").children.length) raiseToasts();
+  for (const args of held.splice(0).slice(-3)) toast(...args);
+}, true);
 export function toast(title, sub = "", color = "var(--accent)", ms = 4200) {
   const box = $("#toasts");
-  if (!box.matches(":popover-open") || $("dialog[open]")) raiseToasts();
+  if (color !== "var(--worst)" && !$("#dlg-over").open && crowded()) { held.push([title, sub, color, ms]); return; }
+  // the result screen already says it all: only problems may speak over it
+  if ($("#dlg-over").open && color !== "var(--worst)") return;
+  if (!box.matches(":popover-open") || $("dialog[open]")) raiseToasts(color === "var(--worst)"); // problems are shown wherever you are
   else placeToasts();
   const t = document.createElement("div");
   t.className = "toast";

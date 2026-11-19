@@ -17,6 +17,8 @@ export const G = {
   pumping: false,
   stopPump: false,     // set by undo: the bot loop stops after its current step
   reviewsSeen: 0,
+  epoch: null,         // the server's undo count: when it moves on, the log is sent whole
+  tbSeen: 0,           // the last take-back outcome already announced
   logStick: true,
   holdAutoRoll: false, // set by undo so it can step back past a roll
   overShown: null,
@@ -26,7 +28,7 @@ export const G = {
   me: null,            // who this browser is on the server (account.js)
 };
 export const prefs = { speed: store("speed", "normal"), autoroll: store("autoroll", true), reasons: store("reasons", true),
-  marks: store("marks", false) };
+  marks: store("marks", false), mute: store("mute", false) };
 
 // Which game this browser is in, and the seats it may act for. A solo game has one
 // token; pass-and-play holds one per human and `seat` says whose turn the screen shows.
@@ -47,6 +49,7 @@ export const els = {};        // svg element caches
 export async function api(route, body, query = {}) {
   const q = new URLSearchParams(route === "new" ? {} : { since: G.evCount });
   if (session.gid && route !== "new") q.set("g", session.gid);
+  if (G.epoch !== null && G.evCount && route !== "new") q.set("ep", G.epoch);
   // the seat key goes in a header, never the URL: proxies log URLs, and redact Authorization
   const token = session.tokens[session.seat];
   const headers = token && route !== "new" ? { Authorization: `Bearer ${token}` } : {};
@@ -64,7 +67,7 @@ export async function api(route, body, query = {}) {
 }
 
 export const myDecision = () => S && !session.replay && !S.lobby && S.phase !== "game_over" && S.actor === S.human
-  && !S.pending_offer && (S.waiting_on || [S.human]).includes(S.human);
+  && !S.pending_offer && !S.takeback && (S.waiting_on || [S.human]).includes(S.human);
 // building is allowed in your main phase and in the special building phase (5-6 players)
 export const building = () => myDecision() && (S.phase === "main" || S.phase === "special_build");
 export const legal = () => (myDecision() ? S.legal : {});

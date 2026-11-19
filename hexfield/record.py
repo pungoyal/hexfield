@@ -115,8 +115,13 @@ class Record:
 
     @classmethod
     def from_dict(cls, d):
-        if not isinstance(d, dict) or d.get("version") != VERSION:
-            raise ValueError("not a Hexfield game file (or made by another version)")
+        if not isinstance(d, dict) or "seed" not in d or "seats" not in d:
+            raise ValueError("not a Hexfield game file")
+        v = d.get("version")
+        if v != VERSION:  # say which way it is off, so the player knows what would open it
+            older = isinstance(v, int) and v < VERSION
+            raise ValueError(f"this game was saved by {'an older' if older else 'a newer'} version of Hexfield "
+                             f"(save format {v}; this version reads format {VERSION}), so it can't be opened here")
         seats = d["seats"]
         if not isinstance(seats, list) or not 2 <= len(seats) <= 6:
             raise ValueError("bad seat list")

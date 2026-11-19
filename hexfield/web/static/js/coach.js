@@ -6,7 +6,7 @@ import { openInfo } from "./dialogs.js";
 import { toast } from "./effects.js";
 import { setObvious } from "./keys.js";
 import { G, S, api, myDecision } from "./state.js";
-import { accuracy, describeStep, engineLine, human, plain, scored, short, symbol, totalLost } from "./text.js";
+import { ACCURACY_NOTE, FAME_LOST, accuracy, describeStep, engineLine, human, plain, scored, short, symbol, totalLost } from "./text.js";
 import { $, $$, VERDICT_COLORS, esc, pc, resIcon, sleep } from "./util.js";
 
 // the coach panel answers one decision; it closes once the game moves on
@@ -42,8 +42,8 @@ export function renderReviews() {
   // how the decisions split by verdict, as one bar
   const QUALITY = ["best", "good", "inaccuracy", "mistake", "blunder"];
   const cnt = Object.fromEntries(QUALITY.map((q) => [q, real.filter((r) => r.verdict === q).length]));
-  $("#accuracy").innerHTML = `<div class="acc-top"><b class="acc-n">${accuracy(real)}%</b><span>accuracy</span>
-      <span class="acc-meta">${real.length} decision${real.length === 1 ? "" : "s"} · <b>${totalLost(real).toFixed(2)}</b> fame lost</span></div>
+  $("#accuracy").innerHTML = `<div class="acc-top" title="${ACCURACY_NOTE}"><b class="acc-n">${accuracy(real)}%</b><span>accuracy</span>
+      <span class="acc-meta">${real.filter((r) => r.delta < 0.2).length} of ${real.length} best or good · <b>${totalLost(real).toFixed(2)}</b> fame given up</span></div>
     <div class="acc-bar" role="img" aria-label="${QUALITY.map((q) => `${cnt[q]} ${q}`).join(", ")}">${QUALITY.map((q) => cnt[q] ? `<i class="q-${q}" style="flex:${cnt[q]}" title="${cnt[q]} ${q}"></i>` : "").join("")}</div>`;
   // forced moves only appear in the full "All moves" table
   ol.innerHTML = real.slice().reverse().slice(0, 60).map(reviewItem).join("");
@@ -69,9 +69,9 @@ export function showFullReview() {
       <td class="num">${r.forced ? "" : r.delta < 0.005 ? "0" : "−" + r.delta.toFixed(2)}</td>
       <td class="muted">${r.forced ? "—" : r.delta < 0.05 ? "same as yours" : esc(human(r.best))}</td></tr>`).join("");
   openInfo("Every move, rated", `
-    <p class="muted">Each of your decisions compared with the engine's best line, in fame-equivalents lost. Forced moves (only one sensible choice) are listed but not scored.</p>
+    <p class="muted">Each of your decisions compared with the engine's best line. The number is the fame it gave up (1.00 is about one village). Forced moves (only one sensible choice) are listed but not scored.</p>
     <div class="vcounts">${["best", "good", "inaccuracy", "mistake", "blunder"].map((k) => `<span class="vd vd-${k}">${symbol(k)} ${k} ${counts[k] || 0}</span>`).join("")}</div>
-    <p>Accuracy <b>${accuracy(real)}%</b> · total lost <b>${totalLost(real).toFixed(2)}</b> fame-eq · ${revs.length} moves</p>
+    <p>Accuracy <b>${accuracy(real)}%</b> · <span class="term" title="${FAME_LOST}">fame given up</span> <b>${totalLost(real).toFixed(2)}</b> · ${revs.length} moves</p>
     <div class="table-scroll"><table class="info-table review-table"><thead><tr><th>Turn</th><th>Your move</th><th>Verdict</th><th>Lost</th><th>Engine's best</th></tr></thead><tbody>${rows}</tbody></table></div>`, true);
 }
 
@@ -177,7 +177,7 @@ export async function askCoachOffer() {
       : S.players[S.pending_offer.from].fame >= 8 ? `only +${fame} fame, and ${esc(from)} is close to winning`
       : `only +${fame} fame: too small to help ${esc(from)}`;
     box.className = `bo-coach ${h.accept ? "yes" : "no"}`;
-    box.title = `Net value for you in fame-equivalents, including what ${from} builds with the cards`;
+    box.title = `Net value for you, measured in fame, including what ${from} builds with the cards`;
     box.innerHTML = `<span class="tag">Coach</span><b>${h.accept ? "Accept" : "Decline"}</b><span class="muted">${why}</span>`;
   } catch (e) {
     box.textContent = e.message;
@@ -189,7 +189,7 @@ export async function showEval() {
   await coachPanel("Evaluating…", async () => {
     const rows = (await api("eval")).eval.rows;
     const top = Math.max(1, ...rows.map((r) => r.value));
-    return `<p class="coach-note">${CLOSE_COACH}Engine evaluation from your point of view (fame-equivalents). Pips = expected cards per 36 rolls.</p><div class="evals">${rows.map((r) => `
+    return `<p class="coach-note">${CLOSE_COACH}Engine evaluation from your point of view, measured in fame. Pips = expected cards per 36 rolls.</p><div class="evals">${rows.map((r) => `
       <div class="ev-row" style="--pc:${pc(r.p)}"><b>${esc(S.players[r.p].name)}</b><span class="bar"><i style="width:${Math.max(2, (100 * r.value) / top)}%"></i></span><span>${r.value.toFixed(2)}</span>
       <span class="pips">${r.pips.map((n, i) => `<span>${resIcon(i)}${Math.round(n)}</span>`).join("")}<span>Σ${Math.round(r.pips.reduce((a, b) => a + b, 0))}</span></span></div>`).join("")}</div>`;
   });

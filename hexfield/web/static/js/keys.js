@@ -202,6 +202,7 @@ export function onKey(e) {
   if (k === "backspace" && keyBuf) { e.preventDefault(); keyBuf = keyBuf.slice(0, -1); renderKeys(); return; }
   if (/^[A-Z]$/.test(label) && !G.busy && pickKey(k)) { e.preventDefault(); return; }
   // Space is always the obvious move: the top-ranked spot (always a single letter), or the roll
+  if (label === " " && e.repeat) { e.preventDefault(); return; } // a held Space rolls once; it doesn't run on into End turn
   if (label === " " && !G.busy && !keyBuf) {
     if (keyMap.length) { e.preventDefault(); pickKey(keyMap[0].code); return; }
     const o = $$("body > .app .obvious").find((el) => shown(el) && !el.closest("dialog, [popover]"));

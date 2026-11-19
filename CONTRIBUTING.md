@@ -2,7 +2,7 @@
 
 Thanks for helping. A few things keep Hexfield easy to work on:
 
-* **No dependencies.** The game is standard-library Python 3.15 and a plain HTML/CSS/JS
+* **No dependencies.** The game is standard-library Python (3.11 or newer) and a plain HTML/CSS/JS
   client with no build step. Please keep it that way.
 * **Tests.** Run `python3 -m unittest` before you open a pull request. With Node 26
   installed it also runs the browser client's tests. For changes to the browser client,

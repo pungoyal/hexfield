@@ -130,6 +130,21 @@ def list_games(limit=60, owner=""):
     return out
 
 
+def other_versions(owner=""):
+    """How many saved games here were written in another save format: they are kept on
+    disk but left out of the list, and the player should hear about them."""
+    d = games_dir(owner)
+    n = 0
+    for name in os.listdir(d):
+        if name.endswith(".json") and ID_RE.match(name[:-5]):
+            try:
+                with open(os.path.join(d, name)) as f:
+                    n += json.load(f).get("version") != VERSION
+            except (OSError, ValueError, AttributeError):
+                continue
+    return n
+
+
 def prune(keep=KEEP, owner=""):
     """Drop the oldest games beyond `keep` (finished ones before unfinished)."""
     games = list_games(limit=10 ** 6, owner=owner)
