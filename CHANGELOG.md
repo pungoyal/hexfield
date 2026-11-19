@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* Accounts for a public server (`--accounts`). Anyone can sign up with a passkey, with no
+  password or email, and join the games they're invited to under their own name. Joining
+  needs an account. The admin, whoever holds the host key, chooses which accounts may host,
+  and each host sees only their own saved games. Passkeys are checked with the standard
+  library alone (ES256), and accounts live in `accounts.db` beside the saved games.
+  hex.vaari.dev runs with accounts on.
+* `--behind-proxy`: behind a reverse proxy on another machine or container, the request
+  allowance goes by the client's address in `X-Forwarded-For` instead of the proxy's, so
+  players no longer share one allowance. hex.vaari.dev uses it.
+
 * Hexfield is open source under the MIT license.
 * Needs Python 3.15. CI uses Node 26 and the latest GitHub Actions, and runs on arm64.
 * The Docker image is built for linux/arm64, on `python:3.15-slim`.

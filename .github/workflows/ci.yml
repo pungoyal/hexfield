@@ -54,7 +54,7 @@ jobs:
           bin=$(find ~/.cache/ms-playwright -path '*/chromium-*' -type f -name chrome | head -1)
           if ldd "$bin" | grep -q "not found"; then sudo npx -y playwright@1.65.1 install-deps chromium; fi
           echo "CHROME_BIN=$bin" >> "$GITHUB_ENV"
-      - run: python -m unittest tests.test_js.ClientTests.test_in_a_real_browser
+      - run: python -m unittest tests.test_js.ClientTests.test_in_a_real_browser tests.test_js.ClientTests.test_accounts_in_a_real_browser
         env:
           HEXFIELD_BROWSER_TESTS: "1"
 
@@ -81,11 +81,14 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Smoke test
         run: |
-          docker run -d --name hexfield -p 8765:8765 -e HEXFIELD_HOST_KEY=ci-only-0123456789abcdef "$IMAGE"
+          # as in deploy/compose.yaml: read-only, with accounts in the /data volume
+          docker run -d --name hexfield -p 8765:8765 --read-only --tmpfs /tmp \
+            -e HEXFIELD_HOST_KEY=ci-only-0123456789abcdef "$IMAGE" --accounts --behind-proxy
           for _ in $(seq 20); do curl -fs http://127.0.0.1:8765/healthz && break; sleep 0.5; done
           curl -fs http://127.0.0.1:8765/healthz
           curl -fs -o /dev/null http://127.0.0.1:8765/js/art.js
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/api/games)" = 403
+          curl -fs http://127.0.0.1:8765/api/me | grep -q '"accounts":true'
           docker stop -t 5 hexfield
           test "$(docker inspect -f '{{.State.ExitCode}}' hexfield)" = 0
       - if: github.event_name == 'push'
@@ -103,7 +106,7 @@ jobs:
   # /opt/hexfield, the `hexfield` Compose project and its own images.
   deploy:
     needs: [test, browser, image]
-    if: vars.DEPLOY_ENABLED == 'true'
+    if: github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
     environment: oracle-cloud
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 5

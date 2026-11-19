@@ -1,6 +1,7 @@
 // Dialogs: discard, offers, trading, ventures, help, game over, new game.
 
 import { act, apply, pump, render } from "./app.js";
+import { openAccount } from "./account.js";
 import { askCoachOffer } from "./coach.js";
 import { modal, toast } from "./effects.js";
 import { setObvious } from "./keys.js";
@@ -429,6 +430,7 @@ export function showHelp() {
 export function showGameOver() {
   const sm = S.summary;
   if (!sm) return;
+  $("#over-watch").hidden = S.own === false; // a game you were invited to is saved by its host
   const won = S.winner === S.human;
   $("#over-title").innerHTML = `<div class="over-banner ${won ? "win" : ""}">${won ? "♛ You win!" : `${esc(S.players[S.winner].name)} wins`}</div>`;
   // where every point came from
@@ -449,6 +451,7 @@ export function showGameOver() {
 }
 
 export function openNewGame(cancellable = true) {
+  if (G.me?.accounts && !G.me.host) return openAccount(); // sign in, or wait for the admin's approval
   const dlg = $("#dlg-new");
   if (dlg.open) return;
   $("#new-cancel").hidden = !cancellable || !S;

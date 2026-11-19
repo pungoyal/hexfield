@@ -164,6 +164,28 @@ then removes it from the address bar. Everyone else
 only gets into games they hold an invite link for. With a host key set, requests from
 the server's own machine are no longer treated as the host.
 
+### Accounts
+
+For a server open to anyone, add `--accounts` (it needs a host key and HTTPS):
+
+```
+hexfield-web --lan --no-browser --allow-host play.example.com --accounts
+```
+
+Anyone can then make an account with a passkey: a name, and the fingerprint, face or
+PIN their device already uses. There's no password or email. An account can join every
+game it has an invite link for, playing under its own name; joining needs an account.
+Hosting games, saved games and replays is for the accounts the admin allows: the admin is
+the browser holding the host key, whose **Admin** button lists the accounts with a
+*May host* switch and a *Delete* button for each (deleting removes the account's saved
+games too). Names are unique. Each account sees only its own saved games (the 50 newest are
+kept), in `games/users/<account>` under `$HEXFIELD_HOME`; the accounts themselves are in
+`accounts.db` beside them. One address (one IPv6 /64) can make 5 accounts an hour, and each
+host keeps at most 4 games live in memory at once, so nobody can push the others' games out.
+
+Passkeys belong to a domain name, so they work over HTTPS or on `localhost`, never on a
+bare IP address.
+
 ### Docker
 
 The image is built for **linux/arm64**. Games are kept in the `/data` volume.
@@ -183,6 +205,13 @@ never the URL, so access logs that drop that header never hold one). With Caddy 
 127.0.0.1:8765`; with nginx, `proxy_pass` plus `proxy_set_header Host $host` and
 `X-Forwarded-For`. Allow a read timeout of 60 s or more for the long poll.
 
+The request allowances below go by the client's address. The server reads it from the
+proxy's `X-Forwarded-For` when the proxy runs on the same machine. When the proxy is
+elsewhere (another container) and nothing else can reach the server, say so with
+`--behind-proxy`; otherwise every player would share the proxy's allowance. That flag
+believes the header from any peer, so use it only where every peer is your proxy (on
+hex.vaari.dev, the edge network holds only the shared Caddy and the owner's own apps).
+
 The server also protects itself and its players:
 
 * It only answers to an IP address, `localhost`, a `.local` name or a name given with
@@ -197,8 +226,9 @@ The server also protects itself and its players:
 * `GET /healthz` answers health checks, and SIGTERM stops the server cleanly. Games are
   written after every decision, so a restart loses nothing.
 
-It is built for a table of friends, not for strangers at scale. There are no accounts, one
-process holds every live game, and the bots think on the server's CPU.
+It is built for a table of friends, or a small public server with accounts, not for
+strangers at scale: one process holds every live game, and the bots think on the server's
+CPU.
 
 
 ### Deploying hex.vaari.dev
@@ -237,7 +267,7 @@ Settings live in the `oracle-cloud` GitHub environment, which only `main` may de
 | `DEPLOY_KNOWN_HOSTS` | environment variable   | `ssh-keyscan -t ed25519 <host>` output                  |
 | `HEXFIELD_DOMAIN`    | environment variable   | `hex.vaari.dev`                                         |
 | `DEPLOY_SSH_KEY`     | environment secret     | private half of a deploy key whose public half is on the server |
-| `HEXFIELD_HOST_KEY`  | environment secret     | the admin key for starting, resuming and deleting games: `openssl rand -hex 32` |
+| `HEXFIELD_HOST_KEY`  | environment secret     | the admin key, which chooses who may host: `openssl rand -hex 32` |
 
 ```sh
 gh api -X PUT repos/vaari-dev/hexfield/environments/oracle-cloud \
@@ -255,8 +285,9 @@ gh variable set DEPLOY_ENABLED --body true      # last
 
 Before the first deploy, the edge must be running (it creates the network), `hex.vaari.dev`
 needs a DNS-only `A` record pointing at the VM (edge's `scripts/dns.sh`), and the deploy
-user needs passwordless `sudo` once so the job can create `/opt/hexfield`. Then use
-`HEXFIELD_HOST_KEY` to become the host, as described under [Hosting](#hosting). To deploy
+user needs passwordless `sudo` once so the job can create `/opt/hexfield`. The server
+runs with [accounts](#accounts) and `--behind-proxy`: open
+`https://hex.vaari.dev/#host=<HEXFIELD_HOST_KEY>` once to be the admin. To deploy
 again without a new commit, re-run the workflow's latest run on `main`.
 
 ## Rules

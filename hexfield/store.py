@@ -4,12 +4,17 @@ Everything lives in one folder: $HEXFIELD_HOME, or ~/.hexfield. Each game is one
 file (see record.py), written atomically after every decision, so a crash or a
 restart loses nothing. Statistics are worked out from the finished games; there is no
 second database to keep in step.
+
+On a server with accounts (see web/accounts.py) each account's games are in a folder of
+its own, games/users/<account id>; `owner` names it. The default, "", is games/ itself:
+the games of whoever runs Hexfield.
 """
 
 import json
 import os
 import re
 import secrets
+import shutil
 import tempfile
 import time
 
@@ -17,6 +22,7 @@ from .record import VERSION, Record
 
 KEEP = 200  # saved games kept; the oldest finished ones go first
 ID_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
+OWNER_RE = re.compile(r"^[0-9a-f]{32}$")
 PHASE_GROUPS = {
     "setup_village": "opening", "setup_trail": "opening",
     "main": "building and trading", "special_build": "building and trading",
@@ -29,8 +35,12 @@ def home():
     return os.environ.get("HEXFIELD_HOME") or os.path.join(os.path.expanduser("~"), ".hexfield")
 
 
-def games_dir():
+def games_dir(owner=""):
     d = os.path.join(home(), "games")
+    if owner:
+        if not OWNER_RE.match(owner):
+            raise ValueError("bad owner")
+        d = os.path.join(d, "users", owner)
     os.makedirs(d, mode=0o700, exist_ok=True)  # the files hold seat keys: yours alone
     return d
 
@@ -39,16 +49,16 @@ def new_id():
     return time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
 
 
-def _path(gid):
+def _path(gid, owner=""):
     if not ID_RE.match(gid or ""):
         raise ValueError("bad game id")
-    return os.path.join(games_dir(), gid + ".json")
+    return os.path.join(games_dir(owner), gid + ".json")
 
 
-def save(gid, record, **live):
+def save(gid, record, owner="", **live):
     """Write the game file (atomically: a reader never sees half a file)."""
     record.meta["updated"] = time.time()
-    path = _path(gid)
+    path = _path(gid, owner)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as f:
@@ -62,19 +72,25 @@ def save(gid, record, **live):
         raise
 
 
-def load(gid):
+def load(gid, owner=""):
     """-> (Record, live dict)."""
-    with open(_path(gid)) as f:
+    with open(_path(gid, owner)) as f:
         d = json.load(f)
     return Record.from_dict(d), d.get("live") or {}
 
 
-def delete(gid):
+def delete(gid, owner=""):
     try:
-        os.unlink(_path(gid))
+        os.unlink(_path(gid, owner))
         return True
     except OSError:
         return False
+
+
+def delete_owner(owner):
+    """Remove every saved game of an account."""
+    if OWNER_RE.match(owner or ""):
+        shutil.rmtree(os.path.join(home(), "games", "users", owner), ignore_errors=True)
 
 
 def _summary(gid, d):
@@ -91,9 +107,9 @@ def _summary(gid, d):
     }
 
 
-def list_games(limit=60):
+def list_games(limit=60, owner=""):
     """Newest first. Unreadable files are skipped, never fatal."""
-    d = games_dir()
+    d = games_dir(owner)
     files = []
     for name in os.listdir(d):
         if name.endswith(".json") and ID_RE.match(name[:-5]):
@@ -114,15 +130,15 @@ def list_games(limit=60):
     return out
 
 
-def prune(keep=KEEP):
+def prune(keep=KEEP, owner=""):
     """Drop the oldest games beyond `keep` (finished ones before unfinished)."""
-    games = list_games(limit=10 ** 6)
+    games = list_games(limit=10 ** 6, owner=owner)
     extra = len(games) - keep
     if extra <= 0:
         return 0
     order = sorted(games, key=lambda g: (not g["finished"], g["updated"] or 0))
     for g in order[:extra]:
-        delete(g["id"])
+        delete(g["id"], owner)
     return extra
 
 
@@ -146,12 +162,12 @@ def review_summary(reviews, seat):
     }
 
 
-def stats(limit=200):
+def stats(limit=200, owner=""):
     """Coach statistics across finished solo games, oldest first: one row per game,
     plus totals by kind of decision (where the points go)."""
     rows, groups = [], {}
     won = 0
-    for g in reversed(list_games(limit)):
+    for g in reversed(list_games(limit, owner)):
         coach, res = g.get("coach"), g.get("result")
         if not g["finished"] or g["mode"] != "solo" or not res:
             continue

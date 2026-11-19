@@ -1,6 +1,7 @@
 // Hexfield — browser client. Talks to hexfield/web/server.py; no dependencies.
 // This module drives the game: boot, applying server views, the bot loop, wiring.
 
+import { loadMe, openAccount, wireAccount } from "./account.js";
 import { installSprites } from "./art.js";
 import { buildBoard, clearGlow, glowFor, onBoardClick, onBoardHover, onBoardKey, renderPieces, renderTargets } from "./board.js";
 import {
@@ -65,12 +66,13 @@ export async function boot() {
   wireUI();
   await hostLogin();
   addEventListener("hashchange", async () => { if (await hostLogin()) location.reload(); });
+  const me = await loadMe();
   const want = new URLSearchParams(location.search).get("g");
   if (want && want !== session.gid) setSession(want, {}, null); // an invite link to another game
   try {
     const st = await api("board");
     if (st.nogame) return openNewGame(false);
-    if (st.join) return openJoin(st);
+    if (st.join) return me.accounts && !me.user && !me.admin ? openAccount() : openJoin(st);
     enter(st);
     if (S.phase === "game_over") G.overShown = S.gid;
     pump();
@@ -394,6 +396,7 @@ export function wireUI() {
   document.addEventListener("keydown", onKey);
   wireLog();
   wireGames();
+  wireAccount();
 }
 
 export function toggleMode(m) {

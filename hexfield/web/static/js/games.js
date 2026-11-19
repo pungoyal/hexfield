@@ -309,9 +309,10 @@ export function openJoin(st) {
   $("#join-body").innerHTML = st.full
     ? `<p>This game is full, or you joined it from another browser.</p><ul class="seat-list">${list}</ul>`
     : `<p class="muted">You have been invited to a game.</p><ul class="seat-list">${list}</ul>`;
-  $("#form-join").elements.name.closest("label").hidden = st.full;
-  $("#join-ok").textContent = st.full ? "Start my own game" : "Join";
-  $("#form-join").elements.name.required = !st.full;
+  const named = !!G.me?.user; // an account plays under its own name
+  $("#form-join").elements.name.closest("label").hidden = st.full || named;
+  $("#join-ok").textContent = st.full ? "Start my own game" : named ? `Join as ${G.me.user.name}` : "Join";
+  $("#form-join").elements.name.required = !st.full && !named;
   dlg.dataset.full = st.full ? "1" : "";
   modal(dlg);
 }
