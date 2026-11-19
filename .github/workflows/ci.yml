@@ -18,28 +18,38 @@ concurrency:
 
 jobs:
   # rules, bots, terminal UI, web server and the browser client's logic (node --test), one
-  # process per test module, stopping at the first failure; then the wheel passes PyPI's checks
-  # on the oldest Python the package claims to support and on the newest
+  # process per test module, stopping at the first failure; then the wheel passes PyPI's checks.
+  # (main's branch rule requires the check named "test": keep this job's name.)
   test:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 5
-    strategy:
-      matrix:
-        python: ["3.11", "3.15"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.15"
       - uses: actions/setup-node@v7
         with:
           node-version: 26
       - run: printf '%s\n' tests/test_*.py | sed 's#/#.#; s#\.py$##' | xargs -P0 -n1 python -m unittest -f
-      - if: matrix.python == '3.15'
-        run: |
+      - run: |
           pip install -q build twine
           python -m build
           twine check --strict dist/*
+
+  # the same tests on the oldest Python the package claims to support
+  test-oldest:
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: printf '%s\n' tests/test_*.py | sed 's#/#.#; s#\.py$##' | xargs -P0 -n1 python -m unittest -f
 
   # a real (headless) Chromium plays through the main screens
   browser:
@@ -110,7 +120,7 @@ jobs:
   # variables are loaded. The server is shared with other apps: this touches only
   # /opt/hexfield, the `hexfield` Compose project and its own images.
   deploy:
-    needs: [test, browser, image]
+    needs: [test, test-oldest, browser, image]
     if: github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
     environment: oracle-cloud
     runs-on: ubuntu-26.04-arm
