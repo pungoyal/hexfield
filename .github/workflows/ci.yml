@@ -109,7 +109,8 @@ jobs:
 
   # Settings come from the oracle-cloud environment, which only main may use. Switched on by
   # the DEPLOY_ENABLED repository variable, since a job's `if` runs before the environment's
-  # variables are loaded. Touches only /opt/hexfield and the hexfield compose project.
+  # variables are loaded. The server is shared with other apps: this touches only
+  # /opt/hexfield, the `hexfield` Compose project and its own images.
   deploy:
     needs: image
     if: vars.DEPLOY_ENABLED == 'true'
@@ -122,6 +123,7 @@ jobs:
     env:
       TARGET: ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}
       DEPLOY_DIR: /opt/hexfield
+      IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
       - name: Set up SSH
@@ -168,22 +170,27 @@ jobs:
               set -e
               # /opt is root's: create the directory once, owned by the deploy user.
               [ -w $DEPLOY_DIR ] || sudo -n install -d -o \$(id -u) -g \$(id -g) -m 700 $DEPLOY_DIR
-              install -m 600 /dev/stdin $DEPLOY_DIR/.env.next
+              # Not install(1): uutils' (newer Ubuntu) can't copy stdin over an existing file.
+              rm -f $DEPLOY_DIR/.env.next
+              (umask 077 && cat > $DEPLOY_DIR/.env.next)
             "
           scp deploy/compose.yaml "$TARGET:$DEPLOY_DIR/compose.yaml.next"
-      # The token goes over stdin, not the remote command line. The new files replace the old
-      # ones only once the image is pulled, so a failed pull leaves the running stack as it was.
-      # If the new release never turns healthy, the previous one is started again.
-      - name: Pull and restart
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The server's Docker pulls with this runner's GHCR login, so no login is written to
+      # the server's ~/.docker, which other apps share.
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull the image on the server
+        run: DOCKER_HOST="ssh://$TARGET" docker pull --quiet "$IMAGE"
+      # The new files replace the old ones only now that the image is pulled. If the new
+      # release never turns healthy, the previous one is started again.
+      - name: Restart
         run: |
-          printf '%s' "$GHCR_TOKEN" | ssh "$TARGET" "
+          ssh "$TARGET" "
             set -e
             cd $DEPLOY_DIR
-            docker login ghcr.io -u '${{ github.actor }}' --password-stdin > /dev/null
-            trap 'docker logout ghcr.io > /dev/null' EXIT
-            docker compose -f compose.yaml.next --env-file .env.next pull --quiet
             for f in compose.yaml .env; do [ ! -e \$f ] || cp -p \$f \$f.prev; mv \$f.next \$f; done
             if ! docker compose up -d --wait --wait-timeout 120 --remove-orphans; then
               docker compose logs --tail 50
@@ -195,7 +202,8 @@ jobs:
               fi
               exit 1
             fi
-            # Only this project's images, and never the one running.
-            docker image prune -af --filter label=org.opencontainers.image.source=https://github.com/vaari-dev/hexfield > /dev/null
+            # Older Hexfield images only; nothing system-wide.
+            docker images ghcr.io/vaari-dev/hexfield --format '{{.Repository}}:{{.Tag}}' |
+              grep -vxF '$IMAGE' | xargs -r docker rmi > /dev/null 2>&1 || true
           "
-          echo "Deployed \`ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}\` to https://${{ vars.HEXFIELD_DOMAIN }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed \`$IMAGE\` to https://${{ vars.HEXFIELD_DOMAIN }}" >> "$GITHUB_STEP_SUMMARY"

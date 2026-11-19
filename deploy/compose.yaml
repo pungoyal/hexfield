@@ -1,4 +1,4 @@
-# The production stack: one web service, behind the server's shared Caddy (vaari-dev/edge).
+# The production stack: one service, behind the server's shared Caddy (vaari-dev/edge).
 # CI copies this file to /opt/hexfield and writes .env beside it from deploy/.env.example;
 # nothing here is edited on the server. By hand there:
 #
@@ -8,7 +8,8 @@
 name: hexfield
 
 services:
-  web:
+  # Not `web`: the service name is its name on the shared network, where Caddy finds it.
+  hexfield:
     image: ghcr.io/vaari-dev/hexfield:${IMAGE_TAG:?IMAGE_TAG is not set}
     restart: unless-stopped
     # The image runs `hexfield-web --lan --no-browser`; these are added to it.
@@ -47,10 +48,7 @@ services:
       start_period: 20s
       start_interval: 1s
     networks:
-      edge:
-        # Unique on the shared network: the edge's sites/hexfield.caddy proxies to it.
-        aliases:
-          - hexfield
+      - edge
 
 volumes:
   data:
