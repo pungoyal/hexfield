@@ -43,14 +43,13 @@ async function newGame(p, picks) {
 }
 
 // press the obvious key until `done(state)`; dialogs get Space too (the recommended answer)
-let offers = 0;
 async function playUntil(p, done, moves = 400) {
   for (let i = 0; i < moves; i++) {
     const s = await state(p);
     if (done(s)) return s;
     if (s.dlg.includes("dlg-pass")) await p.eval(`document.querySelector("#pass-ok").click()`);
     // a double click on an offer must send one answer (a second one would get a 400)
-    else if (s.dlg.includes("dlg-botoffer")) { offers++; await p.eval(`(b => { b.click(); b.click(); })(document.querySelector("#bo-yes"))`); }
+    else if (s.dlg.includes("dlg-botoffer")) await p.eval(`(b => { b.click(); b.click(); })(document.querySelector("#bo-yes"))`);
     else if (s.dlg.length) await p.key(" ");
     else if (s.mine) await p.key(s.phase === "main" || s.phase === "special_build" ? "e" : " ");
     await wait(90);
@@ -161,7 +160,7 @@ try {
 
   step = "page errors";
   check(page.errors.length === 0, page.errors.join(" | "));
-  console.log(`ok: solo, hint, reload, saved games, replay, pass and play, online, six players (${offers} offers answered)`);
+  console.log(`ok: solo, hint, reload, saved games, replay, pass and play, online, six players`);
 } catch (e) {
   console.error("FAILED " + e.message);
   if (page.errors.length) console.error("page errors: " + page.errors.join(" | "));

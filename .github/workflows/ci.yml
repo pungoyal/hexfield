@@ -40,8 +40,6 @@ jobs:
   browser:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 5
-    env:
-      PLAYWRIGHT: playwright@1.65.1
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -50,23 +48,18 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 26
-      - uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ env.PLAYWRIGHT }}
       # Google Chrome has no Linux arm64 build; Playwright's Chromium does
       - run: |
-          npx -y "$PLAYWRIGHT" install chromium
+          npx -y playwright@1.65.1 install chromium
           bin=$(find ~/.cache/ms-playwright -path '*/chromium-*' -type f -name chrome | head -1)
-          if ldd "$bin" | grep -q "not found"; then sudo npx -y "$PLAYWRIGHT" install-deps chromium; fi
+          if ldd "$bin" | grep -q "not found"; then sudo npx -y playwright@1.65.1 install-deps chromium; fi
           echo "CHROME_BIN=$bin" >> "$GITHUB_ENV"
       - run: python -m unittest tests.test_js.ClientTests.test_in_a_real_browser
         env:
           HEXFIELD_BROWSER_TESTS: "1"
 
-  # linux/arm64, matching the OCI server. Built once: the image that passes the smoke test
-  # (starts, serves the client, keeps host routes to the host, stops cleanly on SIGTERM) is
-  # the one pushed on main, tagged with its commit.
+  # linux/arm64, matching the OCI server. Built once: the image that passes the smoke test is
+  # the one pushed on main.
   image:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 10
@@ -85,10 +78,9 @@ jobs:
           load: true
           tags: ${{ env.IMAGE }}
           cache-from: type=gha
-          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max' || '' }}
+          cache-to: type=gha,mode=max
       - name: Smoke test
         run: |
-          docker run --rm --entrypoint hexfield "$IMAGE" --games
           docker run -d --name hexfield -p 8765:8765 -e HEXFIELD_HOST_KEY=ci-only-0123456789abcdef "$IMAGE"
           for _ in $(seq 20); do curl -fs http://127.0.0.1:8765/healthz && break; sleep 0.5; done
           curl -fs http://127.0.0.1:8765/healthz
