@@ -46,11 +46,12 @@ export const els = {};        // svg element caches
 export async function api(route, body, query = {}) {
   const q = new URLSearchParams(route === "new" ? {} : { since: G.evCount });
   if (session.gid && route !== "new") q.set("g", session.gid);
+  // the seat key goes in a header, never the URL: proxies log URLs, and redact Authorization
   const token = session.tokens[session.seat];
-  if (token && route !== "new") q.set("t", token);
+  const headers = token && route !== "new" ? { Authorization: `Bearer ${token}` } : {};
   for (const [k, v] of Object.entries(query)) q.set(k, v);
-  const res = await fetch(`/api/${route}?${q}`, body === undefined ? {} : {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  const res = await fetch(`/api/${route}?${q}`, body === undefined ? { headers } : {
+    method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
   if (!res.ok) {

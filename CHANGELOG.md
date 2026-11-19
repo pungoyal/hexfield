@@ -5,6 +5,11 @@
 * Hexfield is open source under the MIT license.
 * Needs Python 3.15. CI uses Node 26 and the latest GitHub Actions, and runs on arm64.
 * The Docker image is built for linux/arm64, on `python:3.15-slim`.
+* Keys never appear in a URL, so a reverse proxy's access log can't record them. The
+  browser sends its seat key in an `Authorization: Bearer` header instead of `?t=`, and the
+  host link is `/#host=<key>`: the page posts the key to `/api/host` and drops it from the
+  address bar. `/?host=` and `?t=` no longer work; an open tab picks up the change when
+  reloaded.
 * Hexfield has its own names. Resources: timber, clay, wool, grain and stone. Pieces:
   village, town and trail. Ports are docks, the desert is the badlands and the robber is
   the bandit. Development cards are ventures (ranger, pathfinder, hoard, windfall and
