@@ -4,13 +4,20 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   unit:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.12", "3.13"]
+        python: ["3.10", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,6 +32,7 @@ jobs:
       - run: |
           pip install .
           hexfield --games
+          hexfield-web --version
           cd / && python -c "import hexfield.web.server, os; from hexfield.web.server import STATIC; assert os.path.isfile(os.path.join(STATIC, 'js', 'app.js'))"
 
   browser:
@@ -41,3 +49,26 @@ jobs:
       - run: python -m unittest -v tests.test_js
         env:
           HEXFIELD_BROWSER_TESTS: "1"
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # the sdist and the wheel build, pass PyPI's metadata checks and carry the web client
+      - run: |
+          pip install build twine
+          python -m build
+          twine check --strict dist/*
+          unzip -l dist/*.whl | grep -q "hexfield/web/static/js/art.js"
+      # the container starts, answers its health check and stops cleanly on SIGTERM
+      - run: |
+          docker build -t hexfield .
+          docker run -d --name hexfield -p 8765:8765 -e HEXFIELD_HOST_KEY=ci-only-0123456789abcdef hexfield
+          for i in $(seq 20); do curl -fs http://127.0.0.1:8765/healthz && break; sleep 0.5; done
+          curl -fs http://127.0.0.1:8765/healthz
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/api/games)" = 403
+          docker stop -t 5 hexfield
+          test "$(docker inspect -f '{{.State.ExitCode}}' hexfield)" = 0

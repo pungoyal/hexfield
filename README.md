@@ -53,6 +53,49 @@ A new game can seat several humans, with bots in the other chairs (3 to 6 player
 Undo is for single-player games. Offers between humans work like offers to bots: the others
 accept, decline or answer with a counter-offer, and the proposer picks.
 
+### Hosting it for others
+
+`--lan` is for people on your own network. To run the server somewhere you can't sit at (a
+small VM, a container, a home server behind a reverse proxy), give it a host key:
+
+```
+export HEXFIELD_HOST_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+python3 -m hexfield.web --lan --no-browser --allow-host play.example.com
+```
+
+Open `https://play.example.com/?host=<the key>` once. That browser is now the host (a
+cookie remembers it for 30 days) and can start, resume and delete games; everyone else only
+gets into the game they hold an invite link for. With a host key set, requests from the
+server's own machine are no longer treated as the host.
+
+Or with Docker (games are kept in the `/data` volume):
+
+```
+docker build -t hexfield .
+docker run -p 8765:8765 -v hexfield-data:/data -e HEXFIELD_HOST_KEY="$HEXFIELD_HOST_KEY" hexfield
+```
+
+The server speaks plain HTTP. On the open internet put a reverse proxy with TLS in front of
+it (Caddy: `reverse_proxy 127.0.0.1:8765`; nginx: `proxy_pass` plus `proxy_set_header Host
+$host` and `X-Forwarded-For`), because invite links carry seat keys. Let the long poll
+live: a proxy read timeout of 60 s or more.
+
+What the server does to protect itself and you:
+
+* It only answers to an address, `localhost`, a `.local` name or a name given with
+  `--allow-host`, and refuses cross-site posts, so a web page you visit can't drive it.
+* A request passed on by a proxy never counts as "this machine".
+* Strict browser headers (content security policy, no framing, no `Referer`).
+* Each remote address gets a request allowance (HTTP 429 beyond it), at most 200 requests
+  run at once, bodies are capped, and a stalled connection is dropped after 30 s.
+* Errors are logged on the server (`--verbose` adds an access log without seat keys);
+  remote callers only see "internal error".
+* `GET /healthz` for health checks; SIGTERM stops it cleanly. Games are written after every
+  decision, so a restart loses nothing.
+
+It is built for a table of friends, not for strangers at scale: there are no accounts, one
+process holds every live game, and the bots think on the server's CPU.
+
 ### Web interface
 
 ```
@@ -341,4 +384,5 @@ HEXFIELD_BROWSER_TESTS=1 python3 -m unittest tests.test_js   # plus the real-bro
 The suite needs only Python. With Node 20+ on the path it also runs the client's unit
 tests and checks that every module parses and every import resolves; without Node those
 are skipped. The real-browser run needs Node 22+ and Chrome and is opt-in. GitHub Actions
-(`.github/workflows/tests.yml`) runs all of it on Python 3.10, 3.12 and 3.13.
+(`.github/workflows/tests.yml`) runs all of it on Python 3.10, 3.12, 3.13 and 3.14, then
+builds the package and the Docker image and checks the container starts and stops cleanly.

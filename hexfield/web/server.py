@@ -3,27 +3,39 @@
     python3 -m hexfield.web              # opens http://127.0.0.1:8765
     python3 -m hexfield.web --port 9000 --no-browser
     python3 -m hexfield.web --lan        # let other devices on your network join online games
+    HEXFIELD_HOST_KEY=... python3 -m hexfield.web --lan --no-browser --allow-host play.example.com
 
 The server can run several games at once. A browser names its game with ?g=<id> and
 proves its seat with ?t=<token>; without a token a request from this machine acts for
 the first human seat, so a single-player game needs no ceremony. Starting, resuming,
 listing and deleting games is only allowed from this machine: someone who joins over
 the network can play in the game they were invited to and nothing else.
+
+When the server runs where you can't sit at it (a container, a small VM behind a reverse
+proxy), set a host key. Opening /?host=<key> once makes that browser the host, and
+requests from the machine itself stop being special. See "Hosting it for others" in the
+README for the whole picture.
 """
 
 import argparse
 import atexit
+import gzip
+import hashlib
+import hmac
+import ipaddress
 import json
+import logging
 import mimetypes
 import os
+import signal
 import socket
 import threading
-import traceback
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
-from .. import store
+from .. import __version__, store
 from ..game import IllegalAction
 from ..record import Record
 from .session import MODES, Replay, WebGame
@@ -33,6 +45,25 @@ MAX_IMPORT = 4 * 1024 * 1024
 MAX_LIVE = 24           # live games kept in memory; the rest wait on disk
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 LOCAL = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+MAX_CONN = 200          # requests in flight; more are turned away instead of piling up threads
+RATE, BURST = 100.0, 300.0   # requests a second one remote address may make, and its allowance
+MIN_HOST_KEY = 16
+COOKIE = "hexfield_host"
+PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP")
+# the client is plain files from this server: nothing else may run, frame it or be sent a
+# Referer (seat keys travel in the query string)
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "no-referrer"),
+    ("X-Frame-Options", "DENY"),
+    ("Cross-Origin-Opener-Policy", "same-origin"),
+    ("Cross-Origin-Resource-Policy", "same-origin"),
+    ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"),
+    ("Content-Security-Policy",
+     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+     "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"),
+)
+log = logging.getLogger("hexfield.web")
 HOST_ONLY = {"new", "games", "resume", "delete", "stats", "replay", "replay_hint", "export", "import", "branch"}
 
 
@@ -50,7 +81,27 @@ class App:
         self.lock = threading.Lock()
         self.persist = True
         self.lan = None     # this machine's network address when others can reach the server
+        self.host_key = None  # sha256 of the host key; when set, it is the only way to be the host
+        self.hosts = {"localhost", socket.gethostname().lower()}  # names this server answers to
+        self.buckets = {}   # remote address -> [allowance, last seen]
         atexit.register(self.close)
+
+    def set_host_key(self, key):
+        self.host_key = hashlib.sha256(key.encode()).hexdigest() if key else None
+
+    def allow(self, addr, now=None):
+        """Spend one request from this address's allowance; False when it has run out."""
+        now = time.monotonic() if now is None else now
+        with self.lock:
+            if len(self.buckets) > 4096:
+                self.buckets = {a: b for a, b in self.buckets.items() if now - b[1] < 60}
+            b = self.buckets.setdefault(addr, [BURST, now])
+            b[0] = min(BURST, b[0] + (now - b[1]) * RATE) - 1
+            b[1] = now
+            if b[0] < 0:
+                b[0] = 0
+                return False
+            return True
 
     def close(self):
         for g in list(self.games.values()):
@@ -137,24 +188,63 @@ def to_json(obj):
     return json.dumps(obj, separators=(",", ":")).encode()
 
 
-class Handler(BaseHTTPRequestHandler):
-    server_version = "HexfieldWeb/2.0"
+_static = {}  # path -> (stamp, etag, raw bytes, gzipped bytes or None)
 
-    def log_message(self, fmt, *args):  # keep the terminal quiet
-        pass
+
+def static_file(full):
+    """A static file with its ETag and gzipped form, re-read only when it changes on disk."""
+    st = os.stat(full)
+    stamp = (st.st_mtime_ns, st.st_size)
+    hit = _static.get(full)
+    if hit is None or hit[0] != stamp:
+        with open(full, "rb") as f:
+            raw = f.read()
+        ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
+        text = ctype.startswith("text/") or ctype.endswith(("javascript", "json", "xml"))
+        gz = gzip.compress(raw, 6, mtime=0) if text and len(raw) > 1024 else None
+        hit = _static[full] = (stamp, '"' + hashlib.sha256(raw).hexdigest()[:24] + '"', raw, gz,
+                               ctype + ("; charset=utf-8" if text else ""))
+    return hit[1:]
+
+
+def host_name(value):
+    """The name part of a Host header or an Origin: 'Example.com:8765' -> 'example.com'."""
+    value = (value or "").strip().lower()
+    if value.startswith("["):
+        return value[1:value.find("]")] if "]" in value else ""
+    return value.rsplit(":", 1)[0] if ":" in value else value
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "Hexfield"
+    sys_version = ""
+    timeout = 30  # a client that stops sending mid-request doesn't hold a thread for ever
+
+    def log_message(self, fmt, *args):  # http.server's own complaints (bad request lines, timeouts)
+        log.debug("%s %s", self.client_address[0], fmt % args)
+
+    def log_request(self, code="-", size="-"):  # the access log (--verbose); never the seat keys
+        if log.isEnabledFor(logging.INFO):
+            url = urlparse(self.path)
+            keep = [(k, v) for k, vs in parse_qs(url.query).items() for v in vs if k not in ("t", "host")]
+            log.info("%s %s %s%s %s", self.remote(), self.command, url.path,
+                     "?" + urlencode(keep) if keep else "", code)
 
     # ------------------------------------------------------------ plumbing
-    def _send(self, code, body, ctype="application/json; charset=utf-8", headers=()):
+    def _send(self, code, body, ctype="application/json; charset=utf-8", headers=(), cache="no-store"):
         data = body if isinstance(body, bytes) else to_json(body)
         self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
+        if code not in (304,):
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", cache)
+        for k, v in SECURITY_HEADERS:
+            self.send_header(k, v)
         for k, v in headers:
             self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(data)
+        if self.command != "HEAD" and code != 304:
+            self.wfile.write(data)
 
     def _body(self, limit):
         n = int(self.headers.get("Content-Length") or 0)
@@ -171,24 +261,104 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("body must be a JSON object")
         return body
 
+    def proxied(self):
+        return any(self.headers.get(h) for h in PROXY_HEADERS)
+
+    def remote(self):
+        """Who is asking: the peer, or the client a reverse proxy on this machine names."""
+        peer = self.client_address[0]
+        fwd = self.headers.get("X-Forwarded-For") or self.headers.get("X-Real-IP")
+        if peer in LOCAL and fwd:
+            return fwd.split(",")[-1].strip()[:64] or peer
+        return peer
+
+    def has_host_key(self):
+        if not APP.host_key:
+            return False
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == COOKIE and hmac.compare_digest(v.encode(), APP.host_key.encode()):
+                return True
+        return False
+
     def local(self):
-        return self.client_address[0] in LOCAL
+        """Is this the host? With a host key, whoever holds it. Otherwise a request made on
+        this machine itself: one a reverse proxy passed on came from somewhere else."""
+        if APP.host_key:
+            return self.has_host_key()
+        return self.client_address[0] in LOCAL and not self.proxied()
+
+    def _guard(self):
+        """Checks every request passes first. False when it has been answered already."""
+        # A web page can point its own domain at 127.0.0.1 and then talk to this server as
+        # "same origin" (DNS rebinding). Its requests still carry that domain in Host, so
+        # only answer to an address or to a name we know.
+        name = host_name(self.headers.get("Host"))
+        if name and not self._known(name):
+            self._send(403, {"error": f"this server doesn't answer to {name!r}: start it with --allow-host {name}"})
+            return False
+        origin = self.headers.get("Origin")
+        if self.command == "POST" and origin is not None:
+            o = host_name(urlparse(origin).netloc)
+            if not o or (o != name and o not in APP.hosts):
+                self._send(403, {"error": "cross-site request refused"})
+                return False
+        if (self.client_address[0] not in LOCAL or self.proxied()) and not APP.allow(self.remote()):
+            self._send(429, {"error": "too many requests, slow down"}, headers=[("Retry-After", "1")])
+            return False
+        return True
+
+    @staticmethod
+    def _known(name):
+        try:
+            ipaddress.ip_address(name)
+            return True  # an address can't be rebound
+        except ValueError:
+            return name in APP.hosts or name.endswith(".local")
+
+    def _login(self, url, query):
+        """/?host=<key>: make this browser the host, then drop the key from the address bar."""
+        key = query.get("host", [""])[0]
+        if not APP.host_key or not hmac.compare_digest(
+                hashlib.sha256(key.encode()).hexdigest().encode(), APP.host_key.encode()):
+            return self._send(403, {"error": "wrong host key"})
+        rest = urlencode([(k, v) for k, vs in query.items() for v in vs if k != "host"])
+        secure = "; Secure" if (self.headers.get("X-Forwarded-Proto") or "").lower() == "https" else ""
+        return self._send(303, b"", headers=[
+            ("Location", url.path + ("?" + rest if rest else "")),
+            ("Set-Cookie", f"{COOKIE}={APP.host_key}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Strict{secure}")])
 
     def do_GET(self):
+        if not self._guard():
+            return None
         url = urlparse(self.path)
+        if url.path == "/healthz":
+            return self._send(200, {"ok": True, "version": __version__})
         if url.path.startswith("/api/"):
+            if self.command == "HEAD":
+                return self._send(405, {"error": "use GET"}, headers=[("Allow", "GET, POST")])
             return self._api("GET", url.path[5:], parse_qs(url.query), {})
+        query = parse_qs(url.query)
+        if "host" in query and url.path in ("/", ""):
+            return self._login(url, query)
         path = "index.html" if url.path in ("/", "") else url.path.lstrip("/")
         full = os.path.normpath(os.path.join(STATIC, path))
         if not full.startswith(STATIC + os.sep) or not os.path.isfile(full):
             return self._send(404, {"error": "not found"})
-        ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
-        if ctype.startswith("text/") or ctype.endswith("javascript"):
-            ctype += "; charset=utf-8"
-        with open(full, "rb") as f:
-            self._send(200, f.read(), ctype)
+        etag, raw, gz, ctype = static_file(full)
+        # always revalidate (a new version shows at once), but an unchanged file costs no bytes
+        headers = [("ETag", etag), ("Vary", "Accept-Encoding")]
+        if etag in (self.headers.get("If-None-Match") or ""):
+            return self._send(304, b"", headers=headers, cache="no-cache")
+        if gz is not None and "gzip" in (self.headers.get("Accept-Encoding") or ""):
+            return self._send(200, gz, ctype, headers + [("Content-Encoding", "gzip")], cache="no-cache")
+        return self._send(200, raw, ctype, headers, cache="no-cache")
+
+    do_HEAD = do_GET
 
     def do_POST(self):
+        if not self._guard():
+            return None
         url = urlparse(self.path)
         if not url.path.startswith("/api/"):
             return self._send(404, {"error": "not found"})
@@ -215,7 +385,12 @@ class Handler(BaseHTTPRequestHandler):
             if route in HOST_ONLY and route != "new":
                 return self._host(route, post, q, body)
             new = route == "new" and post
-            g = APP.new(body) if new else APP.get(q("g"), disk=self.local())
+            if new:
+                g = APP.new(body)
+            else:
+                # "the newest game" is the host's shortcut; anyone else must name the game,
+                # which only an invite link tells them
+                g = APP.get(q("g"), disk=self.local()) if q("g") or self.local() else None
             if g is None:
                 return self._send(200, {"nogame": True})
             if route == "wait":  # long poll: answer when the game has moved on
@@ -285,8 +460,9 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return None
         except Exception as ex:
-            traceback.print_exc()
-            return self._send(500, {"error": f"{type(ex).__name__}: {ex}"})
+            log.exception("%s /api/%s failed", method, route)
+            # the details are for whoever runs the server, not for whoever sent the request
+            return self._send(500, {"error": f"{type(ex).__name__}: {ex}" if self.local() else "internal error"})
 
     def _lobby(self, g):
         """What someone without a seat may know: who is playing and whether a seat is free."""
@@ -372,6 +548,38 @@ def lan_address():
         s.close()
 
 
+class Server(ThreadingHTTPServer):
+    """One thread per request, but only so many at once."""
+    daemon_threads = True
+    request_queue_size = 64
+
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw)
+        self.slots = threading.BoundedSemaphore(MAX_CONN)
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            return self.shutdown_request(request)
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
+    def handle_error(self, request, client_address):  # a dropped connection is not news
+        log.debug("request from %s failed", client_address[0], exc_info=True)
+
+
+def _stop(*_):
+    raise KeyboardInterrupt
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="hexfield.web", description="Hexfield in the browser")
     ap.add_argument("--host", default="127.0.0.1")
@@ -380,21 +588,46 @@ def main(argv=None):
                     help="listen on every interface so other devices on your network can join online games")
     ap.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     ap.add_argument("--no-save", action="store_true", help="don't write games to disk")
+    ap.add_argument("--host-key", default=os.environ.get("HEXFIELD_HOST_KEY"), metavar="KEY",
+                    help="for a server you can't sit at: whoever opens /?host=KEY is the host, and requests "
+                         "from this machine no longer are (or set HEXFIELD_HOST_KEY)")
+    ap.add_argument("--allow-host", action="append", default=[], metavar="NAME",
+                    help="a domain name this server is reached by (repeatable); addresses, localhost "
+                         "and .local names always work")
+    ap.add_argument("-v", "--verbose", action="store_true", help="log every request")
+    ap.add_argument("--version", action="version", version=f"hexfield {__version__}")
     args = ap.parse_args(argv)
+    if args.host_key and len(args.host_key) < MIN_HOST_KEY:
+        ap.error(f"the host key must be at least {MIN_HOST_KEY} characters; make one with:  "
+                 'python3 -c "import secrets; print(secrets.token_urlsafe(24))"')
+    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
+                        format="%(asctime)s %(levelname)s %(message)s")
+    host = "0.0.0.0" if args.lan else args.host
+    try:
+        httpd = Server((host, args.port), Handler)
+    except OSError as ex:
+        ap.exit(1, f"hexfield.web: can't listen on {host}:{args.port}: {ex.strerror or ex}\n"
+                   "  (is another copy running? try --port)\n")
     APP.persist = not args.no_save
+    APP.set_host_key(args.host_key)
+    APP.hosts.update(h.lower() for h in args.allow_host)
     if APP.persist:
         store.prune()
-    host = "0.0.0.0" if args.lan else args.host
-    httpd = ThreadingHTTPServer((host, args.port), Handler)
-    httpd.daemon_threads = True
+    try:
+        signal.signal(signal.SIGTERM, _stop)  # `docker stop` and service managers end it like Ctrl+C
+    except ValueError:
+        pass  # not the main thread (embedded in something else)
     url = f"http://{'127.0.0.1' if args.lan else args.host}:{args.port}/"
     print(f"  Hexfield web UI running at {url}  (Ctrl+C to stop)")
     if args.lan:
         addr = APP.lan = lan_address()
         print(f"  Others on your network can join an online game at http://{addr or '<this machine>'}:{args.port}/"
               "  (they need the invite link from the game)")
+    if args.host_key:
+        url += "?" + urlencode({"host": args.host_key})
+        print("  Host key set: open  /?host=<your key>  once in the browser that runs the games")
     if APP.persist:
-        print(f"  Games are saved in {store.games_dir()}")
+        print(f"  Games are saved in {store.games_dir()}", flush=True)
     if not args.no_browser:
         threading.Timer(0.4, lambda: webbrowser.open(url)).start()
     try:

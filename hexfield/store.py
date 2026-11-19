@@ -31,7 +31,7 @@ def home():
 
 def games_dir():
     d = os.path.join(home(), "games")
-    os.makedirs(d, exist_ok=True)
+    os.makedirs(d, mode=0o700, exist_ok=True)  # the files hold seat keys: yours alone
     return d
 
 

@@ -521,5 +521,159 @@ class OnlineTests(unittest.TestCase):
         ctx.exception.close()
 
 
+
+
+class HardeningTests(unittest.TestCase):
+    """What stands between the server and a network it doesn't trust."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd = server.Server(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+        cls.port = cls.httpd.server_address[1]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+
+    def tearDown(self):
+        server.APP.set_host_key(None)
+        server.APP.buckets.clear()
+        server.APP.hosts.discard("play.example.com")
+
+    def req(self, path, body=None, method=None, **headers):
+        """-> (status, headers, body bytes); redirects are not followed."""
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        data = None if body is None else json.dumps(body).encode()
+        if data is not None:
+            headers.setdefault("Content-Type", "application/json")
+        c.request(method or ("POST" if data is not None else "GET"), path, body=data,
+                  headers={k.replace("_", "-"): v for k, v in headers.items()})
+        r = c.getresponse()
+        out = r.status, r.headers, r.read()
+        c.close()
+        return out
+
+    def test_security_headers_on_pages_and_api(self):
+        for path in ("/", "/api/games", "/nope"):
+            _, h, _ = self.req(path)
+            self.assertIn("script-src 'self'", h["Content-Security-Policy"])
+            self.assertEqual(h["Referrer-Policy"], "no-referrer")  # seat keys are in the URL
+            self.assertEqual(h["X-Frame-Options"], "DENY")
+            self.assertEqual(h["X-Content-Type-Options"], "nosniff")
+            self.assertNotIn("Python", h["Server"])
+
+    def test_unknown_host_names_are_refused(self):
+        # DNS rebinding: a page on evil.example resolving to 127.0.0.1
+        self.assertEqual(self.req("/api/games", Host="evil.example:8765")[0], 403)
+        self.assertEqual(self.req("/", Host="evil.example")[0], 403)
+        for ok in ("localhost:8765", "127.0.0.1", "[::1]:8765", "192.168.1.20:8765", "den.local:8765"):
+            self.assertEqual(self.req("/healthz", Host=ok)[0], 200, ok)
+        server.APP.hosts.add("play.example.com")
+        self.assertEqual(self.req("/healthz", Host="Play.Example.com")[0], 200)
+
+    def test_cross_site_posts_are_refused(self):
+        self.assertEqual(self.req("/api/games", {}, Origin="https://evil.example")[0], 403)
+        self.assertEqual(self.req("/api/games", {}, Origin="null")[0], 403)
+        self.assertNotEqual(self.req("/api/step", {}, Origin=f"http://127.0.0.1:{self.port}")[0], 403)
+
+    def test_static_files_revalidate_and_compress(self):
+        code, h, raw = self.req("/app.css")
+        self.assertEqual((code, h["Cache-Control"]), (200, "no-cache"))
+        self.assertIsNone(h["Content-Encoding"])
+        code, h2, gz = self.req("/app.css", Accept_Encoding="gzip, br")
+        self.assertEqual(h2["Content-Encoding"], "gzip")
+        import gzip
+        self.assertEqual(gzip.decompress(gz), raw)
+        self.assertLess(len(gz), len(raw) // 2)
+        code, _, body = self.req("/app.css", If_None_Match=h["ETag"])
+        self.assertEqual((code, body), (304, b""))
+        code, h3, body = self.req("/js/app.js", method="HEAD")
+        self.assertEqual((code, body), (200, b""))
+        self.assertGreater(int(h3["Content-Length"]), 1000)
+        self.assertEqual(self.req("/../server.py")[0], 404)
+        self.assertEqual(self.req("/%2e%2e/server.py")[0], 404)
+
+    def test_health_check(self):
+        code, _, body = self.req("/healthz")
+        self.assertEqual((code, json.loads(body)["ok"]), (200, True))
+
+    def test_a_proxied_request_is_not_the_host(self):
+        self.assertEqual(self.req("/api/games")[0], 200)
+        self.assertEqual(self.req("/api/games", X_Forwarded_For="203.0.113.9")[0], 403)
+        self.assertEqual(self.req("/api/new", {"seed": 1}, X_Real_IP="203.0.113.9")[0], 403)
+
+    def test_only_an_invite_link_finds_a_game(self):
+        c = Client(self.port)
+        gid = c.call("new", {"mode": "online", "humans": 2, "opponents": 1, "seed": 9})["gid"]
+        try:
+            away = {"X_Forwarded_For": "203.0.113.9"}
+            self.assertEqual(json.loads(self.req("/api/board", **away)[2]), {"nogame": True})
+            self.assertTrue(json.loads(self.req(f"/api/board?g={gid}", **away)[2])["join"])
+        finally:
+            c.call("delete", {"id": gid})
+
+    def test_host_key_is_the_only_way_to_host_once_set(self):
+        key = "k" * 24
+        server.APP.set_host_key(key)
+        self.assertEqual(self.req("/api/games")[0], 403)          # this machine is no longer special
+        self.assertEqual(self.req("/?host=wrong")[0], 403)
+        code, h, _ = self.req(f"/?host={key}&g=abc", X_Forwarded_Proto="https")
+        self.assertEqual((code, h["Location"]), (303, "/?g=abc"))   # the key leaves the address bar
+        cookie = h["Set-Cookie"]
+        for flag in ("HttpOnly", "SameSite=Strict", "Secure"):
+            self.assertIn(flag, cookie)
+        self.assertNotIn(key, cookie)
+        pair = cookie.split(";")[0]
+        self.assertEqual(self.req("/api/games", Cookie=pair, X_Forwarded_For="203.0.113.9")[0], 200)
+        self.assertEqual(self.req("/api/games", Cookie="hexfield_host=nope")[0], 403)
+        server.APP.set_host_key(None)
+        self.assertEqual(self.req("/?host=" + key)[0], 403)        # no key set: nothing to log in to
+
+    def test_remote_addresses_are_rate_limited(self):
+        codes = [self.req("/healthz", X_Forwarded_For="203.0.113.7")[0] for _ in range(int(server.BURST) + 30)]
+        self.assertEqual(codes[0], 200)
+        self.assertIn(429, codes)
+        self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.8")[0], 200)   # others unaffected
+        self.assertEqual({self.req("/healthz")[0] for _ in range(20)}, {200})          # nor this machine
+        app = server.App()
+        self.assertTrue(all(app.allow("a", now=0.0) for _ in range(int(server.BURST))))
+        self.assertFalse(app.allow("a", now=0.0))
+        self.assertTrue(app.allow("a", now=1.0))                   # it refills
+
+    def test_errors_hide_details_from_remote_callers(self):
+        c = Client(self.port)
+        gid = c.call("new", {"mode": "online", "humans": 2, "opponents": 1, "seed": 9})["gid"]
+        g = server.APP.games[gid]
+        boom = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("secret detail"))
+        g.view, old = boom, g.view
+        try:
+            with self.assertLogs("hexfield.web", level="ERROR"):
+                code, _, body = self.req(f"/api/join?g={gid}", {"name": "Eve"}, X_Forwarded_For="203.0.113.9")
+            self.assertEqual(code, 500)
+            self.assertNotIn(b"secret", body)
+        finally:
+            g.view = old
+            c.call("delete", {"id": gid})
+
+    def test_bad_requests_get_a_clean_answer(self):
+        self.assertEqual(self.req("/api/act", method="POST", Content_Length="-5")[0], 400)
+        self.assertEqual(self.req("/api/state", method="HEAD")[0], 405)
+        self.assertEqual(self.req("/api/act", method="POST", Content_Type="text/plain", Content_Length="2")[0], 400)
+
+    def test_command_line_guards(self):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            server.main(["--host-key", "short", "--no-browser", "--no-save"])
+        self.assertIn("at least", err.getvalue())
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as ex:
+            server.main(["--port", str(self.port), "--no-browser", "--no-save"])   # already taken
+        self.assertEqual(ex.exception.code, 1)
+        self.assertIn("can't listen", err.getvalue())
+
 if __name__ == "__main__":
     unittest.main()
