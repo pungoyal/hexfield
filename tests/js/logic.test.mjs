@@ -117,3 +117,33 @@ test("plentyPicks completes the best build it can", () => {
   const picks = plentyPicks([3, 3, 3, 3, 3], [0, 0, 5, 0, 0], COSTS, ORDER);
   assert.deepEqual(picks, [2, 2], "only sheep left in the bank");
 });
+
+// ---- the camera and the artwork (both DOM-free)
+import { zoomBox } from "../../hexfield/web/static/js/logic.js";
+import { boardDefs, hexPoints, seeded, terrain } from "../../hexfield/web/static/js/art.js";
+
+test("zoomBox: close targets zoom in, spread ones show the whole board", () => {
+  const full = { x: 0, y: 0, w: 600, h: 600 };
+  const near = zoomBox(full, [{ x: 300, y: 300 }, { x: 350, y: 330 }], 100);
+  assert.ok(near.w < full.w && near.w >= full.w / 1.7 - 1e-9, "zoomed, but never past the limit");
+  assert.equal(near.w / near.h, 1, "keeps the board's shape");
+  assert.ok(near.x <= 300 && near.x + near.w >= 350 && near.y <= 300 && near.y + near.h >= 330, "targets in view");
+  assert.equal(zoomBox(full, [{ x: 20, y: 20 }, { x: 580, y: 560 }], 100), full);
+  const corner = zoomBox(full, [{ x: 5, y: 5 }], 100);
+  assert.ok(corner.x >= 0 && corner.y >= 0, "never looks past the edge of the board");
+});
+
+test("artwork: a hex is always painted the same way, and only from drawings that exist", () => {
+  const a = seeded(42), b = seeded(42);
+  assert.deepEqual([a(), a(), a()], [b(), b(), b()]);
+  const defs = boardDefs();
+  for (const res of ["wood", "brick", "sheep", "wheat", "ore", null]) {
+    const hex = { res, num: res ? 8 : 0 };
+    const art = terrain(hex, 3);
+    assert.equal(art, terrain(hex, 3));
+    assert.notEqual(art, terrain(hex, 4), "neighbouring hexes differ");
+    for (const m of art.matchAll(/(?:href="#|url\(#)([\w-]+)/g)) assert.ok(defs.includes(`id="${m[1]}"`), `missing drawing ${m[1]}`);
+    assert.ok(!/NaN|undefined/.test(art));
+  }
+  assert.equal(hexPoints(0, 0, 60).split(" ").length, 6);
+});

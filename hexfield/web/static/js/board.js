@@ -1,8 +1,9 @@
 // The SVG board: tiles, pieces, click targets, highlights and hover tips.
 
 import { act, render } from "./app.js";
+import { ROBBER, boardDefs, cityArt, hexPoints, portBadge, roadArt, settlementArt, terrain, tokenArt } from "./art.js";
 import { resetKeyCaches, setObvious } from "./keys.js";
-import { boardBox } from "./logic.js";
+import { boardBox, zoomBox } from "./logic.js";
 import { B, G, S, els, legal, myDecision } from "./state.js";
 import { edgeLine, resetBoardCaches as resetTextCaches, roadsToward, spotName } from "./text.js";
 import { $, RES, esc, pc, resIcon, svg } from "./util.js";
@@ -14,80 +15,69 @@ export function buildBoard() {
   const R = B.radius;
   // just the island and its ports: the sea is the panel behind (and fills whatever is left over)
   const box = boardBox(B.vertices);
+  els.box = box;
+  els.view = { x: box.x, y: box.y, w: box.w, h: box.h };
+  els.targetSig = null;
+  cancelAnimationFrame(els.viewRaf);
   board.setAttribute("viewBox", `${box.x} ${box.y} ${box.w} ${box.h}`);
   resetTextCaches();
   resetKeyCaches();
-  const defs = svg("defs", {}, board);
-  defs.innerHTML = `
-    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1.6" stdDeviation="1.4" flood-color="#000" flood-opacity=".5"/></filter>
-    <filter id="tileshadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000" flood-opacity=".45"/></filter>
-    <pattern id="waves" width="60" height="26" patternUnits="userSpaceOnUse"><path d="M0 13 q15 -9 30 0 t30 0" fill="none" stroke="#fff" stroke-opacity=".06" stroke-width="2"/></pattern>
-    ${terrainGradient("wood", "#3fa36a", "#2a7a4b", "#1c5434")}
-    ${terrainGradient("brick", "#d9774f", "#b9563a", "#843a26")}
-    ${terrainGradient("sheep", "#a8d86d", "#86bd4f", "#5c8c32")}
-    ${terrainGradient("wheat", "#f6d164", "#e2b22f", "#b3861a")}
-    ${terrainGradient("ore", "#a8b2c3", "#8591a6", "#5d677a")}
-    ${terrainGradient("desert", "#eadbb3", "#d6c091", "#ad9566")}
-  `;
+  svg("defs", {}, board).innerHTML = boardDefs();
   // waves over the whole stage, well past the viewBox, so the sea has no edge at any window shape
   svg("rect", { x: -3000, y: -3000, width: 6000, height: 6000, fill: "url(#waves)", "pointer-events": "none" }, board);
 
-  const corners = [];
-  for (let i = 0; i < 6; i++) {
-    const a = (Math.PI / 180) * (60 * i - 90);
-    corners.push([Math.cos(a) * R, Math.sin(a) * R]);
-  }
-  const hexPts = (cx, cy, k = 1) => corners.map(([x, y]) => `${(cx + x * k).toFixed(2)},${(cy + y * k).toFixed(2)}`).join(" ");
+  const hexPts = (cx, cy, k = 1) => hexPoints(cx, cy, R * k);
 
-  // shallows and beach: oversized hexes merge into a coastline
+  // the coast: oversized hexes merge into one outline, from open water in to dry sand
   const gCoast = svg("g", { class: "coast" }, board);
-  for (const h of B.hexes) svg("polygon", { points: hexPts(h.x, h.y, 1.3), class: "shallow" }, gCoast);
-  for (const h of B.hexes) svg("polygon", { points: hexPts(h.x, h.y, 1.1), class: "beach" }, gCoast);
+  for (const [cls, k] of [["shelf", 1.5], ["shallow", 1.3], ["foam", 1.17], ["beach", 1.115], ["sand", 1.04]]) {
+    const g = svg("g", { class: cls }, gCoast);
+    for (const h of B.hexes) svg("polygon", { points: hexPts(h.x, h.y, k) }, g);
+  }
 
-  // ports (under the tiles so planks tuck in)
+  // ports (under the tiles so the jetties tuck in)
   const gPorts = svg("g", { class: "ports" }, board);
   for (const port of B.ports) {
     const [a, b] = port.v.map((v) => B.vertices[v]);
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     const len = Math.hypot(mx - box.cx, my - box.cy);
-    const bx = mx + ((mx - box.cx) / len) * 34, by = my + ((my - box.cy) / len) * 34;
-    for (const v of [a, b]) svg("line", { class: "port-plank", x1: v.x + (bx - v.x) * 0.15, y1: v.y + (by - v.y) * 0.15, x2: bx, y2: by }, gPorts);
-    const g = svg("g", { class: "port-badge", transform: `translate(${bx.toFixed(1)} ${by.toFixed(1)})` }, gPorts);
-    svg("circle", { r: 17 }, g);
-    if (port.kind === "any") {
-      const t = svg("text", { y: 4 }, g); t.textContent = "3:1";
-    } else {
-      svg("use", { href: `#i-${port.kind}`, x: -7, y: -14, width: 14, height: 14, style: `fill:var(--${port.kind})` }, g);
-      const t = svg("text", { y: 11 }, g); t.textContent = "2:1";
+    const bx = mx + ((mx - box.cx) / len) * 36, by = my + ((my - box.cy) / len) * 36;
+    for (const v of [a, b]) {
+      const at = { x1: f1(v.x + (bx - v.x) * 0.12), y1: f1(v.y + (by - v.y) * 0.12), x2: f1(bx), y2: f1(by) };
+      svg("line", { class: "jetty-shadow", ...at, transform: "translate(1.5 3)" }, gPorts);
+      svg("line", { class: "jetty", ...at }, gPorts);
+      svg("line", { class: "jetty-planks", ...at }, gPorts);
     }
+    const g = svg("g", { class: `port-badge${port.kind === "any" ? " any" : ""}`, transform: `translate(${bx.toFixed(1)} ${by.toFixed(1)})` }, gPorts);
+    g.innerHTML = portBadge(port.kind);
     const title = svg("title", {}, g);
     title.textContent = port.kind === "any" ? "3:1 port — any resource" : `2:1 ${port.kind} port`;
   }
 
-  // tiles
-  const gTiles = svg("g", { class: "tiles", filter: "url(#tileshadow)" }, board);
+  // the shadow the island's tiles throw on the sand
+  const gShade = svg("g", { class: "tile-shade" }, board);
+  for (const h of B.hexes) svg("polygon", { points: hexPts(h.x, h.y + 4.5, 1) }, gShade);
+
+  // tiles: each one a small painted landscape
+  const gTiles = svg("g", { class: "tiles" }, board);
   els.hex = B.hexes.map((h, i) => {
-    const g = svg("g", { class: "hex-tile", "data-h": i }, gTiles);
-    const res = h.res || "desert";
-    svg("polygon", { class: "tile", points: hexPts(h.x, h.y, 0.985), fill: `url(#g-${res})` }, g);
-    const art = svg("g", { class: "art" }, g);
-    const spots = h.res ? [[-27, -27, 19], [27, -27, 19], [0, -44, 15]] : [[0, -6, 34]];
-    for (const [dx, dy, s] of spots) {
-      svg("use", { href: `#i-${res}`, x: h.x + dx - s / 2, y: h.y + dy - s / 2, width: s, height: s, fill: shade(res) }, art);
-    }
-    if (h.num) {
-      const tk = svg("g", { class: "token" + (h.num === 6 || h.num === 8 ? " hot" : ""), transform: `translate(${h.x} ${h.y + 6})` }, g);
-      svg("circle", { class: "disc", r: 19 }, tk);
-      const t = svg("text", { y: -3 }, tk); t.textContent = h.num;
-      for (let k = 0; k < h.pips; k++) svg("circle", { class: "pip", r: 1.7, cx: (k - (h.pips - 1) / 2) * 4.6, cy: 10 }, tk);
-    }
+    const g = svg("g", { class: `hex-tile t-${h.res || "desert"}`, "data-h": i, transform: `translate(${h.x} ${h.y}) scale(${R / 60})` }, gTiles);
+    g.innerHTML = terrain(h, i);
     return g;
+  });
+  // number tokens sit above every landscape, so a tall tree never hides a neighbour's number
+  const gTokens = svg("g", { class: "tokens" }, board);
+  els.token = B.hexes.map((h) => {
+    if (!h.num) return null;
+    const tk = svg("g", { class: "token" + (h.num === 6 || h.num === 8 ? " hot" : ""), transform: `translate(${h.x} ${h.y + 6})` }, gTokens);
+    tk.innerHTML = tokenArt(h.num, h.pips);
+    return tk;
   });
 
   els.roads = svg("g", { class: "roads" }, board);
   els.pieces = svg("g", { class: "pieces" }, board);
   els.robber = svg("g", { class: "robber" }, board);
-  els.robber.innerHTML = `<path d="M0-17a7 7 0 0 1 7 7c0 2.6-1.4 4.6-3.3 5.8C7.6-2.6 10 1.8 10 7v6c0 2-1.5 3-4 3H-6c-2.5 0-4-1-4-3V7c0-5.2 2.4-9.6 6.3-11.2A6.8 6.8 0 0 1-7-10a7 7 0 0 1 7-7z" filter="url(#shadow)"/><circle class="eye" cx="-2.4" cy="-10" r="1.2"/><circle class="eye" cx="2.4" cy="-10" r="1.2"/>`;
+  els.robber.innerHTML = ROBBER;
   els.targets = svg("g", { class: "targets" }, board);
   els.keys = svg("g", { class: "keys" }, board);
   els.glow = svg("g", { class: "glow" }, board);
@@ -109,40 +99,23 @@ export function robberHits(h) {
   return hit;
 }
 
-export function terrainGradient(id, hi, mid, lo) {
-  return `<radialGradient id="g-${id}" cx="38%" cy="30%" r="80%"><stop offset="0" stop-color="${hi}"/><stop offset=".55" stop-color="${mid}"/><stop offset="1" stop-color="${lo}"/></radialGradient>`;
-}
-export function shade(res) {
-  return { wood: "#174a2c", brick: "#7a3220", sheep: "#f4fbe9", wheat: "#9a6f10", ore: "#3e4757", desert: "#a08350" }[res];
-}
-
 export function ripple(p, owner) {
   const c = svg("circle", { class: "ripple", cx: p.x, cy: p.y, r: 10, style: `--pc:${pc(owner)}` }, els.fx);
   setTimeout(() => c.remove(), 1300);
 }
 
 export function roadEl(e, owner) {
-  const { x1, y1, x2, y2 } = edgeLine(e, 0.16);
   const g = svg("g", { class: "road", style: `--pc:${pc(owner)}` });
-  svg("line", { class: "under", x1, y1, x2, y2 }, g);
-  svg("line", { class: "top", x1, y1, x2, y2 }, g);
-  svg("line", { class: "shine", x1, y1: y1 - 1.5, x2, y2: y2 - 1.5 }, g);
+  g.innerHTML = roadArt(edgeLine(e, 0.17));
   return g;
 }
 
 export function pieceEl(v, owner, level) {
   const { x, y } = B.vertices[v];
-  const g = svg("g", { class: "piece", style: `--pc:${pc(owner)}`, transform: `translate(${x} ${y}) scale(1.15)` });
+  const g = svg("g", { class: `piece ${level === 1 ? "settlement" : "city"}`, style: `--pc:${pc(owner)}`, transform: `translate(${x} ${y}) scale(1.12)` });
   const inner = svg("g", { class: "pop" }, g);
-  if (level === 1) {
-    svg("path", { d: "M-10 9V-2L0-11l10 9V9z" }, inner);
-    svg("path", { class: "roof", d: "M-10-2 0-11l10 9-2 1.6L0-8l-8 7.6z" }, inner);
-    svg("text", { class: "seat-mark", y: 6.5 }, inner).textContent = owner + 1;
-  } else {
-    svg("path", { d: "M-16 11V-1h8v-6l7.5-7 7.5 7V-1h9v12z" }, inner);
-    svg("path", { class: "roof", d: "M-8-7l7.5-7 7.5 7-1.8 1.4L-.5-11-6.2-5.6z" }, inner);
-    svg("text", { class: "seat-mark", y: 8 }, inner).textContent = owner + 1;
-  }
+  inner.innerHTML = level === 1 ? settlementArt() : cityArt();
+  svg("text", { class: "seat-mark", x: level === 1 ? -3.6 : -8.9, y: level === 1 ? 2 : 3 }, inner).textContent = owner + 1;
   return g;
 }
 
@@ -176,7 +149,10 @@ export function renderPieces() {
   const h = B.hexes[S.robber];
   els.robber.style.transform = `translate(${h.x + 30}px, ${h.y + 8}px)`;
   els.hex.forEach((g, i) => g.classList.toggle("blocked", i === S.robber));
+  els.token.forEach((t, i) => t?.classList.toggle("blocked", i === S.robber));
 }
+
+const f1 = (n) => Math.round(n * 10) / 10;
 
 // Everything you can build right now is clickable on the board; the build buttons
 // only narrow the highlights down to one kind.
@@ -212,18 +188,55 @@ export function onBoardKey(ev) {
   onBoardClick({ target: t, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
 }
 
+// ------------------------------------------------------------------ the camera
+// When the spots you can click sit close together (the road beside a new settlement, a
+// free road, a city to upgrade), the board zooms in on them: bigger targets, and no
+// doubt about where the game wants you. It zooms back out as soon as you have chosen.
+const calm = matchMedia("(prefers-reduced-motion: reduce)");
+export const MAX_ZOOM = 1.7;
+
+export function focusBox(t) {
+  const full = els.box;
+  const pts = [...t.v.map(([v]) => B.vertices[v]), ...t.e.flatMap((e) => B.edges[e].map((v) => B.vertices[v]))];
+  if (!pts.length || t.h.length || t.quick) return full;
+  return zoomBox(full, pts, B.radius * 1.8, MAX_ZOOM);
+}
+
+export function setView(to) {
+  const board = $("#board"), from = { ...els.view };
+  const put = (v) => { els.view = v; board.setAttribute("viewBox", `${f1(v.x)} ${f1(v.y)} ${f1(v.w)} ${f1(v.h)}`); };
+  cancelAnimationFrame(els.viewRaf);
+  if (["x", "y", "w", "h"].every((k) => Math.abs(from[k] - to[k]) < 0.5)) return;
+  board.classList.toggle("zoomed", to.w < els.box.w - 1);
+  if (calm.matches || document.hidden) return put({ x: to.x, y: to.y, w: to.w, h: to.h });
+  const t0 = performance.now(), ms = 520;
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / ms), e = k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2;
+    put({ x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e, w: from.w + (to.w - from.w) * e, h: from.h + (to.h - from.h) * e });
+    if (k < 1) els.viewRaf = requestAnimationFrame(step);
+  };
+  els.viewRaf = requestAnimationFrame(step);
+}
+
 export function renderTargets() {
   const g = els.targets;
-  g.replaceChildren();
   const t = targetsNow();
+  // the same choices as last time: leave them alone, so hover, focus and their entrance survive a re-render
+  const sig = JSON.stringify([t, S.human, S.turn, S.phase, S.robber]);
+  if (sig === els.targetSig) return;
+  els.targetSig = sig;
+  g.replaceChildren();
+  setView(focusBox(t));
   $("#board").classList.toggle("robbing", t.h.length > 0);
   g.classList.toggle("quick", t.quick);
+  let order = 0;
+  const enter = (el) => el.style.setProperty("--i", Math.min(order++, 40));
   for (const h of t.h) {
     const hx = B.hexes[h], hit = robberHits(h);
     const who = Object.keys(hit).map(Number).sort((a, b) => (a === S.human) - (b === S.human) || hit[b] - hit[a]);
     const cls = hit[S.human] ? "hurts" : who.length ? "" : "empty";
     const label = `Move the robber to ${hx.res ? `${hx.num} ${hx.res}` : "the desert"}: blocks ${who.length ? who.map((p) => `${p === S.human ? "you" : S.players[p].name} (${hit[p]} pips)`).join(", ") : "nobody"}`;
-    svg("polygon", { class: `hex-target ${cls}`, "data-h": h, points: els.hexPts(hx.x, hx.y, 0.9), ...button(label) }, g);
+    enter(svg("polygon", { class: `hex-target ${cls}`, "data-h": h, points: els.hexPts(hx.x, hx.y, 0.9), ...button(label) }, g));
     // one chip per player it would block, with the pips they'd lose
     who.forEach((p, i) => {
       const cg = svg("g", { class: `rb-chip ${p === S.human ? "me" : ""}`, transform: `translate(${(hx.x + (i - (who.length - 1) / 2) * 22).toFixed(1)} ${hx.y + 40})` }, g);
@@ -234,6 +247,8 @@ export function renderTargets() {
   for (const e of t.e) {
     const at = edgeLine(e, 0.2);
     const tg = svg("g", { class: "e-target", "data-e": e, ...button(`Build a road toward ${roadsToward([e])}`) }, g);
+    enter(tg);
+    svg("line", { class: "bed", ...at }, tg);
     svg("line", { class: "vis", ...at }, tg);
     svg("line", { class: "hit", ...at }, tg);
   }
@@ -241,16 +256,20 @@ export function renderTargets() {
     const p = B.vertices[v];
     const tg = svg("g", { class: `v-target k-${kind}`, "data-v": v, "data-kind": kind,
       ...button(`${kind === "city" ? "Upgrade to a city" : "Build a settlement"}: ${spotName(v)}, ${p.pips} pips`) }, g);
-    svg("circle", { class: "hit", cx: p.x, cy: p.y, r: 16 }, tg);
+    enter(tg);
+    svg("circle", { class: "hit", cx: p.x, cy: p.y, r: 18 }, tg);
     if (kind === "settle") {
       // label each spot with its pip total; hotter spots read brighter
       tg.style.setProperty("--heat", Math.min(1, p.pips / 13).toFixed(2));
       tg.classList.add(p.pips >= 10 ? "t-hi" : p.pips <= 5 ? "t-lo" : "t-mid");
-      svg("circle", { class: "ring scored", cx: p.x, cy: p.y, r: 11 }, tg);
-      const tx = svg("text", { class: "v-pips", x: p.x, y: p.y + 3.6 }, tg);
+      svg("circle", { class: "halo", cx: p.x, cy: p.y, r: 13 }, tg);
+      svg("circle", { class: "ring scored", cx: p.x, cy: p.y, r: 13 }, tg);
+      const tx = svg("text", { class: "v-pips", x: p.x, y: p.y + 4.2 }, tg);
       tx.textContent = p.pips;
     } else {
-      svg("circle", { class: "ring", cx: p.x, cy: p.y, r: 16 }, tg);
+      svg("circle", { class: "halo", cx: p.x, cy: p.y, r: 19 }, tg);
+      svg("circle", { class: "ring", cx: p.x, cy: p.y, r: 19 }, tg);
+      svg("path", { class: "up", d: `M${f1(p.x)} ${f1(p.y - 31)}l5.5 6.5h-3.4v5h-4.2v-5h-3.4z` }, tg);
     }
   }
 }

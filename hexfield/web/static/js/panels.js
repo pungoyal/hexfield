@@ -58,7 +58,7 @@ export function renderHand() {
     hand.replaceChildren(...RES.map((r) => {
       const d = document.createElement("div");
       d.className = `rcard r-${r}`;
-      d.innerHTML = `${icon("i-" + r)}<span class="n"></span><span class="lbl">${r}</span>`;
+      d.innerHTML = `${icon("a-" + r)}<span class="n"></span><span class="lbl">${r}</span>`;
       return d;
     }));
   }
@@ -98,7 +98,7 @@ export function devCard(d, k, n, playable, isNew) {
   const why = devBlock(d, playable, isNew);
   const tip = isNew ? `${d.name} — bought this turn, playable next turn` : playable ? `Play ${d.name} (${d.hot})` : d.key === "vp" ? "Victory point (counts automatically)"
     : `${d.name}${why === "1 per turn" ? " — you already played a development card this turn" : why ? ` — ${why}` : ""}`;
-  return `<button class="dcard ${d.key === "vp" ? "vp" : ""} ${playable ? "playable" : ""} ${isNew ? "new" : ""} ${why ? "blocked" : ""}" data-dev="${k}" ${playable ? `data-key="${d.hot}"` : "tabindex=-1"} title="${esc(tip)}">${icon(d.icon)}<span class="lbl">${d.name}</span>${n > 1 ? `<span class="n">${n}</span>` : ""}${why ? `<span class="why-tag">${why}</span>` : ""}</button>`;
+  return `<button class="dcard ${d.key === "vp" ? "vp" : ""} ${playable ? "playable" : ""} ${isNew ? "new" : ""} ${why ? "blocked" : ""}" data-dev="${k}" ${playable ? `data-key="${d.hot}"` : "tabindex=-1"} title="${esc(tip)}">${icon(d.art)}<span class="lbl">${d.name}</span>${n > 1 ? `<span class="n">${n}</span>` : ""}${why ? `<span class="why-tag">${why}</span>` : ""}</button>`;
 }
 
 // [button, legal kind, cost, tooltip]
@@ -118,6 +118,11 @@ export function renderActions() {
   roll.disabled = !can("roll") || G.busy;
   roll.classList.toggle("pulse", pre);
   roll.classList.toggle("obvious", can("roll"));
+  // "go": what you can press right now grows; "go-main" is the one step that moves the game on
+  const go = (el, on, lead = false) => { el.classList.toggle("go", on); el.classList.toggle("go-main", on && lead); };
+  go(roll, can("roll"), true);
+  go($("#btn-discard"), true, true);
+  go($("#btn-answer"), true, true);
   // the tooltip says why a button is off
   const why = (kind, cost, base) => {
     if (!mine) return `${base} — not your turn`;
@@ -131,6 +136,7 @@ export function renderActions() {
     const b = $(id), ok = (main || special) && can(kind);
     b.disabled = !ok || G.busy;
     b.classList.toggle("ready", ok);
+    go(b, ok);
     if (b.dataset.mode) b.setAttribute("aria-pressed", String(G.mode === b.dataset.mode));
     b.title = why(kind, COSTS[cost], label);
     // costs: one icon per card, dimmed where your hand comes up short
@@ -139,13 +145,16 @@ export function renderActions() {
     setHTML(c, COSTS[cost].flatMap((n, r) => Array.from({ length: n }, (_, k) => resIcon(r, `ri ${k < S.hand[r] ? "" : "miss"}`))).join(""));
   }
   $("#btn-trade").disabled = !main || G.busy;
+  go($("#btn-trade"), main);
   $("#btn-roll").title = can("roll") ? "Roll the dice (R)" : mine && S.phase === "main" ? "Already rolled" : "Roll the dice — not now";
   // Roll and End turn share one slot: the next step is always in the same place
   roll.hidden = !pre;
   const end = $("#btn-end");
   end.hidden = pre;
   end.disabled = !can("end") || G.busy;
-  end.classList.toggle("pulse", (main || special) && (S.legal.kinds || []).every((k) => k === "end" || k === "bank"));
+  const onlyEnd = (main || special) && (S.legal.kinds || []).every((k) => k === "end" || k === "bank");
+  end.classList.toggle("pulse", onlyEnd);
+  go(end, can("end"), onlyEnd);
   const label = special ? "Pass" : "End turn";
   if (end.firstChild.nodeValue !== label) end.firstChild.nodeValue = label;
   end.title = special ? "Done building: pass to the next player (E)" : "End your turn (E)";

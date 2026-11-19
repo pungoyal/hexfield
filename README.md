@@ -72,6 +72,13 @@ selectable speed. Keys: `R` roll, `1/2/3` road/settlement/city, `D` dev card,
 `T` trade, `E` end turn, `H` hint, `U` undo (the same key on every screen and in every dialog), `?` help. Reloading the
 page resumes the game, and so does restarting the server.
 
+On your move, whatever you can press is drawn larger: the Roll button, the builds you can
+afford, a playable development card, the spots on the board. What you can't use steps
+back. When the choices sit close together (the road beside a new settlement, a free road,
+a city to upgrade) the board zooms in on them and zooms out again once you have chosen.
+The board, pieces and cards are drawn in the browser as vector art (`js/art.js`): every
+hex is its own small landscape, and there are no image files to load.
+
 Every spot you can build on is also a real button: `Tab` to it and press `Enter`, and a
 screen reader hears what it is ("Build a settlement: 8 wheat, 5 sheep, 9 pips"). **Marks**
 (`Shift+C`) switches to a colour-blind-safe palette and puts each player's seat number on
@@ -311,7 +318,8 @@ hexfield/cli.py         terminal game, coach, undo, resume, replay, statistics
 hexfield/web/session.py live games (any mix of humans and bots), offers, reviews, replays
 hexfield/web/server.py  HTTP API: several games at once, seat keys, long polling
 hexfield/web/static/js  the browser client as ES modules, no build step:
-                        app (game loop) · state · board · panels · keys · coach · dialogs ·
+                        app (game loop) · state · board · art (all the drawings) · panels ·
+                        keys · coach · dialogs ·
                         effects · games (saves, replay, lobby, pass and play) · text · util ·
                         logic (DOM-free, unit-tested)
 tests/                  rules, options, records, hidden information, bots, scripted terminal

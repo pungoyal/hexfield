@@ -99,7 +99,7 @@ export function openBotOffer() {
   dlg.dataset.offer = JSON.stringify([po.from, po.give, po.get]);
   $("#bo-name").textContent = S.players[po.from].name;
   $("#bo-dot").style.background = pc(po.from);
-  const mini = (counts) => counts.map((n, r) => n ? `<div class="rcard r-${RES[r]}">${icon("i-" + RES[r])}<span class="n">${n}</span></div>` : "").join("");
+  const mini = (counts) => counts.map((n, r) => n ? `<div class="rcard r-${RES[r]}">${icon("a-" + RES[r])}<span class="n">${n}</span></div>` : "").join("");
   $("#bo-get").innerHTML = mini(po.give);
   $("#bo-give").innerHTML = mini(po.get);
   handStrip($("#bo-hand"), RES.map((_, r) => po.give[r] - po.get[r]), "After");
@@ -318,7 +318,7 @@ export function openPick(kind) {
       const n = picks.filter((x) => x === i).length;
       const off = yop && S.bank[i] < 1;
       const est = yop || !S.tracker ? "" : `<span class="haul" title="Your tracker: opponents hold about ${S.tracker[i]} ${r}">≈${haul(i)}</span>`;
-      return `<button data-r="${i}" data-key="${i + 1}" aria-pressed="${n > 0}" ${off ? "disabled" : ""} title="${r} (${i + 1})"><div class="rcard r-${r}">${icon("i-" + r)}<span class="lbl">${r}</span>${n ? `<span class="n">${n}</span>` : ""}</div>${est}</button>`;
+      return `<button data-r="${i}" data-key="${i + 1}" aria-pressed="${n > 0}" ${off ? "disabled" : ""} title="${r} (${i + 1})"><div class="rcard r-${r}">${icon("a-" + r)}<span class="lbl">${r}</span>${n ? `<span class="n">${n}</span>` : ""}</div>${est}</button>`;
     }).join("");
     $("#pick-ok").disabled = picks.length !== (yop ? 2 : 1);
     if (yop) handStrip($("#pick-hand"), RES.map((_, r) => picks.filter((x) => x === r).length), picks.length ? "After" : "Your hand");

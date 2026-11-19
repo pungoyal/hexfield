@@ -1,6 +1,7 @@
 // Hexfield — browser client. Talks to hexfield/web/server.py; no dependencies.
 // This module drives the game: boot, applying server views, the bot loop, wiring.
 
+import { installSprites } from "./art.js";
 import { buildBoard, clearGlow, glowFor, onBoardClick, onBoardHover, onBoardKey, renderPieces, renderTargets } from "./board.js";
 import {
   closeCoach, decisionKey, glowSteps, newReviews, optSel, optSteps, playHint, renderReviews,
@@ -43,6 +44,7 @@ export async function act(action) {
 
 // ------------------------------------------------------------------ boot
 export async function boot() {
+  installSprites();
   wireUI();
   const want = new URLSearchParams(location.search).get("g");
   if (want && want !== session.gid) setSession(want, {}, null); // an invite link to another game
@@ -222,6 +224,7 @@ export function render() {
   $("#seed").textContent = `seed ${S.seed}`;
   $("#btn-undo").hidden = S.mode !== "solo" || !!session.replay;
   document.body.classList.toggle("many", S.n > 4);
+  document.body.classList.toggle("my-turn", !!myDecision() || !!S.pending_offer);
   $("#btn-undo").disabled = !S.can_undo;
   for (const b of $$(".dlg-undo")) b.hidden = !S.can_undo;
   $("#review-on").checked = S.review_on;

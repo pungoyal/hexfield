@@ -68,7 +68,7 @@ h3 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
 .board-wrap {
   grid-area: board; position: relative; min-height: 0; min-width: 0; overflow: hidden;
   border-radius: 20px; border: 1px solid #1c4266;
-  background: radial-gradient(120% 95% at 50% 42%, #1c6294 0%, #124570 48%, #0b2c4c 100%);
+  background: radial-gradient(120% 95% at 50% 42%, #1f74a8 0%, #14527f 45%, #0a2c4d 100%);
   box-shadow: inset 0 0 90px rgb(3 12 24 / .55), 0 10px 30px rgb(0 0 0 / .3);
 }
 .dock { grid-area: dock; }
@@ -241,38 +241,71 @@ svg.ri { fill: var(--rc); }
 /* absolutely fill the grid cell: the SVG then scales its viewBox to fit (meet) instead of
    sizing the cell from its own aspect ratio and overflowing on wide/short windows */
 .board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: manipulation; user-select: none; }
-.hex-tile { transition: filter .25s; }
-.hex-tile .tile { stroke: rgb(0 0 0 / .35); stroke-width: 2; }
-.hex-tile .art { opacity: .5; pointer-events: none; }
-.token circle.disc { fill: #f6efdc; stroke: #b9a87e; stroke-width: 1.5; filter: url(#shadow); }
-.token text { font: 800 16px var(--font); text-anchor: middle; dominant-baseline: central; fill: #2b2417; }
-.token.hot text { fill: #c42f2f; }
+/* tiles: the landscape is drawn in js/art.js; here only how it is lit */
+.hex-tile .scene, .hex-tile .rim, .hex-tile .edge, .hex-tile .flash { pointer-events: none; }
+.hex-tile .flash { fill: #fff8d0; opacity: 0; }
+.hex-tile.produce .flash { animation: produce 1.3s ease-out; }
+@keyframes produce { 0% { opacity: 0; } 22% { opacity: .5; } 100% { opacity: 0; } }
+.tile-shade { fill: #2b1d08; opacity: .38; pointer-events: none; }
+.tile-shade polygon { stroke: #2b1d08; stroke-width: 3; stroke-linejoin: round; }
+
+.tokens { pointer-events: none; }
+.token .t-shadow { fill: #1a1206; opacity: .42; }
+.token circle.disc { fill: url(#g-token); stroke: #8f7a4c; stroke-width: 1.4; }
+.token .t-ring { fill: none; stroke: #b7a273; stroke-width: .8; opacity: .8; }
+.token text { font: 700 18px Georgia, "Iowan Old Style", "Times New Roman", serif; text-anchor: middle; dominant-baseline: central; fill: #2b2417; }
+.token.hot text { fill: #c22a2a; font-size: 20px; }
 .token .pip { fill: #2b2417; }
-.token.hot .pip { fill: #c42f2f; }
-.hex-tile.blocked .token { opacity: .5; }
-.hex-tile.produce .tile { animation: produce 1.3s ease-out; }
-@keyframes produce { 0% { filter: brightness(1); } 25% { filter: brightness(1.55) saturate(1.2); } 100% { filter: brightness(1); } }
-.hex-tile.produce .token circle.disc { animation: tokenpop 1.1s ease-out; }
-@keyframes tokenpop { 30% { fill: #fff6cf; stroke: var(--accent); stroke-width: 4; } }
+.token.hot .pip { fill: #c22a2a; }
+.token.blocked { opacity: .45; }
+.token.produce circle.disc { animation: tokenpop 1.1s ease-out; }
+@keyframes tokenpop { 30% { stroke: var(--accent); stroke-width: 4.5; } }
 
-.coast .shallow { fill: #2276a8; opacity: .55; stroke: #2276a8; stroke-width: 6; stroke-linejoin: round; }
-.coast .beach { fill: #d9c28d; stroke: #d9c28d; stroke-width: 4; stroke-linejoin: round; }
-.port-plank { stroke: #8a6a43; stroke-width: 5; stroke-linecap: round; }
-.port-badge circle { fill: #f6efdc; stroke: #8a6a43; stroke-width: 2; filter: url(#shadow); }
-.port-badge text { font: 800 10.5px var(--font); text-anchor: middle; fill: #2b2417; }
+/* the coast, from open water in to dry sand; each band is one merged outline */
+.coast { pointer-events: none; }
+.coast polygon { stroke-linejoin: round; }
+.coast .shelf { opacity: .22; } .coast .shelf polygon { fill: #37a5d6; stroke: #37a5d6; stroke-width: 18; }
+.coast .shallow { opacity: .5; } .coast .shallow polygon { fill: #45bfd9; stroke: #45bfd9; stroke-width: 10; }
+.coast .foam { opacity: .78; } .coast .foam polygon { fill: #f4fbff; stroke: #f4fbff; stroke-width: 6; }
+.coast .beach polygon { fill: #e6d19b; stroke: #e6d19b; stroke-width: 5; }
+.coast .sand { opacity: .55; } .coast .sand polygon { fill: #c9ad6f; stroke: #c9ad6f; stroke-width: 3; }
 
-.road .under { stroke: rgb(0 0 0 / .55); stroke-width: 12; stroke-linecap: round; }
-.road .top { stroke: var(--pc); stroke-width: 8; stroke-linecap: round; }
-.road .shine { stroke: rgb(255 255 255 / .28); stroke-width: 2; stroke-linecap: round; }
-.piece path { fill: var(--pc); stroke: rgb(0 0 0 / .7); stroke-width: 1.6; stroke-linejoin: round; filter: url(#shadow); }
-.piece .roof { fill: rgb(255 255 255 / .22); stroke: none; filter: none; }
-.pop { transform-box: fill-box; transform-origin: center; animation: pop .45s cubic-bezier(.2, 1.6, .4, 1); }
+.ports { pointer-events: none; }
+.port-badge { pointer-events: auto; }
+.jetty-shadow { stroke: #06223a; stroke-width: 7; stroke-linecap: round; opacity: .35; }
+.jetty { stroke: #6f4a26; stroke-width: 7; stroke-linecap: butt; }
+.jetty-planks { stroke: #c79a62; stroke-width: 4.6; stroke-dasharray: 3.4 1.5; }
+.port-badge .pb-shadow { fill: #06223a; opacity: .4; }
+.port-badge .pb-wood { fill: url(#g-wood-ring); stroke: #3f2812; stroke-width: 1.3; }
+.port-badge .pb-face { fill: url(#g-token); stroke: #8f7a4c; stroke-width: .8; }
+.port-badge text { text-anchor: middle; fill: #2b2417; }
+.port-badge .rate { font: 800 9.5px var(--font); }
+.port-badge .rate.big { font: 700 14px Georgia, "Times New Roman", serif; }
+.port-badge .any { font: 700 6.5px var(--font); letter-spacing: .08em; text-transform: uppercase; fill: #7d6a44; }
+
+/* pieces: painted wood in the owner's colour, darker on the sides away from the light */
+.road line { stroke-linecap: round; }
+.road .r-shadow { stroke: #000; stroke-width: 11; opacity: .28; }
+.road .under { stroke: #14100a; stroke-width: 11.5; }
+.road .top { stroke: var(--pc); stroke-width: 8.2; }
+.road .low { stroke: color-mix(in srgb, var(--pc) 62%, #000); stroke-width: 2.6; stroke-linecap: butt; }
+.road .shine { stroke: color-mix(in srgb, var(--pc) 45%, #fff); stroke-width: 1.6; stroke-linecap: butt; opacity: .9; }
+.piece { pointer-events: none; }
+.piece .p-shadow { fill: #000; opacity: .4; }
+.piece .p-face { fill: var(--pc); }
+.piece .p-dark { fill: color-mix(in srgb, var(--pc) 62%, #000); }
+.piece .p-roof { fill: color-mix(in srgb, var(--pc) 72%, #fff); }
+.piece .p-line { fill: none; stroke: #14100a; stroke-width: 1.7; stroke-linejoin: round; }
+.piece .p-edge { fill: none; stroke: #14100a; stroke-width: .9; stroke-linejoin: round; opacity: .7; }
+.piece .p-door { fill: color-mix(in srgb, var(--pc) 35%, #000); }
+.piece .p-win { fill: #ffe9a3; stroke: #14100a; stroke-width: .6; }
+.piece .p-shine { fill: none; stroke: #fff; stroke-width: 1.3; stroke-linecap: round; opacity: .55; }
+.pop { transform-box: fill-box; transform-origin: 50% 100%; animation: pop .5s var(--spring, cubic-bezier(.2, 1.6, .4, 1)); }
 @keyframes pop { from { scale: 0; opacity: 0; } to { scale: 1; opacity: 1; } }
-.road.pop { animation: draw .45s ease-out; }
-@keyframes draw { from { opacity: 0; stroke-dashoffset: 40; } to { opacity: 1; } }
+.road.pop { transform-box: view-box; animation: draw .45s ease-out; }
+@keyframes draw { from { opacity: 0; } to { opacity: 1; } }
 
 .robber { transition: transform .55s cubic-bezier(.4, 1.4, .5, 1); pointer-events: none; }
-.robber path { fill: #23262d; stroke: #0b0c0f; stroke-width: 1.5; }
 .robber .eye { fill: #ff5a5a; }
 
 /* interactive targets */
@@ -280,16 +313,17 @@ svg.ri { fill: var(--rc); }
 .v-target circle.ring { fill: rgb(255 255 255 / .16); stroke: #fff; stroke-width: 2.4; animation: breathe 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
 .v-target:hover circle.ring { fill: var(--accent); stroke: #fff; animation: none; scale: 1.25; }
 .v-target circle.ring.scored { fill: rgb(240 180 41 / calc(.25 + var(--heat) * .7)); stroke: #fff; stroke-width: 1.8; animation: none; }
-.v-target .v-pips { font-size: 11px; font-weight: 800; text-anchor: middle; fill: #10151d; pointer-events: none; }
+.v-target .v-pips { font-size: 13px; font-weight: 800; text-anchor: middle; fill: #10151d; pointer-events: none; }
 .v-target:hover circle.ring.scored { fill: var(--accent); scale: 1.15; }
 .v-target circle.hit, .e-target line.hit { fill: transparent; stroke: transparent; }
-.e-target line.vis { stroke: #fff; stroke-width: 6; stroke-linecap: round; stroke-dasharray: 2 9; opacity: .9; animation: march 1s linear infinite; }
-.e-target:hover line.vis { stroke: var(--accent); stroke-dasharray: none; stroke-width: 9; opacity: 1; }
+.e-target line.bed { stroke: #0b0f15; stroke-width: 12.5; stroke-linecap: round; opacity: .6; }
+.e-target line.bed { transition: opacity .15s; }
+.e-target line.vis { stroke: #fff; stroke-width: 7.5; stroke-linecap: round; opacity: .88; transition: stroke .12s, stroke-width .12s; }
+.e-target:hover line.vis, .e-target:focus-visible line.vis { stroke: var(--accent); stroke-width: 10; opacity: 1; }
+.e-target:hover line.bed { opacity: .7; }
 .e-target line.hit { stroke-width: 22; stroke-linecap: round; }
 .hex-target { fill: transparent; stroke: rgb(255 255 255 / .38); stroke-width: 2.5; stroke-dasharray: 6 6; transition: fill .15s, stroke .15s; }
 .hex-target:hover { fill: rgb(20 10 10 / .35); stroke: #ff6b6b; stroke-width: 4; stroke-dasharray: none; }
-.board.robbing .tiles { animation: robbing 2.4s ease-in-out infinite; }
-@keyframes robbing { 50% { filter: brightness(.86); } }
 .glow-mark { fill: none; stroke: var(--accent); stroke-width: 4; animation: breathe 1.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; pointer-events: none; }
 @keyframes breathe { 50% { scale: 1.18; opacity: .7; } }
 @keyframes march { to { stroke-dashoffset: -22; } }
@@ -299,13 +333,14 @@ svg.ri { fill: var(--rc); }
 .dice .d-row { display: flex; gap: 8px; align-items: center; }
 .die {
   width: 42px; height: 42px; border-radius: 10px;
-  background: linear-gradient(145deg, #fffdf6, #e2dccb);
-  box-shadow: 0 6px 16px rgb(0 0 0 / .45), inset 0 -3px 0 rgb(0 0 0 / .12);
+  background: radial-gradient(circle at 30% 25%, #fff 0%, #f6f0df 45%, #d9cfb4 100%);
+  box-shadow: 0 7px 16px rgb(0 0 0 / .5), inset 0 -4px 3px rgb(0 0 0 / .16), inset 0 2px 2px #fff, inset 0 0 0 1px rgb(0 0 0 / .08);
   display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: 6px; gap: 1px;
 }
-.die i { width: 8px; height: 8px; border-radius: 50%; background: #262019; place-self: center; visibility: hidden; }
+.die i { width: 8px; height: 8px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #4a4032, #17130d); box-shadow: inset 0 1px 1.5px rgb(0 0 0 / .7), 0 1px 0 rgb(255 255 255 / .7); place-self: center; visibility: hidden; }
 .die i.on { visibility: visible; }
-.die.red i { background: #c52b2b; }
+.die.red { background: radial-gradient(circle at 30% 25%, #ff8a7a 0%, #d83a32 45%, #a01e1e 100%); box-shadow: 0 7px 16px rgb(0 0 0 / .5), inset 0 -4px 3px rgb(0 0 0 / .25), inset 0 2px 2px rgb(255 255 255 / .55); }
+.die.red i { background: radial-gradient(circle at 40% 35%, #fff, #e9dcc4); box-shadow: inset 0 1px 1.5px rgb(0 0 0 / .35); }
 .dice .total { font-weight: 800; font-size: 24px; min-width: 30px; text-align: center; font-variant-numeric: tabular-nums; text-shadow: 0 2px 6px rgb(0 0 0 / .6); }
 .dice .total.seven { color: var(--worst); }
 .dice.rolling .die { animation: tumble .55s cubic-bezier(.3, .7, .4, 1); }
@@ -416,9 +451,11 @@ dialog.wide { width: min(900px, calc(100vw - 32px)); }
   display: grid; place-items: center;
   transition: translate .2s, opacity .2s, filter .2s;
 }
-.rcard svg { width: 30px; height: 30px; fill: rgb(255 255 255 / .92); filter: drop-shadow(0 1px 1px rgb(0 0 0 / .35)); }
+/* the face: a pale window with the picture, the name on the coloured band under it */
+.rcard::before { content: ""; position: absolute; inset: 4px 4px 17px; border-radius: 7px; background: radial-gradient(circle at 50% 30%, #fffdf4, color-mix(in srgb, var(--rc, #888) 26%, #f1e4c4)); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .22), inset 0 2px 5px rgb(0 0 0 / .18); }
+.rcard svg { position: relative; width: 38px; height: 38px; margin-top: -13px; filter: drop-shadow(0 1px 1px rgb(0 0 0 / .25)); }
 .rcard .n { position: absolute; top: -7px; right: -7px; min-width: 24px; height: 24px; border-radius: 12px; display: grid; place-items: center; background: #0d1117; border: 2px solid var(--rc); font-weight: 800; font-size: 13px; padding: 0 5px; font-variant-numeric: tabular-nums; }
-.rcard .lbl { position: absolute; bottom: 4px; font-size: 10px; font-weight: 700; color: rgb(255 255 255 / .85); text-transform: uppercase; letter-spacing: .06em; }
+.rcard .lbl { position: absolute; bottom: 3px; font-size: 9.5px; font-weight: 800; color: #fff; text-shadow: 0 1px 1px rgb(0 0 0 / .45); text-transform: uppercase; letter-spacing: .06em; }
 .rcard.zero { opacity: .3; filter: saturate(.25); box-shadow: none; }
 .rcard.zero .n { border-color: var(--line-2); color: var(--muted); }
 .rcard.bump { animation: bump .5s ease-out; }
@@ -431,22 +468,24 @@ dialog.wide { width: min(900px, calc(100vw - 32px)); }
 .dock-cap b { font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
 .cap-warn { text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: 700; color: #ffb3c1; background: #3a1d26; border: 1px solid #7a3446; border-radius: 999px; padding: 0 8px; line-height: 16px; }
 .dcard {
-  position: relative; width: 50px; height: 68px; border-radius: 9px; padding: 0;
+  position: relative; width: 56px; height: 68px; border-radius: 9px; padding: 0;
   background: linear-gradient(160deg, #5b4a8c, #2f2552); border: 1px solid #7b68b8;
   display: grid; place-items: center; cursor: default;
   box-shadow: 0 4px 10px rgb(0 0 0 / .3);
   transition: translate .15s, box-shadow .15s;
 }
-.dcard svg { width: 24px; height: 24px; fill: #f3e9ff; }
+.dcard::before { content: ""; position: absolute; inset: 4px 4px 16px; border-radius: 6px; background: radial-gradient(circle at 50% 30%, #4b3c7c, #1d1638); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .16), inset 0 2px 6px rgb(0 0 0 / .4); }
+.dcard.vp::before { background: radial-gradient(circle at 50% 30%, #7a5c16, #2b1f07); }
+.dcard svg { position: relative; width: 33px; height: 33px; margin-top: -12px; filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / .5)); }
 .dcard .n { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; border-radius: 10px; background: #0d1117; border: 2px solid #9c88e0; font-size: 11px; font-weight: 800; display: grid; place-items: center; }
-.dcard .lbl { position: absolute; bottom: 3px; font-size: 8.5px; font-weight: 700; color: #e6dcff; text-transform: uppercase; letter-spacing: .03em; }
+.dcard .lbl { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center; white-space: nowrap; font-size: 8px; font-weight: 700; color: #e6dcff; text-transform: uppercase; letter-spacing: .02em; }
 .dcard.playable { cursor: pointer; border-color: var(--accent); }
 .dcard.playable:hover { translate: 0 -5px; box-shadow: 0 10px 20px rgb(0 0 0 / .4), 0 0 0 2px var(--accent); }
 .dcard.new { opacity: .55; }
 .dcard.new::after { content: "new"; position: absolute; top: 4px; left: 4px; font-size: 8px; font-weight: 800; text-transform: uppercase; color: var(--accent); }
 .dcard.vp { background: linear-gradient(160deg, #8a6b1c, #4a3810); border-color: #c9a33f; }
-.actions { display: flex; align-items: center; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
-.build { display: flex; gap: 6px; }
+.actions { display: flex; align-items: center; gap: 13px; justify-content: flex-end; flex-wrap: wrap; }
+.build { display: flex; gap: 9px; }
 
 /* ------------------------------------------------------------ dialogs */
 dialog {
@@ -554,7 +593,8 @@ dialog.botoffer { width: min(480px, calc(100vw - 32px)); }
 .bo-actions .dlg-undo { margin-right: auto; }
 .mini-cards { display: flex; gap: 6px; flex-wrap: wrap; }
 .mini-cards .rcard { width: 42px; height: 56px; }
-.mini-cards .rcard svg { width: 22px; height: 22px; }
+.mini-cards .rcard::before { inset: 3px; }
+.mini-cards .rcard svg { width: 30px; height: 30px; margin-top: 0; }
 .mini-cards .rcard .n { width: 20px; min-width: 20px; height: 20px; font-size: 11px; }
 
 .pick-res { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
@@ -679,7 +719,8 @@ kbd { font: 700 11.5px var(--mono); background: #0e141d; border: 1px solid var(-
 .glow-mark.mine { stroke: #ff6b81; stroke-dasharray: 5 4; }
 
 /* ------------------------------------------------------------ one-click building */
-.targets.quick .e-target line.vis { opacity: .75; stroke-width: 5; stroke-dasharray: 5 6; }
+.targets.quick .e-target line.vis { stroke-width: 5; }
+.targets.quick .e-target line.bed { stroke-width: 9.5; }
 .targets.quick .v-target circle.ring { animation: none; fill: rgb(255 255 255 / .12); }
 .v-target.k-city circle.ring { fill: none; stroke: var(--accent); stroke-width: 3; stroke-dasharray: 4 4; }
 .v-target.k-city:hover circle.ring { fill: rgb(240 180 41 / .25); stroke-dasharray: none; }
@@ -877,7 +918,7 @@ dialog:focus { outline: none; }
   background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 100%, #fff 18%), color-mix(in srgb, var(--rc) 80%, #000 30%));
   border: 1.5px solid var(--pc, #fff); box-shadow: 0 6px 14px rgb(0 0 0 / .45);
 }
-.fly svg { width: 16px; height: 16px; fill: rgb(255 255 255 / .95); }
+.fly svg { width: 22px; height: 22px; }
 
 /* coach: one number, one bar, then the moves */
 .accuracy { margin-top: 10px; }
@@ -902,9 +943,8 @@ dialog:focus { outline: none; }
 .p-vp b { font-size: 26px; }
 
 /* one-click build targets stay out of the way until the pointer is over the board */
-.targets.quick .e-target line.vis { opacity: .45; transition: opacity .15s; }
-.board:hover .targets.quick .e-target line.vis { opacity: .8; }
-.targets.quick .e-target:hover line.vis { opacity: 1; }
+.targets.quick .e-target { opacity: .7; transition: opacity .15s; }
+.board:hover .targets.quick .e-target, .targets.quick .e-target:hover { opacity: 1; }
 
 @media (max-width: 899px) {
   .dock { align-items: stretch; }
@@ -1065,3 +1105,62 @@ body.replaying .dice { bottom: 114px; }
 .games-table td:nth-child(3) { white-space: nowrap; }
 dialog.wide { width: min(980px, calc(100vw - 32px)); }
 @media (max-width: 899px) { .row-actions { flex-wrap: wrap; } body.replaying .board { height: 100%; } }
+
+/* ============ your move: what you can press grows ============ */
+/* Anything that moves the game on is drawn larger while it is yours to press, and what you
+   can't use right now steps back, so the next click is the biggest thing on the screen.
+   The size is a state, so it holds under reduced motion; only the spring is dropped. */
+:root {
+  --spring: linear(0, .009, .035 2.1%, .141 4.4%, .723 12.9%, .938 16.7%, 1.017, 1.077, 1.121, 1.149 24.3%, 1.159, 1.163, 1.161, 1.154 29.9%, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%, .991, .977 51%, .974 53.8%, .975 57.1%, .997 69.8%, 1.003 76.9%, 1);
+  --zoom: 1.1; --zoom-main: 1.2;
+}
+.actions .btn, .dcard { transform-origin: 50% 100%; }
+.actions .btn { transition: scale .32s cubic-bezier(.3, 1.4, .5, 1), background-color .15s, border-color .15s, opacity .2s, box-shadow .2s; }
+.dcard { transition: scale .32s cubic-bezier(.3, 1.4, .5, 1), translate .15s, box-shadow .15s; }
+@supports (transition-timing-function: linear(0, 1)) {
+  .actions .btn, .dcard { transition-duration: .6s, .15s, .15s, .2s, .2s; transition-timing-function: var(--spring), ease, ease, ease, ease; }
+}
+@media (prefers-reduced-motion: reduce) { .actions .btn, .dcard { transition-property: background-color, border-color, opacity, box-shadow; } }
+.actions .btn.go { scale: var(--zoom); z-index: 1; }
+.actions .btn.go-main { scale: var(--zoom-main); z-index: 2; margin-inline: 6px; }
+.actions .btn.go:hover { scale: calc(var(--zoom) + .05); }
+.actions .btn.go-main:hover { scale: calc(var(--zoom-main) + .04); }
+.actions .btn.go:active { scale: 1; }
+body.my-turn .actions .btn.tool:not(.go) { scale: .92; opacity: .7; }
+.actions .btn.tool.go { background: #24324a; box-shadow: 0 0 0 1px rgb(240 180 41 / .45) inset, 0 8px 18px rgb(0 0 0 / .35); }
+.actions .btn.go-main { box-shadow: 0 0 0 4px rgb(240 180 41 / .16), 0 10px 26px rgb(240 180 41 / .28); }
+.dcard.playable { scale: 1.1; z-index: 1; box-shadow: 0 0 0 2px var(--accent), 0 10px 20px rgb(0 0 0 / .4); }
+.dcard.playable:hover { scale: 1.16; translate: 0 -3px; }
+.devhand { gap: 9px; }
+/* in a dialog the answer that moves on is the larger button */
+dialog :is(.dlg-actions, .offer-bar) .obvious:not(:disabled), dialog :is(.dlg-actions, .offer-bar):not(:has(.obvious:not(:disabled))) .btn.primary:not(:disabled), .victims button.obvious { scale: 1.08; transform-origin: 100% 50%; margin-inline: 8px 4px; }
+.victims button.obvious { transform-origin: 0 50%; margin-left: 0; }
+dialog .dlg-actions .btn, dialog .offer-bar .btn { transition: scale .25s cubic-bezier(.3, 1.4, .5, 1), background-color .15s, border-color .15s, opacity .15s; }
+@media (max-width: 899px) { :root { --zoom: 1.04; --zoom-main: 1.04; } .actions .btn.go-main { margin-inline: 0; } }
+
+/* board targets: large, and they arrive with a small zoom of their own, best spots first */
+.targets > * { transform-box: fill-box; transform-origin: center; }
+@media (prefers-reduced-motion: no-preference) {
+  .targets > * { animation: target-in .5s cubic-bezier(.3, 1.5, .5, 1) backwards; animation-delay: calc(var(--i, 0) * 14ms); }
+  .targets > polygon.hex-target { animation-name: target-fade; }
+  .targets .best .halo { animation: halo 1.7s ease-out infinite; }
+}
+@keyframes target-in { from { scale: .2; opacity: 0; } }
+@keyframes target-fade { from { opacity: 0; } }
+@keyframes halo { from { scale: 1; opacity: .9; } to { scale: 2; opacity: 0; } }
+.v-target .halo { fill: none; stroke: var(--good); stroke-width: 2.5; opacity: 0; transform-box: fill-box; transform-origin: center; pointer-events: none; }
+.v-target circle.ring, .v-target .v-pips { transition: scale .18s cubic-bezier(.3, 1.5, .5, 1); transform-box: fill-box; transform-origin: center; }
+.v-target circle.ring.scored { stroke-width: 2.2; filter: drop-shadow(0 1.5px 1.5px rgb(0 0 0 / .45)); }
+.v-target:hover circle.ring.scored, .v-target:focus-visible circle.ring.scored { scale: 1.3; }
+.v-target:hover .v-pips { scale: 1.25; }
+.v-target.best circle.ring.scored { stroke: var(--good); stroke-width: 3; }
+.v-target.k-city circle.ring { fill: rgb(240 180 41 / .14); stroke-width: 3.2; animation: none; }
+.v-target.k-city .up { fill: var(--accent); stroke: #10151d; stroke-width: 1.2; stroke-linejoin: round; pointer-events: none; }
+.targets.quick .v-target.k-city .up { opacity: .85; }
+.e-target.best line.vis { stroke: var(--good); }
+.hex-target { stroke: rgb(255 255 255 / .6); stroke-width: 3; }
+.hex-target.best { stroke: var(--good); stroke-width: 4; stroke-dasharray: none; fill: rgb(62 207 142 / .12); }
+/* one-click building in your main phase: smaller than a chosen build mode, still easy to hit */
+.targets.quick .v-target circle.ring.scored { scale: .85; }
+.targets.quick .v-target .v-pips { scale: .85; }
+.targets.quick .v-target:hover circle.ring.scored { scale: 1.2; }

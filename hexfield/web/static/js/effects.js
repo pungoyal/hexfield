@@ -13,7 +13,7 @@ export function effects(evs) {
       const total = S.last_roll[2];
       if (total !== 7) {
         B.hexes.forEach((h, i) => {
-          if (h.num === total && i !== S.robber) flash(els.hex[i], "produce", 1300);
+          if (h.num === total && i !== S.robber) { flash(els.hex[i], "produce", 1300); flash(els.token[i], "produce", 1300); }
         });
         flyProduction(total, new Set(evs.filter((x) => x.kind === "produce").map((x) => x.p)));
       }
@@ -68,7 +68,7 @@ export function flyCard(from, toEl, r, owner, delay) {
   const el = document.createElement("div");
   el.className = `fly r-${RES[r]}`;
   el.style.cssText = `left:${from.x}px;top:${from.y}px;--pc:${pc(owner)}`;
-  el.innerHTML = icon("i-" + RES[r]);
+  el.innerHTML = icon("a-" + RES[r]);
   document.body.append(el);
   // bots: land on the card count, at the left of their panel; you: on the matching hand card
   const tx = (owner === S.human ? box.left + box.width / 2 : box.left + 34) - from.x;

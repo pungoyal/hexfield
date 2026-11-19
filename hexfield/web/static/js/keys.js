@@ -105,6 +105,12 @@ export function renderKeys() {
   const g = els.keys;
   g.replaceChildren();
   keyMap = keyTargets();
+  // the top-ranked spot also stands out on the board itself
+  const top = keyMap[0]?.best ? keyMap[0] : null;
+  for (const el of els.targets.children) {
+    el.classList.toggle("best", !!top && (top.v !== undefined ? el.dataset.v === String(top.v)
+      : top.e !== undefined ? el.dataset.e === String(top.e) : el.dataset.h === String(top.hex)));
+  }
   if (keyBuf && !keyMap.some((k) => k.code.startsWith(keyBuf))) keyBuf = "";
   for (const k of keyMap) {
     const on = keyBuf && k.code.startsWith(keyBuf);

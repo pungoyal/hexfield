@@ -6,11 +6,11 @@ export { RES, parseCards } from "./logic.js";
 
 export const COSTS = { road: [1, 1, 0, 0, 0], settle: [1, 1, 1, 1, 0], city: [0, 0, 0, 2, 3], dev: [0, 0, 1, 1, 1] };
 export const DEVS = [
-  { key: "knight", name: "Knight", icon: "i-knight", play: "play_knight", hot: "4" },
-  { key: "vp", name: "Victory pt", icon: "i-vp", play: null },
-  { key: "roadb", name: "Road bldg", icon: "i-roadb", play: "play_road", hot: "5" },
-  { key: "mono", name: "Monopoly", icon: "i-mono", play: "play_mono", hot: "6" },
-  { key: "yop", name: "Plenty", icon: "i-yop", play: "play_yop", hot: "7" },
+  { key: "knight", name: "Knight", icon: "i-knight", art: "a-knight", play: "play_knight", hot: "4" },
+  { key: "vp", name: "Victory pt", icon: "i-vp", art: "a-vp", play: null },
+  { key: "roadb", name: "Road bldg", icon: "i-roadb", art: "a-roadb", play: "play_road", hot: "5" },
+  { key: "mono", name: "Monopoly", icon: "i-mono", art: "a-mono", play: "play_mono", hot: "6" },
+  { key: "yop", name: "Plenty", icon: "i-yop", art: "a-yop", play: "play_yop", hot: "7" },
 ];
 export const VERDICT_COLORS = { forced: "var(--muted)", best: "var(--good)", good: "var(--ok)", inaccuracy: "var(--warn)", mistake: "var(--bad)", blunder: "var(--worst)" };
 export const LOG_ICONS = { build: "⌂", roll: "⚄", produce: "+", robber: "☗", steal: "✋", dev: "★", trade: "⇄", award: "♛",
