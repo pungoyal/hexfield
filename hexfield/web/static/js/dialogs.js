@@ -462,6 +462,11 @@ export function openNewGame(cancellable = true) {
     else if (k === "names") f.dataset.names = JSON.stringify(v);
     else { const radio = f.querySelector(`[name="${k}"][value="${v}"]`); if (radio) radio.checked = true; }
   }
+  // an account plays under its own name (the server holds it to that)
+  const account = G.me?.user?.name;
+  if (account) f.elements.name.value = account;
+  f.elements.name.readOnly = !!account;
+  f.elements.name.title = account ? "Your account's name" : "";
   syncNewGame();
   f.elements.seed.value = "";
   dlg.returnValue = "";
@@ -496,12 +501,17 @@ export function syncNewGame() {
     const saved = JSON.parse(f.dataset.names || "[]");
     const box = $("#new-names");
     const have = $$("input", box).map((i) => i.value);
-    box.innerHTML = Array.from({ length: humans }, (_, i) => `<label class="field">Player ${i + 1}<input name="pname${i}" maxlength="14" value="${esc(have[i] ?? saved[i] ?? `Player ${i + 1}`)}" required></label>`).join("");
+    const first = G.me?.user?.name; // the account holder sits first
+    box.innerHTML = Array.from({ length: humans }, (_, i) => `<label class="field">Player ${i + 1}<input name="pname${i}" maxlength="14" value="${esc(have[i] ?? (i === 0 ? first : undefined) ?? saved[i] ?? `Player ${i + 1}`)}" required></label>`).join("");
   } else {
     $("#new-names").replaceChildren();
   }
+  const here = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname); // a server on this computer
   $("#new-multi-note").textContent = mode === "hotseat" ? "One screen for everyone: it goes dark between players, so nobody sees another hand."
-    : mode === "online" ? "You get a link to send the others. They need to reach this computer: start the server with --lan on a shared network." : "";
+    : mode !== "online" ? ""
+    : here ? "You get a link to send the others. They need to reach this computer: start the server with --lan on a shared network."
+    : G.me?.accounts ? "You get a link to send the others. They sign in with a passkey to take their seat."
+    : "You get a link to send the others.";
 }
 
 export function newGameOptions() {
@@ -514,7 +524,8 @@ export function newGameOptions() {
     opts.humans = Number(f.elements.humans.value);
     if (mode === "hotseat") opts.names = $$("#new-names input").map((i) => i.value);
   }
-  save("newgame", { mode, opponents: opts.opponents, level: opts.level, seat: opts.seat ?? "", name: opts.name, humans: opts.humans ?? 2,
+  const name = G.me?.user ? store("newgame", {})?.name : opts.name; // remember the name you typed, not your account's
+  save("newgame", { mode, opponents: opts.opponents, level: opts.level, seat: opts.seat ?? "", name, humans: opts.humans ?? 2,
     styles: opts.styles, dice: opts.dice, layout: opts.layout, names: opts.names ?? [] });
   return opts;
 }

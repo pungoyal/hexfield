@@ -79,8 +79,8 @@ class Accounts:
             self.db.execute("begin")
             try:
                 self.db.execute("insert into users (id, name, created) values (?, ?, ?)", (user_id, name, now))
-                self.db.execute("insert into passkeys (id, user_id, public_key, sign_count, created) values (?, ?, ?, ?, ?)",
-                                (cred_id, user_id, key[0].to_bytes(32) + key[1].to_bytes(32), sign_count, now))
+                self.db.execute("insert into passkeys (id, user_id, public_key, sign_count, created, used) values (?, ?, ?, ?, ?, ?)",
+                                (cred_id, user_id, key[0].to_bytes(32) + key[1].to_bytes(32), sign_count, now, now))
                 self.db.execute("commit")
             except BaseException:
                 self.db.execute("rollback")

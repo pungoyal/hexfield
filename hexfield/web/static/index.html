@@ -157,7 +157,7 @@
     <fieldset class="seg"><legend>Who plays</legend>
       <label><input type="radio" name="mode" value="solo" checked>Just me</label>
       <label title="Several people share this device and pass it around"><input type="radio" name="mode" value="hotseat">Pass and play</label>
-      <label title="Each player uses their own device on your network"><input type="radio" name="mode" value="online">Online</label>
+      <label title="Each player uses their own device"><input type="radio" name="mode" value="online">Online</label>
     </fieldset>
     <div class="multi" id="new-multi" hidden>
       <fieldset class="seg"><legend>Human players</legend>
@@ -214,6 +214,7 @@
       <label class="field"><span class="nowrap">Seed <span class="muted">(optional)</span></span><input name="seed" inputmode="numeric" pattern="[0-9]*" placeholder="random"></label>
     </div>
     <div class="dlg-actions">
+      <button class="btn ghost" type="button" id="new-account" title="Your account" hidden></button>
       <button class="btn ghost" type="button" id="new-saved" data-key="G" title="Resume or replay a saved game">Saved games…</button>
       <button class="btn ghost" value="cancel" id="new-cancel" data-key="Esc" formnovalidate>Cancel</button>
       <button class="btn primary obvious" value="start" data-key="↵" autofocus>Start game</button>

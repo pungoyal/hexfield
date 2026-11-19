@@ -1,6 +1,7 @@
 // Accounts on a public server (hexfield-web --accounts): passkey sign-up and sign-in,
 // and the admin's list of who may host. The server checks everything; this asks and shows.
 
+import { openNewGame } from "./dialogs.js";
 import { modal, toast } from "./effects.js";
 import { G, S, api } from "./state.js";
 import { $, esc } from "./util.js";
@@ -15,6 +16,9 @@ export async function loadMe() {
   const btn = $("#btn-account");
   btn.hidden = !me.accounts;
   btn.querySelector("span").textContent = me.user ? me.user.name : me.admin ? "Admin" : "Sign in";
+  // the new game dialog can't be closed before there is a game: the account is reachable from it too
+  $("#new-account").hidden = !me.accounts || !(me.user || me.admin);
+  $("#new-account").textContent = me.admin ? "Accounts…" : `${me.user?.name ?? ""}…`;
   // what only a host can use (the server refuses the rest anyway)
   for (const id of ["#btn-new", "#btn-games", "#over-replay"]) $(id).hidden = !me.host;
   return me;
@@ -48,6 +52,15 @@ const signUp = (name) => passkey(async () => {
     publicKey: b64u(r.getPublicKey()), alg: r.getPublicKeyAlgorithm() });
 });
 
+// approved yet? then on to the new game dialog, without a reload
+async function checkAgain() {
+  const me = await loadMe();
+  if (!me.host) return toast("Not yet", `The admin hasn't let ${me.user?.name ?? "you"} host yet.`, "var(--muted)", 2600);
+  $("#dlg-account").close();
+  toast("You can host now", "", "var(--good)", 2200);
+  if (!S) openNewGame(false);
+}
+
 async function signOut() {
   try { await api("signout", {}); } catch { /* the cookie goes either way on reload */ }
   location.reload();
@@ -72,12 +85,13 @@ export function openAccount() {
   } else if (!me.host) {
     $("#account-title").textContent = `Hi, ${me.user.name}`;
     body.innerHTML = `<p>You can play in any game you're invited to: open its invite link.</p>
-      <p class="muted">Starting your own games needs the admin's approval. Ask them to let <b>${esc(me.user.name)}</b> host, then reload this page.</p>
-      <div class="dlg-actions"><button class="btn ghost" id="acct-signout">Sign out</button></div>`;
+      <p class="muted">Starting your own games needs the admin's approval. Ask them to let <b>${esc(me.user.name)}</b> host.</p>
+      <div class="dlg-actions"><button class="btn ghost" id="acct-signout">Sign out</button><button class="btn primary obvious" id="acct-check" autofocus>Check again</button></div>`;
   } else {
-    $("#account-title").textContent = me.user ? `Signed in as ${me.user.name}` : "Admin";
-    body.innerHTML = `${me.admin ? `<h3>Accounts</h3><p class="muted">Anyone can make an account and join the games they're invited to. Tick the ones that may host games of their own.</p><div id="acct-users" class="table-x"><p class="muted">Loading…</p></div>` : ""}
-      ${me.user ? `<div class="dlg-actions"><button class="btn ghost" id="acct-signout">Sign out</button></div>` : ""}`;
+    $("#account-title").textContent = me.admin ? "Accounts" : `Signed in as ${me.user.name}`;
+    body.innerHTML = `${me.admin ? `<p class="muted">Anyone can make an account and join the games they're invited to. Tick the ones that may host games of their own.</p><div id="acct-users" class="table-x"><p class="muted">Loading…</p></div>`
+      : `<p>You can host games. They're saved to your account, and only you see them under Games.</p>`}
+      ${me.user ? `<div class="dlg-actions">${me.admin ? `<span class="muted acct-as">Signed in as ${esc(me.user.name)}</span>` : ""}<button class="btn ghost" id="acct-signout">Sign out</button></div>` : ""}`;
     if (me.admin) loadUsers();
   }
   modal(dlg);
@@ -98,10 +112,12 @@ async function loadUsers(data) {
 
 export function wireAccount() {
   $("#btn-account").onclick = () => openAccount();
+  $("#new-account").onclick = () => openAccount();
   const body = $("#account-body");
   body.addEventListener("click", (e) => {
     if (e.target.id === "acct-signin") signIn();
     else if (e.target.id === "acct-signout") signOut();
+    else if (e.target.id === "acct-check") checkAgain();
     else if (e.target.dataset.delete && confirm(`Delete ${e.target.dataset.name}'s account and saved games?`)) {
       api("accounts", { id: e.target.dataset.delete, delete: true }).then(loadUsers, (err) => toast("Couldn't delete", err.message, "var(--worst)"));
     }

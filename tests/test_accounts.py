@@ -254,6 +254,15 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(Browser(self.port).sign_up("One more", Authenticator())["status"], 429)
         self.assertEqual(len(self.admin.call("accounts")["users"]), server.SIGNUP_BURST)
 
+    def test_a_host_plays_under_their_account_name(self):
+        ada, _ = self.account("Ada", host=True)
+        st = ada.call("new", {"opponents": 2, "seed": 3, "name": "Mallory"})
+        try:
+            self.assertEqual(st["players"][st["human"]]["name"], "Ada")
+            self.assertIsNotNone(self.admin.call("accounts")["users"][0]["seen"])  # signing up is signing in
+        finally:
+            ada.call("delete", {"id": st["gid"]})
+
     def test_names_are_unique(self):
         self.account("Ada")
         self.assertEqual(Browser(self.port).call("signup-options", {"name": "ADA"})["status"], 400)
