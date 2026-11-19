@@ -3,7 +3,7 @@
 import { act, render } from "./app.js";
 import { BANDIT, boardDefs, townArt, hexPoints, dockBadge, trailArt, villageArt, terrain, tokenArt } from "./art.js";
 import { resetKeyCaches, setObvious } from "./keys.js";
-import { boardBox, zoomBox } from "./logic.js";
+import { boardBox } from "./logic.js";
 import { B, G, S, els, legal, myDecision } from "./state.js";
 import { edgeLine, resetBoardCaches as resetTextCaches, trailsToward, spotName } from "./text.js";
 import { $, RES, esc, pc, resIcon, svg } from "./util.js";
@@ -16,9 +16,7 @@ export function buildBoard() {
   // just the island and its docks: the sea is the panel behind (and fills whatever is left over)
   const box = boardBox(B.vertices);
   els.box = box;
-  els.view = { x: box.x, y: box.y, w: box.w, h: box.h };
   els.targetSig = null;
-  cancelAnimationFrame(els.viewRaf);
   board.setAttribute("viewBox", `${box.x} ${box.y} ${box.w} ${box.h}`);
   resetTextCaches();
   resetKeyCaches();
@@ -188,36 +186,10 @@ export function onBoardKey(ev) {
   onBoardClick({ target: t, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
 }
 
-// ------------------------------------------------------------------ the camera
-// When the spots you can click sit close together (the trail beside a new village, a
-// free trail, a town to upgrade), the board zooms in on them: bigger targets, and no
-// doubt about where the game wants you. It zooms back out as soon as you have chosen.
-const calm = matchMedia("(prefers-reduced-motion: reduce)");
-export const MAX_ZOOM = 1.7;
-
-export function focusBox(t) {
-  const full = els.box;
-  const pts = [...t.v.map(([v]) => B.vertices[v]), ...t.e.flatMap((e) => B.edges[e].map((v) => B.vertices[v]))];
-  if (!pts.length || t.h.length || t.quick) return full;
-  return zoomBox(full, pts, B.radius * 1.8, MAX_ZOOM);
-}
-
-export function setView(to) {
-  const board = $("#board"), from = { ...els.view };
-  const put = (v) => { els.view = v; board.setAttribute("viewBox", `${f1(v.x)} ${f1(v.y)} ${f1(v.w)} ${f1(v.h)}`); };
-  cancelAnimationFrame(els.viewRaf);
-  if (["x", "y", "w", "h"].every((k) => Math.abs(from[k] - to[k]) < 0.5)) return;
-  board.classList.toggle("zoomed", to.w < els.box.w - 1);
-  if (calm.matches || document.hidden) return put({ x: to.x, y: to.y, w: to.w, h: to.h });
-  const t0 = performance.now(), ms = 520;
-  const step = (now) => {
-    const k = Math.min(1, (now - t0) / ms), e = k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2;
-    put({ x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e, w: from.w + (to.w - from.w) * e, h: from.h + (to.h - from.h) * e });
-    if (k < 1) els.viewRaf = requestAnimationFrame(step);
-  };
-  els.viewRaf = requestAnimationFrame(step);
-}
-
+// ------------------------------------------------------------------ targets
+// The board never moves under you: the whole island stays in view, so every choice is
+// made with the full picture. Emphasis belongs to the controls (the build buttons and the
+// venture cards grow when they are yours to use), not to a camera.
 export function renderTargets() {
   const g = els.targets;
   const t = targetsNow();
@@ -226,7 +198,6 @@ export function renderTargets() {
   if (sig === els.targetSig) return;
   els.targetSig = sig;
   g.replaceChildren();
-  setView(focusBox(t));
   $("#board").classList.toggle("robbing", t.h.length > 0);
   g.classList.toggle("quick", t.quick);
   let order = 0;

@@ -6,11 +6,16 @@ export { RES, parseCards } from "./logic.js";
 
 export const COSTS = { trail: [1, 1, 0, 0, 0], settle: [1, 1, 1, 1, 0], town: [0, 0, 0, 2, 3], venture: [0, 0, 1, 1, 1] };
 export const VENTURES = [
-  { key: "ranger", name: "Ranger", icon: "i-ranger", art: "a-ranger", play: "play_ranger", hot: "4" },
-  { key: "landmark", name: "Landmark", icon: "i-fame", art: "a-landmark", play: null },
-  { key: "pathfinder", name: "Pathfinder", icon: "i-pathfinder", art: "a-pathfinder", play: "play_pathfinder", hot: "5" },
-  { key: "hoard", name: "Hoard", icon: "i-hoard", art: "a-hoard", play: "play_hoard", hot: "6" },
-  { key: "windfall", name: "Windfall", icon: "i-windfall", art: "a-windfall", play: "play_windfall", hot: "7" },
+  { key: "ranger", name: "Ranger", icon: "i-ranger", art: "a-ranger", play: "play_ranger", hot: "4",
+    does: "Move the bandit and steal a card from a player beside it. Three rangers earn the Great Patrol." },
+  { key: "landmark", name: "Landmark", icon: "i-fame", art: "a-landmark", play: null,
+    does: "1 fame, kept face down. It counts for you automatically." },
+  { key: "pathfinder", name: "Pathfinder", icon: "i-pathfinder", art: "a-pathfinder", play: "play_pathfinder", hot: "5",
+    does: "Build two trails, free." },
+  { key: "hoard", name: "Hoard", icon: "i-hoard", art: "a-hoard", play: "play_hoard", hot: "6",
+    does: "Name a resource: every other player hands you all of theirs." },
+  { key: "windfall", name: "Windfall", icon: "i-windfall", art: "a-windfall", play: "play_windfall", hot: "7",
+    does: "Take any two resource cards from the bank." },
 ];
 export const VERDICT_COLORS = { forced: "var(--muted)", best: "var(--good)", good: "var(--ok)", inaccuracy: "var(--warn)", mistake: "var(--bad)", blunder: "var(--worst)" };
 export const LOG_ICONS = { build: "⌂", roll: "⚄", produce: "+", bandit: "☗", steal: "✋", venture: "★", trade: "⇄", award: "♛",

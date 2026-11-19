@@ -460,15 +460,17 @@ dialog.wide { width: min(900px, calc(100vw - 32px)); }
 .rcard.zero .n { border-color: var(--line-2); color: var(--muted); }
 .rcard.bump { animation: bump .5s ease-out; }
 @keyframes bump { 35% { translate: 0 -10px; } }
-.venturehand { display: flex; gap: 6px; min-height: 72px; align-items: center; }
+.venturehand { display: flex; gap: 6px; min-height: 67px; align-items: center; }
 .venturehand:empty::before { content: "None yet: buy one for wool, grain and stone"; color: var(--faint); font-size: 12px; max-width: 150px; line-height: 1.35; }
 .venture-wrap { padding-left: 18px; border-left: 1px solid var(--line); }
+/* room above the ventures for a playable card to grow into (see "ventures" below) */
+.venture-wrap > .tray-cap { margin-bottom: 12px; }
 /* captions over the two hands: what it is, how many, and the over-7 warning */
 .tray-cap { display: flex; align-items: center; gap: 7px; height: 18px; margin-bottom: 7px; font-size: 11px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
 .tray-cap b { font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
 .cap-warn { text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: 700; color: #ffb3c1; background: #3a1d26; border: 1px solid #7a3446; border-radius: 999px; padding: 0 8px; line-height: 16px; }
 .dcard {
-  position: relative; width: 56px; height: 68px; border-radius: 9px; padding: 0;
+  position: relative; width: 56px; height: 64px; border-radius: 9px; padding: 0;
   background: linear-gradient(160deg, #5b4a8c, #2f2552); border: 1px solid #7b68b8;
   display: grid; place-items: center; cursor: default;
   box-shadow: 0 4px 10px rgb(0 0 0 / .3);
@@ -480,7 +482,6 @@ dialog.wide { width: min(900px, calc(100vw - 32px)); }
 .dcard .n { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; border-radius: 10px; background: #0d1117; border: 2px solid #9c88e0; font-size: 11px; font-weight: 800; display: grid; place-items: center; }
 .dcard .lbl { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center; white-space: nowrap; font-size: 8px; font-weight: 700; color: #e6dcff; text-transform: uppercase; letter-spacing: .02em; }
 .dcard.playable { cursor: pointer; border-color: var(--accent); }
-.dcard.playable:hover { translate: 0 -5px; box-shadow: 0 10px 20px rgb(0 0 0 / .4), 0 0 0 2px var(--accent); }
 .dcard.new { opacity: .55; }
 .dcard.new::after { content: "new"; position: absolute; top: 4px; left: 4px; font-size: 8px; font-weight: 800; text-transform: uppercase; color: var(--accent); }
 .dcard.landmark { background: linear-gradient(160deg, #8a6b1c, #4a3810); border-color: #c9a33f; }
@@ -857,7 +858,8 @@ dialog:focus { outline: none; }
 /* ventures you can't play now: dimmed, with the reason */
 .dcard.blocked { opacity: .55; }
 .dcard.new::after { content: none; }
-.dcard .why-tag { position: absolute; top: 3px; left: 2px; right: 2px; font-size: 7.5px; font-weight: 800; line-height: 1.1; text-transform: uppercase; color: var(--accent); text-align: center; letter-spacing: .02em; }
+/* the reason sits on the card's bottom edge, clear of the picture; the close-up spells it out */
+.dcard .why-tag { position: absolute; bottom: -9px; left: 50%; translate: -50% 0; z-index: 1; white-space: nowrap; font-size: 8px; font-weight: 800; line-height: 11px; padding: 0 5px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; color: #e9e2ff; background: #0d1117; border: 1px solid #5d4f8e; }
 
 /* hand strips warn past seven cards */
 .trade-hand .th-total.over { color: #ffb3c1; font-weight: 700; }
@@ -975,8 +977,9 @@ dialog:focus { outline: none; }
   .tray { padding: 8px 14px; }
   .tray-cap { margin-bottom: 5px; }
   .rcard { height: 64px; }
-  .dcard { height: 62px; }
-  .venturehand { min-height: 64px; }
+  .dcard { height: 58px; }
+  .venturehand { min-height: 60px; }
+  .venture-wrap > .tray-cap { margin-bottom: 9px; }
   .btn.big { padding: 10px 18px; }
 }
 @media (max-width: 899px) {
@@ -1116,9 +1119,10 @@ dialog.wide { width: min(980px, calc(100vw - 32px)); }
 }
 .actions .btn, .dcard { transform-origin: 50% 100%; }
 .actions .btn { transition: scale .32s cubic-bezier(.3, 1.4, .5, 1), background-color .15s, border-color .15s, opacity .2s, box-shadow .2s; }
-.dcard { transition: scale .32s cubic-bezier(.3, 1.4, .5, 1), translate .15s, box-shadow .15s; }
+.dcard { transition: scale .32s cubic-bezier(.3, 1.4, .5, 1), translate .2s, box-shadow .2s, opacity .2s, margin .32s; }
 @supports (transition-timing-function: linear(0, 1)) {
-  .actions .btn, .dcard { transition-duration: .6s, .15s, .15s, .2s, .2s; transition-timing-function: var(--spring), ease, ease, ease, ease; }
+  .actions .btn { transition-duration: .6s, .15s, .15s, .2s, .2s; transition-timing-function: var(--spring), ease, ease, ease, ease; }
+  .dcard { transition-duration: .6s, .2s, .2s, .2s, .6s; transition-timing-function: var(--spring), ease, ease, ease, var(--spring); }
 }
 @media (prefers-reduced-motion: reduce) { .actions .btn, .dcard { transition-property: background-color, border-color, opacity, box-shadow; } }
 .actions .btn.go { scale: var(--zoom); z-index: 1; }
@@ -1129,9 +1133,47 @@ dialog.wide { width: min(980px, calc(100vw - 32px)); }
 body.my-turn .actions .btn.tool:not(.go) { scale: .92; opacity: .7; }
 .actions .btn.tool.go { background: #24324a; box-shadow: 0 0 0 1px rgb(240 180 41 / .45) inset, 0 8px 18px rgb(0 0 0 / .35); }
 .actions .btn.go-main { box-shadow: 0 0 0 4px rgb(240 180 41 / .16), 0 10px 26px rgb(240 180 41 / .28); }
-.dcard.playable { scale: 1.1; z-index: 1; box-shadow: 0 0 0 2px var(--accent), 0 10px 20px rgb(0 0 0 / .4); }
-.dcard.playable:hover { scale: 1.16; translate: 0 -3px; }
 .venturehand { gap: 9px; }
+
+/* ============ ventures: the card you can play is the card you see ============ */
+/* A playable venture stands up out of the tray, larger, ringed in gold and softly lit, with
+   its key on it; the rest of the hand steps back while it is your move. The moment a card
+   becomes playable (your turn starts, the dice are rolled) it springs up once, so the change
+   is noticed without anything flashing for the rest of the turn. Grown from the centre, it
+   keeps clear of the caption above and the tray's edge below. */
+.dcard { transform-origin: 50% 50%; }
+.dcard.playable { scale: 1.24; z-index: 2; margin-inline: 7px; box-shadow: 0 0 0 2px var(--accent), 0 0 18px rgb(240 180 41 / .38), 0 10px 22px rgb(0 0 0 / .45); }
+.dcard.playable::after { content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; box-shadow: 0 0 0 2px rgb(240 180 41 / .9), 0 0 22px 4px rgb(240 180 41 / .45); opacity: 0; }
+.dcard.playable:hover, .dcard.playable:focus-visible { scale: 1.32; translate: 0 -3px; }
+.dcard.playable:active { scale: 1.16; translate: 0; }
+.dcard.playable > .kb { background: var(--accent); color: #1b1404; border-color: transparent; font-weight: 800; }
+body.my-turn .venturehand.has-ready .dcard:not(.playable) { scale: .9; opacity: .5; }
+@media (prefers-reduced-motion: no-preference) {
+  .dcard.rise { animation: venture-rise .75s var(--spring, cubic-bezier(.3, 1.5, .5, 1)) backwards; animation-delay: calc(var(--i, 0) * 60ms); }
+  .dcard.playable::after { animation: venture-glow 2.6s ease-in-out infinite; }
+  .dcard.playable:hover::after, .dcard.playable:focus-visible::after { animation: none; opacity: 1; }
+}
+@keyframes venture-rise { from { scale: 1; translate: 0 5px; } 45% { translate: 0 -5px; } }
+@keyframes venture-glow { 50% { opacity: .75; } }
+.cap-ready { text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: 750; color: #1b1404; background: var(--accent); border-radius: 999px; padding: 0 8px; line-height: 16px; }
+
+/* the close-up: a large copy of the card that rises out of it, with its rules */
+.vpeek { position: fixed; inset: auto; margin: 0; padding: 0; border: 0; background: none; overflow: visible; color: var(--text); width: 200px; pointer-events: none; opacity: 0; translate: 0 12px; scale: .55; transform-origin: var(--from, 50%) 100%; transition: opacity .14s, scale .14s, translate .14s; }
+.vpeek.show { opacity: 1; scale: 1; translate: 0; transition: opacity .18s, scale .32s cubic-bezier(.3, 1.35, .5, 1), translate .32s cubic-bezier(.3, 1.35, .5, 1); }
+@starting-style { .vpeek.show { opacity: 0; translate: 0 12px; scale: .55; } }
+@media (prefers-reduced-motion: reduce) { .vpeek, .vpeek.show { scale: 1; translate: 0; transition: opacity .12s; } }
+.vp-card { border-radius: 16px; padding: 10px 10px 12px; background: linear-gradient(160deg, #5b4a8c, #2a2049); border: 1px solid #8f7bd0; box-shadow: 0 18px 44px rgb(0 0 0 / .55), inset 0 1px 0 rgb(255 255 255 / .15); text-align: center; }
+.vp-card.landmark { background: linear-gradient(160deg, #8a6b1c, #3e2f0c); border-color: #c9a33f; }
+.vp-card.playable { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 0 30px rgb(240 180 41 / .3), 0 18px 44px rgb(0 0 0 / .55); }
+.vp-art { height: 104px; border-radius: 11px; display: grid; place-items: center; background: radial-gradient(circle at 50% 32%, #4b3c7c, #1d1638); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .16), inset 0 3px 10px rgb(0 0 0 / .45); }
+.vp-card.landmark .vp-art { background: radial-gradient(circle at 50% 32%, #7a5c16, #2b1f07); }
+.vp-art svg { width: 78px; height: 78px; filter: drop-shadow(0 3px 4px rgb(0 0 0 / .5)); }
+.vp-name { margin-top: 9px; font-size: 14px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #f1eaff; }
+.vp-name span { color: var(--accent); letter-spacing: 0; }
+.vp-does { margin: 6px 2px 0; font-size: 12.5px; line-height: 1.4; color: #ddd3f5; text-wrap: pretty; }
+.vp-state { margin-top: 9px; padding-top: 8px; border-top: 1px solid rgb(255 255 255 / .14); font-size: 11.5px; font-weight: 650; color: #b9aedb; }
+.vp-card.playable .vp-state { color: var(--accent); }
+.vp-state kbd { font: inherit; font-weight: 800; background: var(--accent); color: #1b1404; border-radius: 4px; padding: 0 5px; }
 /* in a dialog the answer that moves on is the larger button */
 dialog :is(.dlg-actions, .offer-bar) .obvious:not(:disabled), dialog :is(.dlg-actions, .offer-bar):not(:has(.obvious:not(:disabled))) .btn.primary:not(:disabled), .victims button.obvious { scale: 1.08; transform-origin: 100% 50%; margin-inline: 8px 4px; }
 .victims button.obvious { transform-origin: 0 50%; margin-left: 0; }

@@ -22,6 +22,7 @@ export const G = {
   overShown: null,
   hintKey: null,
   lastRoller: null,    // who threw the dice on show
+  readyVentures: new Set(), // ventures playable at the last render, so a card rises only as it becomes playable
 };
 export const prefs = { speed: store("speed", "normal"), autoroll: store("autoroll", true), reasons: store("reasons", true),
   marks: store("marks", false) };

@@ -50,7 +50,10 @@ coach panel. Reloading the page resumes the game, and so does restarting the ser
 
 * **What you can do stands out.** On your move, everything you can press is drawn larger:
   the Roll button, the builds you can afford, a playable venture, the spots on the
-  board. When the choices sit close together, the board zooms in on them.
+  board. The board itself never moves, so you always see the whole island. A venture
+  stands up out of the tray, ringed in gold, the moment it becomes playable; point at
+  any venture (or focus it, or press and hold on a touch screen) for a close-up with
+  what it does and whether you can play it now.
 * **Information where you decide.** The left panel shows your income: pips per resource,
   the numbers you collect on, what the bandit blocks, and your trade rates. Village
   spots show their pip value. When the bandit moves, each hex shows whose income it would

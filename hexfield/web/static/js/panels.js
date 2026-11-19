@@ -72,15 +72,26 @@ export function renderHand() {
   const size = S.hand.reduce((a, b) => a + b, 0);
   setHTML($("#hand-cap"), `<span>Your hand</span><b>${size}</b>${size > 7 ? `<span class="cap-warn" title="Over 7 cards: a rolled 7 makes you discard half">a 7 costs you ${Math.floor(size / 2)}</span>` : ""}`);
   const dh = $("#venturehand");
-  const cards = [];
+  const cards = [], ready = new Set();
   VENTURES.forEach((d, k) => {
-    const play = d.play && can(d.play);
+    const play = !!d.play && can(d.play);
+    if (play) ready.add(k);
     if (S.ventures[k]) cards.push(ventureCard(d, k, S.ventures[k], play, false));
     if (S.new_ventures[k]) cards.push(ventureCard(d, k, S.new_ventures[k], false, true));
   });
   setHTML(dh, cards.join(""));
+  // a card springs up out of the tray on the render it becomes playable, not on every redraw
+  let i = 0;
+  for (const k of ready) {
+    const c = !G.readyVentures.has(k) && dh.querySelector(`[data-venture="${k}"]:not([data-new])`);
+    if (c) { c.classList.add("rise"); c.style.setProperty("--i", i++); }
+  }
+  G.readyVentures = ready;
+  dh.classList.toggle("has-ready", ready.size > 0);
+  // a redraw under an open close-up: point it at the new copy of the card, or close it
+  if ($("#vpeek").classList.contains("show")) showVenturePeek(dh.querySelector(".dcard:hover, .dcard:focus-visible"));
   const nVenture = S.ventures.reduce((a, b) => a + b, 0) + S.new_ventures.reduce((a, b) => a + b, 0);
-  setHTML($("#venture-cap"), `<span>Ventures</span>${nVenture ? `<b>${nVenture}</b>` : ""}`);
+  setHTML($("#venture-cap"), `<span>Ventures</span>${nVenture ? `<b>${nVenture}</b>` : ""}${ready.size && myDecision() ? `<span class="cap-ready">${ready.size === 1 ? "1 playable" : `${ready.size} playable`}</span>` : ""}`);
 }
 
 // why a venture can't be played right now (shown on the card), or "" if it can / it's not your turn
@@ -94,11 +105,46 @@ export function ventureBlock(d, playable, isNew) {
   return "not now";
 }
 
+// the line under a venture's rules in its close-up: can you play it, and if not, when
+export function ventureState(d, playable, isNew) {
+  if (playable) return TOUCH ? "Tap to play" : `Click or press <kbd>${d.hot}</kbd> to play`;
+  if (!d.play) return "Always counts — nothing to play";
+  const why = ventureBlock(d, playable, isNew);
+  return {
+    "next turn": "Bought this turn — playable from your next turn",
+    "1 per turn": "You've played a venture this turn — one per turn",
+    "no trail spot": "No spot to build a trail",
+    "after roll": "Play it after you roll",
+    "not now": "Not playable right now",
+  }[why] || "Play it on your turn";
+}
+
 export function ventureCard(d, k, n, playable, isNew) {
   const why = ventureBlock(d, playable, isNew);
-  const tip = isNew ? `${d.name} — bought this turn, playable next turn` : playable ? `Play ${d.name} (${d.hot})` : d.key === "landmark" ? "Landmark: 1 fame (counts automatically)"
-    : `${d.name}${why === "1 per turn" ? " — you already played a venture this turn" : why ? ` — ${why}` : ""}`;
-  return `<button class="dcard ${d.key === "landmark" ? "landmark" : ""} ${playable ? "playable" : ""} ${isNew ? "new" : ""} ${why ? "blocked" : ""}" data-venture="${k}" ${playable ? `data-key="${d.hot}"` : "tabindex=-1"} title="${esc(tip)}">${icon(d.art)}<span class="lbl">${d.name}</span>${n > 1 ? `<span class="n">${n}</span>` : ""}${why ? `<span class="why-tag">${why}</span>` : ""}</button>`;
+  const label = `${d.name}${n > 1 ? ` ×${n}` : ""}: ${d.does} ${ventureState(d, playable, isNew).replace(/<[^>]+>/g, "")}`;
+  const cls = ["dcard", d.key === "landmark" && "landmark", playable && "playable", isNew && "new", why && "blocked"].filter(Boolean).join(" ");
+  return `<button class="${cls}" data-venture="${k}" ${isNew ? "data-new" : ""} ${playable ? `data-key="${d.hot}"` : `aria-disabled="true"`} aria-label="${esc(label)}">${icon(d.art)}<span class="lbl">${d.name}</span>${n > 1 ? `<span class="n">${n}</span>` : ""}${why ? `<span class="why-tag">${why}</span>` : ""}</button>`;
+}
+
+// The close-up: point at a venture (or focus it, or press and hold on a touch screen) and a
+// large copy of the card rises out of it, with what it does and whether you can play it now.
+export function showVenturePeek(card) {
+  const peek = $("#vpeek");
+  if (!card) { peek.classList.remove("show"); return; }
+  // a popover, so it opens above the coach's notes and the toasts (also in the top layer)
+  if (!peek.classList.contains("show")) { if (peek.matches(":popover-open")) peek.hidePopover(); peek.showPopover(); }
+  const k = Number(card.dataset.venture), d = VENTURES[k], isNew = card.hasAttribute("data-new");
+  const playable = card.classList.contains("playable");
+  const n = isNew ? S.new_ventures[k] : S.ventures[k];
+  setHTML(peek, `<div class="vp-card ${d.key === "landmark" ? "landmark" : ""} ${playable ? "playable" : ""}">
+      <div class="vp-art">${icon(d.art)}</div><div class="vp-name">${d.name}${n > 1 ? ` <span>×${n}</span>` : ""}</div>
+      <p class="vp-does">${d.does}</p>
+      <div class="vp-state">${ventureState(d, playable, isNew)}</div></div>`);
+  const r = card.getBoundingClientRect(), w = 200;
+  peek.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2))}px`;
+  peek.style.bottom = `${Math.max(8, innerHeight - r.top + 10)}px`;
+  peek.style.setProperty("--from", `${r.left + r.width / 2 - parseFloat(peek.style.left)}px`);
+  peek.classList.add("show");
 }
 
 // [button, legal kind, cost, tooltip]
@@ -163,16 +209,18 @@ export function renderActions() {
 // main phase, no build mode: what you can build now, else what's closest
 export function mainStatus() {
   const ready = BUILD_BUTTONS.filter(([, kind]) => can(kind));
-  if (ready.length) return `Build: ${ready.map(([id, , cost]) => `${BUILD_NAMES[cost]} <kbd>${$(id).dataset.key}</kbd>`).join(" · ")}`;
+  const vs = playableVentures(), vtxt = vs.map((d) => `${d.name} <kbd>${d.hot}</kbd>`).join(" · ");
+  if (ready.length) return `Build: ${ready.map(([id, , cost]) => `${BUILD_NAMES[cost]} <kbd>${$(id).dataset.key}</kbd>`).join(" · ")}${vs.length ? ` · play ${vtxt}` : ""}`;
+  if (vs.length) return `Play ${vtxt}${vs.length > 1 ? "" : " — or end turn <kbd>E</kbd>"}`;
   const near = BUILD_BUTTONS.map(([, , cost]) => [cost, tradesShort(S.hand, COSTS[cost])]).filter(([, n]) => n > 0 && n < Infinity).sort((a, b) => a[1] - b[1])[0];
   if (near) return `${BUILD_NAMES[near[0]]} is ${near[1]} bank trade${near[1] > 1 ? "s" : ""} away <kbd>T</kbd>`;
   return "Nothing to build — trade <kbd>T</kbd> or end turn <kbd>E</kbd>";
 }
+const playableVentures = () => VENTURES.filter((d, k) => d.play && S.ventures[k] && can(d.play));
 
 export function renderStatus(thinker) {
   let text, p = S.current, mine = false, spin = false;
   const name = (q) => esc(S.players[q].name);
-  const L = S.legal || {};
   if (session.replay) {
     text = `Replay${S.phase === "game_over" ? ` — ${name(S.winner)} won` : ""}`;
     p = S.phase === "game_over" ? S.winner : S.actor;
@@ -188,7 +236,7 @@ export function renderStatus(thinker) {
     switch (S.phase) {
       case "setup_village": text = `Place your ${S.setup_idx < S.n ? "first" : "second"} village — ${TOUCH ? "tap a spot" : "click or type its letters"}`; break;
       case "setup_trail": text = `Place a trail next to it — ${TOUCH ? "tap one" : "click or type its letter"}`; break;
-      case "pre_roll": text = (L.kinds || []).length > 1 ? "Roll the dice — or play a venture first" : "Roll the dice"; break;
+      case "pre_roll": { const vs = playableVentures(); text = vs.length ? `Roll the dice <kbd>R</kbd> — or play ${vs.map((d) => `${d.name} <kbd>${d.hot}</kbd>`).join(" · ")} first` : "Roll the dice"; break; }
       case "main": text = G.mode ? `${BUILD_NAMES[G.mode]}: ${TOUCH ? "tap a spot · tap the button again to cancel" : "click a spot or type its letter · Esc to cancel"}` : mainStatus(); break;
       case "discard": text = `Discard ${S.discard_owed} cards`; break;
       case "move_bandit": text = `Move the bandit — ${TOUCH ? "tap a hex" : "click a hex or type its letter"}`; break;

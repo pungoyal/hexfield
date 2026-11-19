@@ -97,18 +97,6 @@ export function boardBox(vertices, marginX = 40, marginY = 54) {
   return { x: Math.round(x0), y: Math.round(y0), w: Math.round(w), h: Math.round(h), cx: x0 + w / 2, cy: y0 + h / 2 };
 }
 
-// the part of `full` to show so that `pts` fill the view: never closer than `max` times, never
-// outside the board, and null-zoom (the whole board) when the points are spread out anyway
-export function zoomBox(full, pts, pad, max = 1.7, least = 1.18) {
-  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
-  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-  const z = Math.min(full.w / (x1 - x0 + 2 * pad), full.h / (y1 - y0 + 2 * pad), max);
-  if (z < least) return full;
-  const w = full.w / z, h = full.h / z;
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  return { x: clamp((x0 + x1) / 2 - w / 2, full.x, full.x + full.w - w), y: clamp((y0 + y1) / 2 - h / 2, full.y, full.y + full.h - h), w, h };
-}
-
 // Windfall: the two cards that complete the best build, else the two you hold fewest of
 export function windfallPicks(hand, bank, costs, order) {
   const avail = (r, n) => bank[r] >= n;
