@@ -595,8 +595,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._host(route, post, q, body, owner)
             new = route == "new" and post
             if new:
-                if self.account() and not self.local():  # an account plays under its own name
-                    body = {**body, "name": self.account()["name"]}
+                u = self.account()
+                if u and not self.local():  # an account plays under its own name
+                    body = {**body, "name": u["name"]}
                 g = APP.new(body, owner)
             else:
                 # "the newest game" is the host's shortcut; anyone else must name the game,
