@@ -10,7 +10,7 @@ and rendering in perfect agreement.
 import math
 import random
 
-from .constants import (BEGINNER_PORTS, BEGINNER_TILES, DESERT, LARGE_NUMBER_BAG, LARGE_PORT_BAG,
+from .constants import (BEGINNER_PORTS, BEGINNER_TILES, BADLANDS, LARGE_NUMBER_BAG, LARGE_PORT_BAG,
                         LARGE_TILE_BAG, NUMBER_BAG, PIPS, PORT_BAG, RES_NAMES, TILE_BAG)
 
 # character-grid geometry
@@ -117,8 +117,8 @@ class Board:
             tiles, numbers = self._standard_tiles(rng)
         self.hex_resource = tiles
         self.hex_number = numbers
-        self.deserts = [h for h, t in enumerate(tiles) if t == DESERT]
-        self.desert = self.deserts[0]
+        self.badlands_hexes = [h for h, t in enumerate(tiles) if t == BADLANDS]
+        self.badlands = self.badlands_hexes[0]
 
     def _large_tiles(self, rng):
         """Three each of 6 and 8 rarely land apart by chance: seat them first, on hexes
@@ -126,7 +126,7 @@ class Board:
         for _ in range(10000):
             tiles = LARGE_TILE_BAG[:]
             rng.shuffle(tiles)
-            land = [h for h, t in enumerate(tiles) if t != DESERT]
+            land = [h for h, t in enumerate(tiles) if t != BADLANDS]
             rng.shuffle(land)
             red = []
             for h in land:
@@ -152,7 +152,7 @@ class Board:
             nums = NUMBER_BAG[:]
             rng.shuffle(nums)
             it = iter(nums)
-            numbers = [0 if t == DESERT else next(it) for t in tiles]
+            numbers = [0 if t == BADLANDS else next(it) for t in tiles]
             if self._fair_numbers(numbers):
                 break
         return tiles, numbers
@@ -209,11 +209,11 @@ class Board:
 
     # ------------------------------------------------------------- analytics
     def _precompute(self):
-        self.hex_pips = [PIPS[n] for n in self.hex_number]  # the desert has 0
+        self.hex_pips = [PIPS[n] for n in self.hex_number]  # the badlands has 0
         self.vertex_total_pips = [sum(self.hex_pips[h] for h in hs) for hs in self.vertex_hexes]
         tot = [0] * 5
         for h in range(self.H):
-            if self.hex_resource[h] != DESERT:
+            if self.hex_resource[h] != BADLANDS:
                 tot[self.hex_resource[h]] += self.hex_pips[h]
         avg = sum(tot) / 5.0
         # scarcer resources are worth more; clamp so it stays a gentle nudge
@@ -231,8 +231,8 @@ class Board:
         parts = []
         for h in self.vertex_hexes[v]:
             r = self.hex_resource[h]
-            if r == DESERT:
-                parts.append("desert")
+            if r == BADLANDS:
+                parts.append("badlands")
             else:
                 parts.append(f"{self.hex_number[h]} {RES_NAMES[r]}")
         port = self.vertex_port[v]

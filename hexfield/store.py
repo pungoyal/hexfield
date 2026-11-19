@@ -13,15 +13,15 @@ import secrets
 import tempfile
 import time
 
-from .record import Record
+from .record import VERSION, Record
 
 KEEP = 200  # saved games kept; the oldest finished ones go first
 ID_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
 PHASE_GROUPS = {
     "setup_settlement": "opening", "setup_road": "opening",
     "main": "building and trading", "special_build": "building and trading",
-    "road_building": "building and trading", "pre_roll": "knights",
-    "move_robber": "robber", "discard": "discards", "offer": "trade offers",
+    "road_building": "building and trading", "pre_roll": "rangers",
+    "move_bandit": "bandit", "discard": "discards", "offer": "trade offers",
 }
 
 
@@ -106,7 +106,9 @@ def list_games(limit=60):
     for _, gid in files[:limit]:
         try:
             with open(os.path.join(d, gid + ".json")) as f:
-                out.append(_summary(gid, json.load(f)))
+                data = json.load(f)
+            if data.get("version") == VERSION:
+                out.append(_summary(gid, data))
         except (OSError, ValueError):
             continue
     return out

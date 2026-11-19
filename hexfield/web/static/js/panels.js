@@ -21,8 +21,8 @@ export function renderPlayers() {
     const hid = p === S.human && pl.hidden_vp ? `<span class="hid" title="includes ${pl.hidden_vp} hidden victory-point card(s)">★${pl.hidden_vp}</span>` : "";
     const badges = [];
     // the two awards ride in the header as icon chips (2 VP each); warnings get a line of their own
-    const awards = (S.longest === p ? `<span class="badge award" title="Longest Road: 2 VP">${icon("i-longest")}</span>` : "") +
-      (S.army === p ? `<span class="badge award" title="Largest Army: 2 VP">${icon("i-army")}</span>` : "");
+    const awards = (S.longest === p ? `<span class="badge award" title="Great Road: 2 VP">${icon("i-longest")}</span>` : "") +
+      (S.patrol === p ? `<span class="badge award" title="Great Patrol: 2 VP">${icon("i-patrol")}</span>` : "");
     // a player within two points of winning is the one to stop (bots may also hold hidden VP cards)
     const close = S.phase !== "game_over" && pl.vp >= 8;
     el.classList.toggle("threat", close && p !== S.human);
@@ -41,8 +41,8 @@ export function renderPlayers() {
       <div class="p-stats">
         <span class="st-cards ${pl.cards > 7 ? "warn" : ""}" title="Resource cards in hand${pl.cards > 7 ? " — over 7, exposed to a 7" : ""}"><b>${pl.cards}</b>&nbsp;card${pl.cards === 1 ? "" : "s"}</span>
         <span title="Development cards held"><b>${pl.devs}</b>&nbsp;dev</span>
-        <span title="Knights played (3+ and the most wins Largest Army)"><b>${pl.knights}</b>&nbsp;kn</span>
-        <span title="Longest road (5+ and the longest wins Longest Road)">road&nbsp;<b>${pl.road}</b></span>
+        <span title="Rangers played (3+ and the most wins Great Patrol)"><b>${pl.rangers}</b>&nbsp;rg</span>
+        <span title="Great Road (5+ and the longest wins Great Road)">road&nbsp;<b>${pl.road}</b></span>
         <span title="Income: ${inc} pips — about ${(inc / 36).toFixed(2)} cards per roll${p === S.human ? "" : " (from their buildings)"}"><b>${perRoll}</b>/roll</span>
       </div>
       ${badges.length || owe ? `<div class="p-badges">${badges.join("")}${owe ? `<span class="muted" style="font-size:12px">${owe}</span>` : ""}</div>` : ""}
@@ -191,7 +191,7 @@ export function renderStatus(thinker) {
       case "pre_roll": text = (L.kinds || []).length > 1 ? "Roll the dice — or play a development card first" : "Roll the dice"; break;
       case "main": text = G.mode ? `${BUILD_NAMES[G.mode]}: ${TOUCH ? "tap a spot · tap the button again to cancel" : "click a spot or type its letter · Esc to cancel"}` : mainStatus(); break;
       case "discard": text = `Discard ${S.discard_owed} cards`; break;
-      case "move_robber": text = `Move the robber — ${TOUCH ? "tap a hex" : "click a hex or type its letter"}`; break;
+      case "move_bandit": text = `Move the bandit — ${TOUCH ? "tap a hex" : "click a hex or type its letter"}`; break;
       case "road_building": text = `Place a free road (${S.free_roads} left)`; break;
       case "special_build": text = G.mode ? `${BUILD_NAMES[G.mode]}: ${TOUCH ? "tap a spot" : "click a spot or type its letter · Esc to cancel"}`
         : `Special building phase after ${name(S.current)}'s turn — build, or pass <kbd>E</kbd>`; break;
@@ -242,7 +242,7 @@ export function renderEcon() {
     const n = pr.pips[i], bl = pr.blocked[i];
     const nums = pr.nums[i].sort((a, b) => b.pips - a.pips).map((x) => `<span class="ec-num ${x.n === 6 || x.n === 8 ? "hot" : ""}">${x.n}${x.lv > 1 ? "<sup>×2</sup>" : ""}</span>`).join("");
     const ratio = S.ratios[i];
-    return `<div class="ec-row ${n ? "" : "none"}" title="${r}: ${n} pips${bl ? ` (+${bl} blocked by the robber)` : ""} · trade ${ratio}:1">
+    return `<div class="ec-row ${n ? "" : "none"}" title="${r}: ${n} pips${bl ? ` (+${bl} blocked by the bandit)` : ""} · trade ${ratio}:1">
       ${resIcon(i)}
       <span class="ec-bar"><i style="width:${(100 * n) / top}%;background:var(--${r})"></i>${bl ? `<i class="bl" style="width:${(100 * bl) / top}%"></i>` : ""}</span>
       <span class="ec-n">${n || "—"}</span>
@@ -284,7 +284,7 @@ export function appendLog(evs) {
       if (/road/.test(msg)) li.dataset.e = id; else li.dataset.v = id;
       msg = msg.replace(/ at \d+/, "").replace(/upgrades? \d+ to/, (s) => s.replace(/ \d+/, ""));
     }
-    const rm = msg.match(/robber to ([A-Z]{1,2})$/);
+    const rm = msg.match(/bandit to ([A-Z]{1,2})$/);
     if (rm) {
       const h = B.hexes.findIndex((x) => x.label === rm[1]);
       if (h >= 0) li.dataset.h = h;

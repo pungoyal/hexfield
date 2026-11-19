@@ -4,8 +4,8 @@ import unittest
 
 from hexfield.ai import STYLES, AIPlayer
 from hexfield.board import Board
-from hexfield.constants import (BEGINNER_TILES, BRICK, DESERT, KNIGHT, LARGE_NUMBER_BAG, LARGE_TILE_BAG, ORE,
-                                SHEEP, WHEAT, WOOD)
+from hexfield.constants import (BEGINNER_TILES, CLAY, BADLANDS, RANGER, LARGE_NUMBER_BAG, LARGE_TILE_BAG, STONE,
+                                WOOL, GRAIN, TIMBER)
 from hexfield.game import MAIN, OVER, PRE_ROLL, SPECIAL, GameState, IllegalAction
 from hexfield.match import play_headless
 
@@ -17,7 +17,7 @@ class LargeBoardTests(unittest.TestCase):
             self.assertEqual((b.H, b.V, b.E), (30, 80, 109))
             self.assertEqual(sorted(b.hex_resource), sorted(LARGE_TILE_BAG))
             self.assertEqual(sorted(n for n in b.hex_number if n), sorted(LARGE_NUMBER_BAG))
-            self.assertEqual(len(b.deserts), 2)
+            self.assertEqual(len(b.badlands_hexes), 2)
             self.assertTrue(b._fair_numbers(b.hex_number), "6/8 or equal numbers touch")
             self.assertEqual(len(b.ports), 11)
             self.assertEqual(sum(1 for _, k in b.ports if k == "any"), 5)
@@ -40,14 +40,14 @@ class LargeBoardTests(unittest.TestCase):
         self.assertEqual(a.hex_resource, [t for t, _ in BEGINNER_TILES])
         self.assertEqual(a.hex_number, [n for _, n in BEGINNER_TILES])
         self.assertEqual((a.ports, a.hex_resource), (b.ports, b.hex_resource), "the seed must not matter")
-        self.assertEqual(a.hex_resource[9], DESERT)
-        self.assertEqual([a.hex_resource.count(r) for r in (WOOD, BRICK, SHEEP, WHEAT, ORE)], [4, 3, 4, 4, 3])
+        self.assertEqual(a.hex_resource[9], BADLANDS)
+        self.assertEqual([a.hex_resource.count(r) for r in (TIMBER, CLAY, WOOL, GRAIN, STONE)], [4, 3, 4, 4, 3])
         self.assertEqual(sorted(str(k) for _, k in a.ports), sorted(["any"] * 4 + [str(r) for r in range(5)]))
         self.assertTrue(a._fair_numbers(a.hex_number))
         # each harbour sits by its fixed hex, clockwise from the top left
         by = [(a.edge_hexes[e][0], kind) for e, kind in a.ports]
-        self.assertEqual(by, [(0, "any"), (1, WHEAT), (6, ORE), (11, "any"), (15, SHEEP), (18, "any"),
-                              (16, "any"), (12, BRICK), (3, WOOD)])
+        self.assertEqual(by, [(0, "any"), (1, GRAIN), (6, STONE), (11, "any"), (15, WOOL), (18, "any"),
+                              (16, "any"), (12, CLAY), (3, TIMBER)])
 
 
 class DiceTests(unittest.TestCase):
@@ -88,7 +88,7 @@ class SixPlayerTests(unittest.TestCase):
         s = GameState(6, seed=2)
         self.assertEqual(s.bank, [24] * 5)
         self.assertEqual(len(s.deck), 34)
-        self.assertEqual(s.deck.count(KNIGHT), 20)
+        self.assertEqual(s.deck.count(RANGER), 20)
         self.assertTrue(s.special_build and s.board.large)
         self.assertFalse(GameState(4, seed=2).special_build)
 
@@ -105,7 +105,7 @@ class SixPlayerTests(unittest.TestCase):
         with self.assertRaises(IllegalAction):
             s.apply(("bank", 2, 0))
         with self.assertRaises(IllegalAction):
-            s.apply(("play_knight",))
+            s.apply(("play_ranger",))
         s.apply(("buy_dev",))
         # nothing left to build with: the phase ends by itself and the next turn starts
         self.assertEqual((s.phase, s.current, s.turn), (PRE_ROLL, 1, 2))
@@ -175,7 +175,7 @@ class CounterOfferTests(unittest.TestCase):
                 for q in range(3):
                     s.belief[viewer][q] = [float(x) for x in s.hands[q]]
             bot = AIPlayer(s.board, "hard", seed=seed)
-            give, get = (1, 0, 0, 0, 0), (0, 0, 0, 0, 2)   # one wood for two ore: cheeky
+            give, get = (1, 0, 0, 0, 0), (0, 0, 0, 0, 2)   # one timber for two stone: cheeky
             ok, _ = bot.evaluate_offer(s, 1, 0, give, get)
             c = bot.counter_offer(s, 1, 0, give, get)
             if ok or c is None:

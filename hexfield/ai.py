@@ -3,11 +3,11 @@
 The engine is an *expert evaluation function* plus *search*:
 
 * `Evaluator.values()` scores every player's position in "victory-point
-  equivalents": real VP, expected production (robber-aware, with diminishing
+  equivalents": real VP, expected production (bandit-aware, with diminishing
   returns, port conversion and resource diversity), expansion potential
   (reachable open spots, contested-spot discount), hand quality (cards that
   complete builds, 7-roll exposure), development cards and the race for
-  Longest Road / Largest Army.
+  Great Road / Great Patrol.
 * `score()` turns that into a decision score: my value minus a weighted share
   of opponents' values, with weights that grow for the leader and anyone close
   to winning (so the bots gang up on whoever is ahead - including you).
@@ -16,7 +16,7 @@ The engine is an *expert evaluation function* plus *search*:
 * Opening placement uses a snake-draft lookahead: for every candidate first
   settlement it simulates the opponents' greedy picks until the bot's second
   pick, then takes the best pairing.
-* Robber, discards, knights-before-roll and player trades are all decided by
+* Bandit, discards, rangers-before-roll and player trades are all decided by
   the same evaluation, so the bots never accept a trade that helps you more
   than it helps them.
 
@@ -31,10 +31,10 @@ import math
 import random
 from collections import deque
 
-from .constants import (COSTS, DESERT, KNIGHT, MAX_CITIES, MAX_SETTLEMENTS, MONOPOLY,
-                        RES_NAMES, ROAD_BUILDING, UNKNOWN_DEV, VP_CARD, WIN_VP,
-                        YEAR_OF_PLENTY)
-from .game import (DISCARD, MAIN, PRE_ROLL, ROAD_BUILD, ROBBER, SETUP_ROAD,
+from .constants import (COSTS, BADLANDS, RANGER, MAX_CITIES, MAX_SETTLEMENTS, HOARD,
+                        RES_NAMES, PATHFINDER, UNKNOWN_DEV, VP_CARD, WIN_VP,
+                        WINDFALL)
+from .game import (DISCARD, MAIN, PRE_ROLL, ROAD_BUILD, BANDIT, SETUP_ROAD,
                    SETUP_SETTLE, SPECIAL, fmt_cards)
 
 SETUP_W = (1.10, 1.10, 0.80, 1.00, 0.87)
@@ -45,8 +45,8 @@ ROAD_SETTLE = (2, 2, 1, 1, 0)
 # play styles below are small changes to them. Values are VP-equivalents unless noted.
 PARAMS = {
     "pip_value": 0.105,          # one pip of production (a card per 36 rolls)
-    "w_wood_early": 1.15, "w_brick_early": 1.15, "w_sheep_early": 0.80, "w_wheat_early": 1.00, "w_ore_early": 0.80,
-    "w_wood_late": 0.70, "w_brick_late": 0.70, "w_sheep_late": 0.70, "w_wheat_late": 1.15, "w_ore_late": 1.25,
+    "w_timber_early": 1.15, "w_clay_early": 1.15, "w_wool_early": 0.80, "w_grain_early": 1.00, "w_stone_early": 0.80,
+    "w_timber_late": 0.70, "w_clay_late": 0.70, "w_wool_late": 0.70, "w_grain_late": 1.15, "w_stone_late": 1.25,
     "missing_res": 3.2,          # pips docked for a resource you don't produce
     "expansion": 1.0,            # scale of the open-spots term
     "port_any": 1.2,             # a 3:1 harbour on an open spot (pips)
@@ -54,9 +54,9 @@ PARAMS = {
     "hand_build": 0.40,          # scale of the "close to a build" bonus
     "util_settlement": 1.5, "util_road_settle": 1.25, "util_city": 1.45, "util_dev": 0.5, "util_road": 0.3,
     "seven_risk": 0.13,          # per card a 7 would cost, times the chance of a 7
-    "dev_knight": 0.33, "dev_road": 0.42, "dev_mono": 0.45, "dev_yop": 0.55,
+    "dev_ranger": 0.33, "dev_road": 0.42, "dev_hoard": 0.45, "dev_windfall": 0.55,
     "dev_hidden": 0.30,          # an opponent's face-down card
-    "army_knight": 0.1, "army_reach": 0.55, "army_near": 0.2, "award_threat": 0.3,
+    "patrol_ranger": 0.1, "patrol_reach": 0.55, "patrol_near": 0.2, "award_threat": 0.3,
     "road_race": 0.75,
     "opp_base": 0.28, "opp_lead": 0.25, "opp_8": 0.35, "opp_9": 0.4,   # how much rivals' values count against you
     "trade_margin": 0.05,        # a trade must gain the responder this much
@@ -66,23 +66,23 @@ PARAMS = {
 # Play styles: the same engine with different tastes. Factors multiply PARAMS.
 STYLES = {
     "balanced": {},
-    "builder": {    # roads and settlements, the Longest Road
-        "w_wood_early": 1.12, "w_brick_early": 1.12, "w_wood_late": 1.2, "w_brick_late": 1.2,
+    "builder": {    # roads and settlements, the Great Road
+        "w_timber_early": 1.12, "w_clay_early": 1.12, "w_timber_late": 1.2, "w_clay_late": 1.2,
         "expansion": 1.35, "road_race": 1.6, "util_settlement": 1.15, "util_road": 1.6},
-    "citizen": {    # wheat and ore: cities first
-        "w_wheat_early": 1.15, "w_ore_early": 1.25, "w_wheat_late": 1.08, "w_ore_late": 1.08,
+    "citizen": {    # grain and stone: cities first
+        "w_grain_early": 1.15, "w_stone_early": 1.25, "w_grain_late": 1.08, "w_stone_late": 1.08,
         "util_city": 1.25, "expansion": 0.85},
-    "general": {    # development cards and the Largest Army
-        "w_sheep_early": 1.15, "w_sheep_late": 1.25, "util_dev": 2.0, "dev_knight": 1.3, "dev_mono": 1.2,
-        "dev_yop": 1.2, "army_knight": 1.6, "army_reach": 1.5, "army_near": 1.5},
+    "general": {    # development cards and the Great Patrol
+        "w_wool_early": 1.15, "w_wool_late": 1.25, "util_dev": 2.0, "dev_ranger": 1.3, "dev_hoard": 1.2,
+        "dev_windfall": 1.2, "patrol_ranger": 1.6, "patrol_reach": 1.5, "patrol_near": 1.5},
     "trader": {     # harbours and deals
         "port_any": 2.2, "hand_card": 1.25, "trade_margin": 0.4, "propose_gain": 0.5, "missing_res": 0.8},
 }
 STYLE_NOTES = {
     "balanced": "plays the position",
-    "builder": "expands fast and races for the Longest Road",
-    "citizen": "wants wheat and ore, and builds cities early",
-    "general": "buys development cards and goes for the Largest Army",
+    "builder": "expands fast and races for the Great Road",
+    "citizen": "wants grain and stone, and builds cities early",
+    "general": "buys development cards and goes for the Great Patrol",
     "trader": "settles on harbours and trades often",
 }
 
@@ -119,8 +119,8 @@ class Evaluator:
         self.P = P = params or PARAMS
         self.w_early = tuple(P[f"w_{r}_early"] for r in RES_NAMES)
         self.w_late = tuple(P[f"w_{r}_late"] for r in RES_NAMES)
-        self.dev_value = {KNIGHT: P["dev_knight"], ROAD_BUILDING: P["dev_road"],
-                          MONOPOLY: P["dev_mono"], YEAR_OF_PLENTY: P["dev_yop"]}
+        self.dev_value = {RANGER: P["dev_ranger"], PATHFINDER: P["dev_road"],
+                          HOARD: P["dev_hoard"], WINDFALL: P["dev_windfall"]}
 
     # ------------------------------------------------------------- helpers
     def production(self, s, q):
@@ -129,17 +129,17 @@ class Evaluator:
         for lvl, verts in ((1, s.settlements[q]), (2, s.cities[q])):
             for v in verts:
                 for h in b.vertex_hexes[v]:
-                    if h == s.robber:
+                    if h == s.bandit:
                         continue
                     r = b.hex_resource[h]
-                    if r != DESERT:
+                    if r != BADLANDS:
                         prod[r] += b.hex_pips[h] * lvl
         return prod
 
     def blocked_pips(self, s, q):
-        h = s.robber
+        h = s.bandit
         b = self.b
-        if b.hex_resource[h] == DESERT:
+        if b.hex_resource[h] == BADLANDS:
             return 0
         tot = 0
         for v in b.hex_vertices[h]:
@@ -184,10 +184,10 @@ class Evaluator:
         b = self.b
         val = 0.0
         for h in b.vertex_hexes[v]:
-            if h == s.robber:
+            if h == s.bandit:
                 continue
             r = b.hex_resource[h]
-            if r == DESERT:
+            if r == BADLANDS:
                 continue
             pip = b.hex_pips[h]
             val += weights[r] * b.scarcity[r] * pip
@@ -210,11 +210,11 @@ class Evaluator:
         PIP_VALUE = P["pip_value"]
         counts = s.dev_counts
         left = sum(counts) - counts[VP_CARD]
-        # an unseen card: a victory point or, in proportion, a knight or a progress card
-        unknown_dev = (counts[VP_CARD] * 1.0 + counts[KNIGHT] * DEV_VALUE[KNIGHT]
-                       + counts[ROAD_BUILDING] * DEV_VALUE[ROAD_BUILDING] + counts[MONOPOLY] * DEV_VALUE[MONOPOLY]
-                       + counts[YEAR_OF_PLENTY] * DEV_VALUE[YEAR_OF_PLENTY]) / sum(counts)
-        p_knight = counts[KNIGHT] / float(left + counts[VP_CARD])
+        # an unseen card: a victory point or, in proportion, a ranger or a progress card
+        unknown_dev = (counts[VP_CARD] * 1.0 + counts[RANGER] * DEV_VALUE[RANGER]
+                       + counts[PATHFINDER] * DEV_VALUE[PATHFINDER] + counts[HOARD] * DEV_VALUE[HOARD]
+                       + counts[WINDFALL] * DEV_VALUE[WINDFALL]) / sum(counts)
+        p_ranger = counts[RANGER] / float(left + counts[VP_CARD])
         if s.winner != -1:
             return [1000.0 if q == s.winner else 0.0 for q in range(n)]
         # hidden-information estimates
@@ -330,34 +330,34 @@ class Evaluator:
                 for card, val in DEV_VALUE.items():
                     c = s.devs[q][card] + s.new_devs[q][card]
                     if c:
-                        if card == ROAD_BUILDING and not has_spot:
+                        if card == PATHFINDER and not has_spot:
                             val *= 0.5
-                        if card == KNIGHT:
+                        if card == RANGER:
                             val += 0.012 * self.blocked_pips(s, q)
                         dv += c * val
                 unk = s.new_devs[q][UNKNOWN_DEV] + s.devs[q][UNKNOWN_DEV]
                 dv += unk * unknown_dev
-                knights_in_hand = s.devs[q][KNIGHT] + s.new_devs[q][KNIGHT] + p_knight * unk
+                rangers_in_hand = s.devs[q][RANGER] + s.new_devs[q][RANGER] + p_ranger * unk
             else:
                 hidden = s.dev_count(q)
                 dv += hidden * P["dev_hidden"]
-                knights_in_hand = hidden * p_knight
+                rangers_in_hand = hidden * p_ranger
 
-            # --- largest army race
+            # --- great patrol race
             av = 0.0
-            best_other = max((s.knights[o] for o in range(n) if o != q), default=0)
-            if s.army != q:
-                k = s.knights[q]
+            best_other = max((s.rangers[o] for o in range(n) if o != q), default=0)
+            if s.patrol != q:
+                k = s.rangers[q]
                 needk = max(3, best_other + 1)
-                av += P["army_knight"] * k
-                if k + knights_in_hand >= needk:
-                    av += P["army_reach"]
-                elif k + knights_in_hand + 1 >= needk:
-                    av += P["army_near"]
-            elif best_other >= s.knights[q] - 1:
+                av += P["patrol_ranger"] * k
+                if k + rangers_in_hand >= needk:
+                    av += P["patrol_reach"]
+                elif k + rangers_in_hand + 1 >= needk:
+                    av += P["patrol_near"]
+            elif best_other >= s.rangers[q] - 1:
                 av -= P["award_threat"]
 
-            # --- longest road race
+            # --- great road race
             rv = 0.0
             L = s.road_len[q]
             if s.longest != q:
@@ -405,7 +405,7 @@ class AIPlayer:
         self.rng = random.Random(seed)
         self._proposed = None
         self._no_win = None  # ((turn, player), sigs from which a full win search failed)
-        self._robber_plan = None  # robber move chosen together with a pre-roll knight
+        self._bandit_plan = None  # bandit move chosen together with a pre-roll ranger
 
     # ---------------------------------------------------------- scoring
     def score(self, s, p):
@@ -459,8 +459,8 @@ class AIPlayer:
                 first = first[1][0]
             return first, why
         ranked = self._rank(s, p)
-        if ph == ROBBER:
-            plan, self._robber_plan = self._robber_plan, None
+        if ph == BANDIT:
+            plan, self._bandit_plan = self._bandit_plan, None
             # beliefs may think an empty-handed player still holds a card
             legal = set(real.legal_actions())
             if plan is not None and plan[0] == (real.turn, p) and plan[1] in legal:
@@ -468,16 +468,16 @@ class AIPlayer:
             ranked = [x for x in ranked if x[1] in legal]
         if ph in (SETUP_SETTLE, SETUP_ROAD):
             ranked = self._noisy(ranked, self._setup_scale(s) / 0.1)
-        elif ph == ROBBER:
+        elif ph == BANDIT:
             ranked = self._noisy(ranked)
-        if ph == PRE_ROLL and ranked[0][1][0] == "play_knight":
-            # pick the robber now so the stated reason is the move that follows
+        if ph == PRE_ROLL and ranked[0][1][0] == "play_ranger":
+            # pick the bandit now so the stated reason is the move that follows
             t = s.clone()
-            t.apply(("play_knight",))
-            rr = self._noisy(self.rank_robber(t, p))
+            t.apply(("play_ranger",))
+            rr = self._noisy(self.rank_bandit(t, p))
             if rr:
-                self._robber_plan = ((real.turn, p), rr[0][1], rr[0][2])
-                return ranked[0][1], "knight before rolling: " + rr[0][2]
+                self._bandit_plan = ((real.turn, p), rr[0][1], rr[0][2])
+                return ranked[0][1], "ranger before rolling: " + rr[0][2]
         return ranked[0][1:]
 
     def win_reason(self, s, line):
@@ -490,8 +490,8 @@ class AIPlayer:
             return self.rank_setup_settlements(s, p)
         if ph == SETUP_ROAD:
             return self.rank_setup_roads(s, p)
-        if ph == ROBBER:
-            return self.rank_robber(s, p)
+        if ph == BANDIT:
+            return self.rank_bandit(s, p)
         if ph == PRE_ROLL:
             return self.rank_preroll(s, p)
         if ph == ROAD_BUILD:
@@ -517,7 +517,7 @@ class AIPlayer:
         for v in verts:
             for h in b.vertex_hexes[v]:
                 r = b.hex_resource[h]
-                if r == DESERT:
+                if r == BADLANDS:
                     continue
                 prod[r] += b.hex_pips[h]
                 numbers.append(b.hex_number[h])
@@ -587,8 +587,8 @@ class AIPlayer:
         if s.setup_idx >= s.n:  # second round
             for v in legal:
                 val = self._spot_value(s, p, v, mine)
-                # starting hand: wood+brick lets you road immediately
-                res = [b.hex_resource[h] for h in b.vertex_hexes[v] if b.hex_resource[h] != DESERT]
+                # starting hand: timber+clay lets you road immediately
+                res = [b.hex_resource[h] for h in b.vertex_hexes[v] if b.hex_resource[h] != BADLANDS]
                 val += 0.35 * len(res)
                 if 0 in res and 1 in res:
                     val += 0.6
@@ -690,8 +690,8 @@ class AIPlayer:
         ranked.sort(key=lambda x: -x[0])
         return ranked
 
-    # ======================================================== robber/discard
-    def rank_robber(self, s, p):
+    # ======================================================== bandit/discard
+    def rank_bandit(self, s, p):
         ranked = []
         for a in s.legal_actions():
             _, h, victim = a
@@ -702,27 +702,27 @@ class AIPlayer:
             sc = 0.0
             for prob, r in outcomes:
                 u = s.clone()
-                u.robber = h
-                u.phase = s.robber_return
+                u.bandit = h
+                u.phase = s.bandit_return
                 if r is not None:
                     take = min(1.0, u.hands[victim][r])
                     u.hands[victim][r] -= take
                     u.hands[p][r] += take
                 sc += prob * self.ev.score(u, p)
-            ranked.append((sc, a, self._robber_reason(s, p, h, victim)))
+            ranked.append((sc, a, self._bandit_reason(s, p, h, victim)))
         ranked.sort(key=lambda x: -x[0])
         return ranked
 
-    def _robber_reason(self, s, p, h, victim):
+    def _bandit_reason(self, s, p, h, victim):
         b = self.b
         r = b.hex_resource[h]
         label = b.hex_label(h)
-        if r == DESERT:
-            what = f"{label} (desert)"
+        if r == BADLANDS:
+            what = f"{label} (badlands)"
         else:
             what = f"{label} ({b.hex_number[h]} {RES_NAMES[r]})"
         hit = sorted({s.names[o] for o in (s.v_owner[v] for v in b.hex_vertices[h]) if o not in (-1, p)})
-        txt = f"robber on {what}"
+        txt = f"bandit on {what}"
         if hit:
             txt += f" blocks {', '.join(hit)}"
         if victim != -1:
@@ -760,24 +760,24 @@ class AIPlayer:
 
     # ================================================================ turns
     CARD_VALUE = 0.2   # VP-eq of one resource card, for this-roll production estimates
-    SEVEN_RISK = 0.02  # small edge lost by waiting with a knight until after the roll
+    SEVEN_RISK = 0.02  # small edge lost by waiting with a ranger until after the roll
 
     def rank_preroll(self, s, p):
         base = self.ev.score(s, p)
         ranked = [None]  # roll goes first so it wins ties
-        if s.playable(p, KNIGHT):
-            sc, why = self._knight_value(s, p)
+        if s.playable(p, RANGER):
+            sc, why = self._ranger_value(s, p)
             blocked = self.ev.blocked_pips(s, p)
-            # a knight played now also protects this roll's production
+            # a ranger played now also protects this roll's production
             sc += 0.03 * blocked
             t = s.clone()
-            t.apply(("play_knight",))
-            if t.army == p and t.vp(p) >= WIN_VP:
+            t.apply(("play_ranger",))
+            if t.patrol == p and t.vp(p) >= WIN_VP:
                 sc = max(sc, base + self.WIN_BONUS)
-                why = "takes Largest Army and wins"
-            ranked.append((sc, ("play_knight",), "knight before rolling: " + why))
-            # rolling first keeps the knight for after the roll: it only loses what the
-            # robber blocks on this roll and a small edge
+                why = "takes Great Patrol and wins"
+            ranked.append((sc, ("play_ranger",), "ranger before rolling: " + why))
+            # rolling first keeps the ranger for after the roll: it only loses what the
+            # bandit blocks on this roll and a small edge
             roll = max(base, sc - blocked / 36.0 * self.CARD_VALUE - self.SEVEN_RISK)
         else:
             roll = base
@@ -785,12 +785,12 @@ class AIPlayer:
         ranked.sort(key=lambda x: -x[0])
         return ranked
 
-    def _knight_value(self, s, p):
+    def _ranger_value(self, s, p):
         t = s.clone()
-        t.apply(("play_knight",))
-        rr = self.rank_robber(t, p)
+        t.apply(("play_ranger",))
+        rr = self.rank_bandit(t, p)
         if not rr:
-            return self.ev.score(t, p), "knight"
+            return self.ev.score(t, p), "ranger"
         return rr[0][0], rr[0][2]
 
     def rank_simple(self, s, p, actions):
@@ -851,35 +851,35 @@ class AIPlayer:
             s.apply(max(builds, key=lambda b: self._score_after(s, b, p)))
             return
         s.apply(a)
-        # knight -> robber, road building -> free roads: resolve greedily
+        # ranger -> bandit, pathfinder -> free roads: resolve greedily
         for _ in range(4):
-            if s.winner != -1 or s.phase not in (ROBBER, ROAD_BUILD) or s.actor() != p:
+            if s.winner != -1 or s.phase not in (BANDIT, ROAD_BUILD) or s.actor() != p:
                 break
             s.apply(max(s.legal_actions(), key=lambda b: self._score_after(s, b, p)))
 
     def _sig(self, s, p):
         return (tuple(s.hands[p]), tuple(sorted(s.roads[p])), tuple(sorted(s.settlements[p])),
-                tuple(sorted(s.cities[p])), tuple(s.devs[p]), tuple(s.new_devs[p]), s.robber,
-                s.dev_played, tuple(s.knights))
+                tuple(sorted(s.cities[p])), tuple(s.devs[p]), tuple(s.new_devs[p]), s.bandit,
+                s.dev_played, tuple(s.rangers))
 
     # ======================================================== win-now search
     def _winning_devs(self, s, p):
-        """(army_possible, wildcard_cards, free_roads) for each way to use this turn's dev play."""
+        """(patrol_possible, wildcard_cards, free_roads) for each way to use this turn's dev play."""
         free = s.free_roads if s.phase == ROAD_BUILD else 0
         opts = [(False, 0, free)]
         if s.dev_played or s.phase == ROAD_BUILD:
             return opts
         d = s.devs[p]
-        if d[KNIGHT] and s.army != p:
-            k = s.knights[p] + 1
-            if k >= 3 and (s.army == -1 or k > s.knights[s.army]):
+        if d[RANGER] and s.patrol != p:
+            k = s.rangers[p] + 1
+            if k >= 3 and (s.patrol == -1 or k > s.rangers[s.patrol]):
                 opts.append((True, 0, 0))
-        if d[YEAR_OF_PLENTY]:
+        if d[WINDFALL]:
             opts.append((False, 2, 0))
-        if d[MONOPOLY]:
+        if d[HOARD]:
             opts.append((False, max(sum(int(s.hands[q][r]) for q in range(s.n) if q != p)
                                     for r in range(5)), 0))
-        if d[ROAD_BUILDING]:
+        if d[PATHFINDER]:
             opts.append((False, 0, 2))
         return opts
 
@@ -913,11 +913,11 @@ class AIPlayer:
             k = max(1, target - len(s.roads[p]))
             if k <= road_left:
                 lr_roads = k
-        for army, wild, free in self._winning_devs(s, p):
+        for patrol, wild, free in self._winning_devs(s, p):
             for lr in ((0, 1) if lr_roads is not None else (0,)):
                 for ns in range(min(sett_left, len(spots), need) + 1):
                     for nc in range(min(city_left, len(s.settlements[p]) + ns) + 1):
-                        if ns + nc + 2 * (army + lr) < need:
+                        if ns + nc + 2 * (patrol + lr) < need:
                             continue
                         roads = max(lr * (lr_roads or 0), sum(spots[:ns]))
                         if roads > road_left:
@@ -934,12 +934,12 @@ class AIPlayer:
     def _win_moves(self, s, p):
         """Goal-directed move list for the win search (dead ends are cut by _win_possible)."""
         if s.phase == PRE_ROLL:
-            return [("play_knight",)] if any(x[0] for x in self._winning_devs(s, p)) else []
+            return [("play_ranger",)] if any(x[0] for x in self._winning_devs(s, p)) else []
         if s.phase == ROAD_BUILD:
             return s.legal_actions()
         trades, roads, devs, builds = [], [], [], []
         lr_open = s.longest != p
-        army = any(x[0] for x in self._winning_devs(s, p))
+        patrol = any(x[0] for x in self._winning_devs(s, p))
         for a in s.legal_actions(include_trades=True):
             k = a[0]
             if k in ("end", "buy_dev"):
@@ -948,8 +948,8 @@ class AIPlayer:
                 trades.append(a)
             elif k == "road":
                 roads.append(a)
-            elif k == "play_knight":
-                if army:
+            elif k == "play_ranger":
+                if patrol:
                     devs.append(a)
             elif k.startswith("play_"):
                 devs.append(a)
@@ -962,7 +962,7 @@ class AIPlayer:
     def find_win(self, s, p, cap=4000, depth=10):
         """Breadth-first (so the shortest line is found) search for a sequence of builds, bank/port trades and dev-card plays
         that wins *this turn*, on the view `s` (own cards exact, opponents' hands as tracked).
-        Only certain gains count: stolen cards are ignored and Monopoly counts whole cards only.
+        Only certain gains count: stolen cards are ignored and Hoard counts whole cards only.
         Returns the action list or None."""
         if s.winner == p:
             return []
@@ -995,7 +995,7 @@ class AIPlayer:
                 u = st.clone()
                 try:
                     u.apply(a)
-                    if u.phase == ROBBER and u.winner == -1:
+                    if u.phase == BANDIT and u.winner == -1:
                         keep = u.hands[p][:]
                         legal = u.legal_actions()
                         u.apply(next((x for x in legal if x[2] == -1), legal[0]))
@@ -1166,8 +1166,8 @@ class AIPlayer:
             if ph == SETUP_SETTLE:
                 return (self._spot_value(s, p, a[1], list(s.settlements[p])) - 10.0) * self._setup_scale(s)
             return ranked[-1][0] if ranked else 0.0
-        if ph == ROBBER:
-            for sc, b, _ in self.rank_robber(s, p):
+        if ph == BANDIT:
+            for sc, b, _ in self.rank_bandit(s, p):
                 if b == a:
                     return sc
         if ph == PRE_ROLL:
@@ -1354,14 +1354,14 @@ def describe(s, a):
         return f"road {a[1]}"
     if k == "buy_dev":
         return "buy development card"
-    if k == "play_knight":
-        return "play Knight"
+    if k == "play_ranger":
+        return "play Ranger"
     if k == "play_road":
-        return "play Road Building"
-    if k == "play_mono":
-        return f"play Monopoly ({RES_NAMES[a[1]]})"
-    if k == "play_yop":
-        return f"play Year of Plenty ({RES_NAMES[a[1]]}+{RES_NAMES[a[2]]})"
+        return "play Pathfinder"
+    if k == "play_hoard":
+        return f"play Hoard ({RES_NAMES[a[1]]})"
+    if k == "play_windfall":
+        return f"play Windfall ({RES_NAMES[a[1]]}+{RES_NAMES[a[2]]})"
     if k == "bank":
         return f"trade {s.trade_ratio(s.actor(), a[1])} {RES_NAMES[a[1]]} -> {RES_NAMES[a[2]]}"
     if k == "macro":
@@ -1369,8 +1369,8 @@ def describe(s, a):
         return f"bank-trade ({trades}) and build {a[2]}"
     if k == "trade":
         return f"trade {fmt_cards(a[2])} for {fmt_cards(a[3])} with {s.names[a[1]]}"
-    if k == "robber":
-        txt = f"robber to {b.hex_label(a[1])}"
+    if k == "bandit":
+        txt = f"bandit to {b.hex_label(a[1])}"
         if a[2] != -1:
             txt += f", rob {s.names[a[2]]}"
         return txt

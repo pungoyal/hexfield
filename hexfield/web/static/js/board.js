@@ -1,7 +1,7 @@
 // The SVG board: tiles, pieces, click targets, highlights and hover tips.
 
 import { act, render } from "./app.js";
-import { ROBBER, boardDefs, cityArt, hexPoints, portBadge, roadArt, settlementArt, terrain, tokenArt } from "./art.js";
+import { BANDIT, boardDefs, cityArt, hexPoints, portBadge, roadArt, settlementArt, terrain, tokenArt } from "./art.js";
 import { resetKeyCaches, setObvious } from "./keys.js";
 import { boardBox, zoomBox } from "./logic.js";
 import { B, G, S, els, legal, myDecision } from "./state.js";
@@ -61,7 +61,7 @@ export function buildBoard() {
   // tiles: each one a small painted landscape
   const gTiles = svg("g", { class: "tiles" }, board);
   els.hex = B.hexes.map((h, i) => {
-    const g = svg("g", { class: `hex-tile t-${h.res || "desert"}`, "data-h": i, transform: `translate(${h.x} ${h.y}) scale(${R / 60})` }, gTiles);
+    const g = svg("g", { class: `hex-tile t-${h.res || "badlands"}`, "data-h": i, transform: `translate(${h.x} ${h.y}) scale(${R / 60})` }, gTiles);
     g.innerHTML = terrain(h, i);
     return g;
   });
@@ -76,8 +76,8 @@ export function buildBoard() {
 
   els.roads = svg("g", { class: "roads" }, board);
   els.pieces = svg("g", { class: "pieces" }, board);
-  els.robber = svg("g", { class: "robber" }, board);
-  els.robber.innerHTML = ROBBER;
+  els.bandit = svg("g", { class: "bandit" }, board);
+  els.bandit.innerHTML = BANDIT;
   els.targets = svg("g", { class: "targets" }, board);
   els.keys = svg("g", { class: "keys" }, board);
   els.glow = svg("g", { class: "glow" }, board);
@@ -88,8 +88,8 @@ export function buildBoard() {
   els.hexVerts = B.hexes.map((_, h) => B.vertices.flatMap((v, i) => ((v.hexes || []).includes(h) ? [i] : [])));
 }
 
-// who a robber on hex h would block: {player: pips lost}
-export function robberHits(h) {
+// who a bandit on hex h would block: {player: pips lost}
+export function banditHits(h) {
   const hx = B.hexes[h], hit = {};
   if (!hx.res) return hit;
   for (const v of els.hexVerts[h]) {
@@ -146,10 +146,10 @@ export function renderPieces() {
     els.pieces.appendChild(g);
     els.pieceEls[v] = g;
   }
-  const h = B.hexes[S.robber];
-  els.robber.style.transform = `translate(${h.x + 30}px, ${h.y + 8}px)`;
-  els.hex.forEach((g, i) => g.classList.toggle("blocked", i === S.robber));
-  els.token.forEach((t, i) => t?.classList.toggle("blocked", i === S.robber));
+  const h = B.hexes[S.bandit];
+  els.bandit.style.transform = `translate(${h.x + 30}px, ${h.y + 8}px)`;
+  els.hex.forEach((g, i) => g.classList.toggle("blocked", i === S.bandit));
+  els.token.forEach((t, i) => t?.classList.toggle("blocked", i === S.bandit));
 }
 
 const f1 = (n) => Math.round(n * 10) / 10;
@@ -164,7 +164,7 @@ export function targetsNow() {
   switch (S.phase) {
     case "setup_settlement": t.v = verts("settle"); break;
     case "setup_road": case "road_building": t.e = L.road || []; break;
-    case "move_robber": t.h = Object.keys(L.robber || {}).map(Number); break;
+    case "move_bandit": t.h = Object.keys(L.bandit || {}).map(Number); break;
     case "main": case "special_build":
       t.quick = !G.mode;
       if (!G.mode || G.mode === "road") t.e = L.road || [];
@@ -222,7 +222,7 @@ export function renderTargets() {
   const g = els.targets;
   const t = targetsNow();
   // the same choices as last time: leave them alone, so hover, focus and their entrance survive a re-render
-  const sig = JSON.stringify([t, S.human, S.turn, S.phase, S.robber]);
+  const sig = JSON.stringify([t, S.human, S.turn, S.phase, S.bandit]);
   if (sig === els.targetSig) return;
   els.targetSig = sig;
   g.replaceChildren();
@@ -232,10 +232,10 @@ export function renderTargets() {
   let order = 0;
   const enter = (el) => el.style.setProperty("--i", Math.min(order++, 40));
   for (const h of t.h) {
-    const hx = B.hexes[h], hit = robberHits(h);
+    const hx = B.hexes[h], hit = banditHits(h);
     const who = Object.keys(hit).map(Number).sort((a, b) => (a === S.human) - (b === S.human) || hit[b] - hit[a]);
     const cls = hit[S.human] ? "hurts" : who.length ? "" : "empty";
-    const label = `Move the robber to ${hx.res ? `${hx.num} ${hx.res}` : "the desert"}: blocks ${who.length ? who.map((p) => `${p === S.human ? "you" : S.players[p].name} (${hit[p]} pips)`).join(", ") : "nobody"}`;
+    const label = `Move the bandit to ${hx.res ? `${hx.num} ${hx.res}` : "the badlands"}: blocks ${who.length ? who.map((p) => `${p === S.human ? "you" : S.players[p].name} (${hit[p]} pips)`).join(", ") : "nobody"}`;
     enter(svg("polygon", { class: `hex-target ${cls}`, "data-h": h, points: els.hexPts(hx.x, hx.y, 0.9), ...button(label) }, g));
     // one chip per player it would block, with the pips they'd lose
     who.forEach((p, i) => {
@@ -284,7 +284,7 @@ export function glowFor(a, keep = false) {
   } else if (a[0] === "road" && B.edges[a[1]]) {
     const [p, q] = B.edges[a[1]].map((v) => B.vertices[v]);
     svg("line", { class: "glow-mark", x1: p.x, y1: p.y, x2: q.x, y2: q.y, "stroke-width": 9, "stroke-linecap": "round" }, g);
-  } else if (a[0] === "robber") {
+  } else if (a[0] === "bandit") {
     const h = B.hexes[a[1]];
     svg("polygon", { class: "glow-mark", points: els.hexPts(h.x, h.y, 0.88) }, g);
   }
@@ -299,7 +299,7 @@ export function onBoardClick(ev) {
   const h = ev.target.closest(".hex-target");
   if (v) act([v.dataset.kind, Number(v.dataset.v)]); // kind: settle | city
   else if (e) act(["road", Number(e.dataset.e)]);
-  else if (h) moveRobber(Number(h.dataset.h), ev);
+  else if (h) moveBandit(Number(h.dataset.h), ev);
   else if (G.mode) {
     G.mode = null;
     render();
@@ -307,9 +307,9 @@ export function onBoardClick(ev) {
 }
 
 // with two or more players to rob, ask which one (menu at the click point)
-export function moveRobber(hex, at) {
-  const vics = S.legal.robber[hex] || [];
-  if (vics.length <= 1) act(["robber", hex, vics[0] ?? -1]);
+export function moveBandit(hex, at) {
+  const vics = S.legal.bandit[hex] || [];
+  if (vics.length <= 1) act(["bandit", hex, vics[0] ?? -1]);
   else chooseVictim(hex, vics, at);
 }
 
@@ -325,7 +325,7 @@ export function chooseVictim(hex, vics, ev) {
     const b = e.target.closest("[data-q]");
     if (!b) return;
     pop.hidePopover();
-    act(["robber", hex, Number(b.dataset.q)]);
+    act(["bandit", hex, Number(b.dataset.q)]);
   };
   setObvious(pop, pop.querySelector("button"));
   pop.showPopover();
@@ -346,19 +346,19 @@ export function onBoardHover(ev) {
     const gain = what ? `<span class="muted">+${vx.pips} pips to your income</span>` : `<span class="muted">${vx.pips} pips</span>`;
     html = `${what ? `<b style="color:var(--accent)">${what}</b><br>` : ""}${lines || "<span class='muted'>coast</span>"}${port}${gain}`;
   } else if (ev.target.closest(".e-target")) {
-    html = `<b style="color:var(--accent)">Build a road</b><br><span class="muted">wood + brick</span>`;
+    html = `<b style="color:var(--accent)">Build a road</b><br><span class="muted">timber + clay</span>`;
   } else if (hx) {
     const i = Number(hx.dataset.h), h = B.hexes[i];
     const robbing = !!ev.target.closest(".hex-target");
-    html = h.res ? `${robbing ? `<b style="color:var(--accent)">Move the robber here</b><br>` : ""}<b>${h.num} ${h.res}</b> <span class="muted">(${h.pips} pips)</span>` : "<b>Desert</b>";
-    const hit = robberHits(i);
+    html = h.res ? `${robbing ? `<b style="color:var(--accent)">Move the bandit here</b><br>` : ""}<b>${h.num} ${h.res}</b> <span class="muted">(${h.pips} pips)</span>` : "<b>Badlands</b>";
+    const hit = banditHits(i);
     const who = Object.keys(hit).map(Number);
     if (who.length) html += who.map((p) => `<span class="tt-line"><span class="dot" style="background:${pc(p)}"></span>${esc(S.players[p].name)} <span class="muted">${robbing ? "loses" : "earns"} ${hit[p]} pips</span></span>`).join("");
     else if (h.res) html += `<span class="tt-line muted">no buildings</span>`;
     if (robbing && hit[S.human]) html += `<span class="tt-line" style="color:var(--bad)">blocks your own income</span>`;
-    const vics = robbing ? S.legal.robber?.[i] || [] : [];
+    const vics = robbing ? S.legal.bandit?.[i] || [] : [];
     if (vics.some((q) => q !== -1)) html += `<span class="tt-line muted">steal from ${vics.filter((q) => q !== -1).map((q) => `${esc(S.players[q].name)} (${S.players[q].cards})`).join(" or ")}</span>`;
-    if (i === S?.robber) html += `<span class="tt-line muted">robber is here</span>`;
+    if (i === S?.bandit) html += `<span class="tt-line muted">bandit is here</span>`;
   }
   if (!html) { tip.classList.remove("show"); return; }
   tip.innerHTML = html;

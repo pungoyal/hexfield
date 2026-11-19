@@ -9,9 +9,9 @@ from collections import Counter
 
 from . import store
 from .ai import STYLES, STYLE_NOTES, AIPlayer, describe
-from .constants import (DESERT, KNIGHT, PIPS, RES_NAMES,
+from .constants import (BADLANDS, RANGER, PIPS, RES_NAMES,
                         parse_res)
-from .game import (DISCARD, MAIN, OVER, PRE_ROLL, ROAD_BUILD, ROBBER, SETUP_ROAD,
+from .game import (DISCARD, MAIN, OVER, PRE_ROLL, ROAD_BUILD, BANDIT, SETUP_ROAD,
                    SETUP_SETTLE, SPECIAL, IllegalAction, fmt_cards)
 from .match import public_reason, resolve_proposal, seat_plan
 from .record import Record
@@ -25,13 +25,13 @@ HELP_ROWS = (
         ("c [v], city [v]", "upgrade your settlement at v to a city"),
         ("rd [e], road [e]", "road on edge e (no e: show the edge ids)"),
         ("d, dev, buy", "buy a development card"),
-        ("k, knight", "play a knight"),
-        ("rb, roadbuilding", "play road building"),
-        ("mono <res>", "play monopoly, e.g. mono ore"),
-        ("yop <res> <res>", "play year of plenty, e.g. yop wheat ore"),
+        ("rg, ranger", "play a ranger"),
+        ("pf, pathfinder", "play a pathfinder"),
+        ("hoard <res>", "play hoard, e.g. hoard stone"),
+        ("windfall <res> <res>", "play windfall, e.g. windfall grain stone"),
         ("t <give> <get> [n]", "bank/port trade at your best ratio;"),
-        ("", "n = number of trades, e.g. t wood ore 2"),
-        ("offer <cards> for <cards>", "offer the bots a trade: offer 2 wood for ore"),
+        ("", "n = number of trades, e.g. t timber stone 2"),
+        ("offer <cards> for <cards>", "offer the bots a trade: offer 2 timber for stone"),
         ("", "(a bot that says no may name its price)"),
         ("e, end", "end your turn"),
     )),
@@ -62,9 +62,9 @@ def help_text():
         out.append(f" {corner[0]}─ {title} " + "─" * (inner - len(title) - 3) + corner[1])
         out += [f" │ {k:<{left}}{v:<{inner - left - 1}}│" for k, v in rows]
     out.append(" └" + "─" * inner + "┘")
-    out.append(" Resources: wood (w) brick (b) sheep (s) wheat (wh) ore (o).")
-    out.append(' Cards: "2 wood ore", "w w o", "2w 1o".  Vertices and edges are numbered, hexes lettered.')
-    out.append(" Robber: a hex letter, optionally with a victim: F  or  F vera.")
+    out.append(" Resources: timber (t) clay (c) wool (w) grain (g) stone (s).")
+    out.append(' Cards: "2 timber stone", "t t s", "2t 1s".  Vertices and edges are numbered, hexes lettered.')
+    out.append(" Bandit: a hex letter, optionally with a victim: F  or  F vera.")
     return "\n".join(out) + "\n"
 
 
@@ -86,7 +86,7 @@ class Undo(Exception):
 
 
 def parse_cards(tokens):
-    """'2 wood ore', 'w w o', '2w 1o' -> [5 counts] or None."""
+    """'2 timber stone', 't t s', '2t 1s' -> [5 counts] or None."""
     counts = [0] * 5
     pending = None
     for tok in tokens:
@@ -195,7 +195,7 @@ class Game:
         """Ask until the answer is more than a common command; return its words.
         `redraw` re-shows the board for 'b' when the prompt needs ids marked on it.
         `parse(words)` is tried first: if it returns anything but None, that is the answer
-        (so 'b w w' at the discard prompt means brick, wood, wood - not 'board')."""
+        (so 'c t t' at the discard prompt means clay, timber, timber - not 'city')."""
         while True:
             words = self.ask(prompt).split()
             if not words:
@@ -354,7 +354,7 @@ class Game:
         self.flush_events()
 
     def reason(self, why):
-        # a knight's reason already explains the robber move that follows it
+        # a ranger's reason already explains the bandit move that follows it
         if why not in self.last_reason:
             why_you = second_person(why, self.s.names[self.human])
             self.out(self.st(f"     ↳ {why_you}", fg=245, italic=True))
@@ -392,13 +392,13 @@ class Game:
             self.warn("answer y or n")
 
     def counter(self, q, proposer, words, give, get):
-        """Your counter-offer to a bot's offer ('2 wood for ore': you give, you get).
+        """Your counter-offer to a bot's offer ('2 timber for stone': you give, you get).
         True if the bot took it (the trade is done)."""
         s = self.s
         left, sep, right = f" {' '.join(words)} ".partition(" for ")
         mine, theirs = parse_cards(left.split()), parse_cards(right.split())
         if not sep or not mine or not theirs or not any(mine) or not any(theirs):
-            self.warn("usage: c <cards you give> for <cards you get>   e.g. c wood for ore")
+            self.warn("usage: c <cards you give> for <cards you get>   e.g. c timber for stone")
             return False
         if not s.can_afford(q, mine):
             self.warn("you don't have those cards")
@@ -475,7 +475,7 @@ class Game:
         s = self.s
         p = self.human
         if s.phase == PRE_ROLL:
-            return not s.playable(p, KNIGHT)
+            return not s.playable(p, RANGER)
         if s.phase in (MAIN, SPECIAL) and a[0] == "end":
             return all(x[0] == "end" for x in s.legal_actions(include_trades=True))
         if s.phase in (SETUP_ROAD, ROAD_BUILD):
@@ -483,7 +483,7 @@ class Game:
         return False
 
     def review_action(self, a, times=1):
-        """Review `a` (played `times` times in a row, e.g. 't wood ore 3') as one decision."""
+        """Review `a` (played `times` times in a row, e.g. 't timber stone 3') as one decision."""
         if not self.review_on or self.trivial(a):
             return
         s = self.s
@@ -510,7 +510,7 @@ class Game:
     def option_text(self, a, why):
         """An engine option in words, without repeating itself."""
         s = self.s
-        if s.phase == MAIN or (why and s.phase in (SETUP_SETTLE, SETUP_ROAD, ROBBER, PRE_ROLL)):
+        if s.phase == MAIN or (why and s.phase in (SETUP_SETTLE, SETUP_ROAD, BANDIT, PRE_ROLL)):
             return why  # these reasons already name the move (and the command shows the id)
         d = describe(s, a)
         return d if not why or why == d else f"{d} - {why}"
@@ -524,18 +524,18 @@ class Game:
         bare = s.phase in (SETUP_SETTLE, SETUP_ROAD, ROAD_BUILD)
         if k in ("settle", "road", "city"):
             return str(a[1]) if bare else f"{dict(settle='s', road='rd', city='c')[k]} {a[1]}"
-        simple = {"buy_dev": "d", "play_knight": "k", "play_road": "rb", "roll": "r", "end": "e"}
+        simple = {"buy_dev": "d", "play_ranger": "rg", "play_road": "pf", "roll": "r", "end": "e"}
         if k in simple:
             return simple[k]
-        if k == "play_mono":
-            return f"mono {RES_NAMES[a[1]]}"
-        if k == "play_yop":
-            return f"yop {RES_NAMES[a[1]]} {RES_NAMES[a[2]]}"
+        if k == "play_hoard":
+            return f"hoard {RES_NAMES[a[1]]}"
+        if k == "play_windfall":
+            return f"windfall {RES_NAMES[a[1]]} {RES_NAMES[a[2]]}"
         if k == "bank":
             return f"t {RES_NAMES[a[1]]} {RES_NAMES[a[2]]}"
         if k == "discard":
             return " ".join(f"{c} {RES_NAMES[r]}" for r, c in enumerate(a[1]) if c)
-        if k == "robber":
+        if k == "bandit":
             return s.board.hex_label(a[1]) + (f" {s.names[a[2]].lower()}" if a[2] != -1 else "")
         return None
 
@@ -551,8 +551,8 @@ class Game:
                 self.human_setup_road()
             elif ph == DISCARD:
                 self.human_discard()
-            elif ph == ROBBER:
-                self.human_robber()
+            elif ph == BANDIT:
+                self.human_bandit()
             elif ph == ROAD_BUILD:
                 self.human_free_road()
             elif ph in (PRE_ROLL, MAIN, SPECIAL):
@@ -590,8 +590,8 @@ class Game:
                 self.out(line)
             return True
         if cmd == "cost" or cmd == "costs":
-            self.out("  road: wood+brick · settlement: wood+brick+sheep+wheat · "
-                     "city: 2 wheat+3 ore · dev card: sheep+wheat+ore")
+            self.out("  road: timber+clay · settlement: timber+clay+wool+grain · "
+                     "city: 2 grain+3 stone · dev card: wool+grain+stone")
             return True
         if cmd == "review":
             self.review_on = self.toggle("post-move review", "review", self.review_on, args)
@@ -646,7 +646,7 @@ class Game:
             bar = self.st("█" * bar_len, fg=PLAYER_COLORS[p])
             pips = " ".join(f"{RES_ABBR[r]}{int(prod[r]):>2}" for r in range(5))
             self.out(f"   {self.r.pname(p, 8)} {vals[p]:5.2f} {pad(bar, 25)} pips/36: {pips}  (={int(sum(prod))})")
-        self.out(self.st("   pips = expected cards per 36 rolls (robber-blocked hexes excluded)", dim=True))
+        self.out(self.st("   pips = expected cards per 36 rolls (bandit-blocked hexes excluded)", dim=True))
 
     def stats(self):
         s = self.s
@@ -709,11 +709,11 @@ class Game:
 
     def human_free_road(self):
         s = self.s
-        e = self.pick_spot(f"road building: place a free road ({s.free_roads} left)", "edge",
+        e = self.pick_spot(f"pathfinder: place a free road ({s.free_roads} left)", "edge",
                            s.legal_roads(self.human))
         self.act(("road", e))
 
-    # discard / robber ----------------------------------------------------
+    # discard / bandit ----------------------------------------------------
     def human_discard(self):
         s = self.s
         k = s.discards[self.human]
@@ -721,10 +721,10 @@ class Game:
         self.out("")
         self.out("  " + self.r.hand_chips(hand))
         while True:
-            # cards first: 'b w w' is brick, wood, wood here, not the board command
-            counts = self.command(f"a 7! discard {k} cards (e.g. '2 wood ore')", parse=parse_cards)
+            # cards first: 'c t t' is clay, timber, timber here, not the city command
+            counts = self.command(f"a 7! discard {k} cards (e.g. '2 timber stone')", parse=parse_cards)
             if isinstance(counts[0], str):
-                self.warn("couldn't parse that - try e.g. 'wood 2 ore'")
+                self.warn("couldn't parse that - try e.g. 'timber 2 stone'")
             elif sum(counts) != k:
                 self.warn(f"that's {plural(sum(counts), 'card')}, need exactly {k}")
             elif any(counts[r] > hand[r] for r in range(5)):
@@ -736,13 +736,13 @@ class Game:
             self.report(mine_v, best_v, "discard " + fmt_cards(best_c), "discard " + fmt_cards(counts))
         self.apply(("discard", tuple(counts)))
 
-    def robber_table(self):
-        """Every hex with a building: whom the robber blocks there (pips) and whom you can rob."""
+    def bandit_table(self):
+        """Every hex with a building: whom the bandit blocks there (pips) and whom you can rob."""
         s, st = self.s, self.st
         b, me = s.board, self.human
         rows = []
         for h in range(b.H):
-            if h == s.robber:
+            if h == s.bandit:
                 continue
             pips = Counter()
             for v in b.hex_vertices[h]:
@@ -755,15 +755,15 @@ class Game:
             return
         rows.sort()
         r = b.hex_resource
-        what = {h: "desert" if r[h] == DESERT else f"{b.hex_number[h]:>2} {RES_NAMES[r[h]]}" for *_, h, _ in rows}
+        what = {h: "badlands" if r[h] == BADLANDS else f"{b.hex_number[h]:>2} {RES_NAMES[r[h]]}" for *_, h, _ in rows}
         blocks = {h: ", ".join(f"{s.names[q]} {n}" for q, n in sorted(pips.items()) if q != me) or "-"
                   for *_, h, pips in rows}
-        robs = {h: ", ".join(f"{s.names[q]} ({plural(s.hand_size(q), 'card')})" for q in s.robber_targets(me, h)) or "-"
+        robs = {h: ", ".join(f"{s.names[q]} ({plural(s.hand_size(q), 'card')})" for q in s.bandit_targets(me, h)) or "-"
                 for *_, h, _ in rows}
         ww = max(len(x) for x in what.values()) + 2
         bw = max(len(x) for x in blocks.values())
         rw = max(len(x) for x in robs.values())
-        self.out(st(f"  Robber: {'hex':<{ww + 1}} {'blocks (pips)':<{bw}}  can rob", bold=True))
+        self.out(st(f"  Bandit: {'hex':<{ww + 1}} {'blocks (pips)':<{bw}}  can rob", bold=True))
         for mine, _, h, pips in rows:
             line = f"  {'':8}{b.hex_label(h)} {what[h]:<{ww}} {blocks[h]:<{bw}}  "
             if mine:
@@ -771,17 +771,17 @@ class Game:
             else:
                 self.out(line + robs[h])
 
-    def human_robber(self):
+    def human_bandit(self):
         s = self.s
         self.show()
-        self.robber_table()
+        self.bandit_table()
         while True:
-            label, *args = self.command("move the robber: hex letter [victim name]")
+            label, *args = self.command("move the bandit: hex letter [victim name]")
             h = s.board.hex_from_label(label)
-            if h is not None and h != s.robber:
+            if h is not None and h != s.bandit:
                 break
-            self.warn("give a hex letter from the board (not the robber's current hex)")
-        vics = s.robber_targets(self.human, h)
+            self.warn("give a hex letter from the board (not the bandit's current hex)")
+        vics = s.bandit_targets(self.human, h)
         victim = vics[0] if vics else -1
         if len(vics) > 1:
             opts = ", ".join(f"{s.names[v]} ({plural(s.hand_size(v), 'card')})" for v in vics)
@@ -795,20 +795,20 @@ class Game:
                     victim = got
                 else:
                     self.warn(f"type a name: {', '.join(s.names[v] for v in vics)}")
-        self.act(("robber", h, victim))
+        self.act(("bandit", h, victim))
 
     # main turn -----------------------------------------------------------
     def human_main(self):
         s = self.s
-        # only a knight is worth playing before the roll; other dev cards can wait until after it
-        if s.phase == PRE_ROLL and self.args.autoroll and not s.playable(self.human, KNIGHT):
+        # only a ranger is worth playing before the roll; other dev cards can wait until after it
+        if s.phase == PRE_ROLL and self.args.autoroll and not s.playable(self.human, RANGER):
             self.apply(("roll",))
             self.flush_events()
             return
         if s.phase == PRE_ROLL or self.shown != (s.turn, s.current):
             self.show()
             self.shown = (s.turn, s.current)
-        prompt = "roll (r) or play a knight (k)" if s.phase == PRE_ROLL else "your move"
+        prompt = "roll (r) or play a ranger (k)" if s.phase == PRE_ROLL else "your move"
         if s.phase == SPECIAL:
             prompt = f"special building phase after {s.names[s.current]}'s turn: build, or pass (e)"
         if s.phase in (MAIN, SPECIAL):
@@ -830,7 +830,7 @@ class Game:
             except IllegalAction as ex:
                 self.warn(str(ex))
                 continue
-            if a[0] in ("settle", "city", "road", "play_knight", "play_road") and s.phase in (MAIN, SPECIAL):
+            if a[0] in ("settle", "city", "road", "play_ranger", "play_road") and s.phase in (MAIN, SPECIAL):
                 self.flush_events()
                 self.show()
             return
@@ -875,38 +875,38 @@ class Game:
             return self.build("road", "road", s.legal_roads(p), args, "nowhere to build a road")
         if cmd in ("d", "dev", "buy"):
             return ("buy_dev",)
-        if cmd in ("k", "knight"):
-            return ("play_knight",)
-        if cmd in ("rb", "roadbuilding", "road_building"):
+        if cmd in ("rg", "ranger"):
+            return ("play_ranger",)
+        if cmd in ("pf", "pathfinder"):
             return ("play_road",)
         if cmd == "play" and args:
             return self.parse_main(args[0], args[1:])
-        if cmd in ("mono", "monopoly"):
+        if cmd == "hoard":
             r = parse_res(args[0]) if args else None
             if r is None:
-                raise IllegalAction("usage: mono <resource>")
-            return ("play_mono", r)
-        if cmd in ("yop", "plenty", "year"):
+                raise IllegalAction("usage: hoard <resource>")
+            return ("play_hoard", r)
+        if cmd == "windfall":
             rs = [parse_res(x) for x in args[:2]]
             if len(rs) == 1 and rs[0] is not None:
                 rs = rs * 2
             if len(rs) != 2 or None in rs:
-                raise IllegalAction("usage: yop <res> <res>")
-            return ("play_yop", min(rs), max(rs))
+                raise IllegalAction("usage: windfall <res> <res>")
+            return ("play_windfall", min(rs), max(rs))
         if cmd in ("t", "trade", "bank"):
             words = [x for x in args if not x.isdigit()]
             if len(words) < 2:
-                raise IllegalAction("usage: t <give> <get> [n]   e.g. t wood ore  (n = number of trades)")
+                raise IllegalAction("usage: t <give> <get> [n]   e.g. t timber stone  (n = number of trades)")
             give, get = parse_res(words[0]), parse_res(words[-1])
             if give is None or get is None:
                 raise IllegalAction("unknown resource")
             a = ("bank", give, get)
-            # a trailing number repeats the trade: 't wood ore 2' - all of them or none
+            # a trailing number repeats the trade: 't timber stone 2' - all of them or none
             n = int(args[-1]) if args[-1].isdigit() else 1
             if n == 1:
                 return a
             if n < 1:
-                raise IllegalAction("n is the number of trades, e.g. t wood ore 2")
+                raise IllegalAction("n is the number of trades, e.g. t timber stone 2")
             ratio = s.trade_ratio(p, give)
             if s.phase == MAIN and give != get and s.hands[p][give] < ratio * n:
                 raise IllegalAction(f"{n} trades need {ratio * n} {RES_NAMES[give]} at {ratio}:1 - "
@@ -917,7 +917,7 @@ class Game:
         if cmd == "offer":
             left, sep, right = f" {' '.join(args).lower()} ".partition(" for ")
             if not sep:
-                raise IllegalAction("usage: offer <cards> for <cards>   e.g. offer 2 wood for ore")
+                raise IllegalAction("usage: offer <cards> for <cards>   e.g. offer 2 timber for stone")
             give, get = parse_cards(left.split()), parse_cards(right.split())
             if give is None or get is None or not any(give) or not any(get):
                 raise IllegalAction("couldn't parse the offer")
@@ -979,9 +979,9 @@ class Game:
         for p in sorted(range(s.n), key=lambda q: -s.vp(q)):
             parts = [plural(len(s.settlements[p]), "settlement"), plural(len(s.cities[p]), "city", "cities")]
             if s.longest == p:
-                parts.append("longest road")
-            if s.army == p:
-                parts.append("largest army")
+                parts.append("great road")
+            if s.patrol == p:
+                parts.append("great patrol")
             if s.vp_cards(p):
                 parts.append(plural(s.vp_cards(p), "VP card"))
             self.out(f"   {self.r.pname(p, 9)} {s.vp(p):>2} VP  ({', '.join(parts)})")
@@ -1029,7 +1029,7 @@ def main(argv=None):
     ap.add_argument("--fast", action="store_true", help="no pause between bot actions")
     ap.add_argument("--delay", type=float, default=0.15, help="seconds between bot actions")
     ap.add_argument("--no-autoroll", dest="autoroll", action="store_false",
-                    help="always ask before rolling (default: auto-roll unless you can play a knight)")
+                    help="always ask before rolling (default: auto-roll unless you can play a ranger)")
     args = ap.parse_args(argv)
     if args.seat and args.seat > args.opponents + 1:
         ap.error("seat must be <= number of players")

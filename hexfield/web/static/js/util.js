@@ -6,18 +6,18 @@ export { RES, parseCards } from "./logic.js";
 
 export const COSTS = { road: [1, 1, 0, 0, 0], settle: [1, 1, 1, 1, 0], city: [0, 0, 0, 2, 3], dev: [0, 0, 1, 1, 1] };
 export const DEVS = [
-  { key: "knight", name: "Knight", icon: "i-knight", art: "a-knight", play: "play_knight", hot: "4" },
+  { key: "ranger", name: "Ranger", icon: "i-ranger", art: "a-ranger", play: "play_ranger", hot: "4" },
   { key: "vp", name: "Victory pt", icon: "i-vp", art: "a-vp", play: null },
-  { key: "roadb", name: "Road bldg", icon: "i-roadb", art: "a-roadb", play: "play_road", hot: "5" },
-  { key: "mono", name: "Monopoly", icon: "i-mono", art: "a-mono", play: "play_mono", hot: "6" },
-  { key: "yop", name: "Plenty", icon: "i-yop", art: "a-yop", play: "play_yop", hot: "7" },
+  { key: "roadb", name: "Pathfinder", icon: "i-roadb", art: "a-roadb", play: "play_road", hot: "5" },
+  { key: "hoard", name: "Hoard", icon: "i-hoard", art: "a-hoard", play: "play_hoard", hot: "6" },
+  { key: "windfall", name: "Windfall", icon: "i-windfall", art: "a-windfall", play: "play_windfall", hot: "7" },
 ];
 export const VERDICT_COLORS = { forced: "var(--muted)", best: "var(--good)", good: "var(--ok)", inaccuracy: "var(--warn)", mistake: "var(--bad)", blunder: "var(--worst)" };
-export const LOG_ICONS = { build: "⌂", roll: "⚄", produce: "+", robber: "☗", steal: "✋", dev: "★", trade: "⇄", award: "♛",
+export const LOG_ICONS = { build: "⌂", roll: "⚄", produce: "+", bandit: "☗", steal: "✋", dev: "★", trade: "⇄", award: "♛",
   discard: "−", offer: "?", reply: "·", info: "·", win: "♛", private: "👁", private_steal: "👁" };
 export const STYLE_NOTES = {
-  balanced: "plays the position", builder: "expands fast and races for the Longest Road",
-  citizen: "wants wheat and ore, and builds cities early", general: "buys development cards and goes for the Largest Army",
+  balanced: "plays the position", builder: "expands fast and races for the Great Road",
+  citizen: "wants grain and stone, and builds cities early", general: "buys development cards and goes for the Great Patrol",
   trader: "settles on harbours and trades often",
 };
 export const SPEEDS = { fast: 60, normal: 380, slow: 900 };

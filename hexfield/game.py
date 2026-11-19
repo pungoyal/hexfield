@@ -2,10 +2,10 @@
 
 Actions are plain tuples:
     ('settle', v) ('road', e) ('city', v) ('buy_dev',)
-    ('play_knight',) ('play_road',) ('play_mono', r) ('play_yop', r1, r2)
+    ('play_ranger',) ('play_road',) ('play_hoard', r) ('play_windfall', r1, r2)
     ('roll',) ('roll', total)            # forced total used by AI simulations / tests
-    ('discard', (w, b, s, wh, o))
-    ('robber', hex, victim)              # victim = -1 when nobody can be robbed
+    ('discard', (t, c, w, g, s))
+    ('bandit', hex, victim)              # victim = -1 when nobody can be robbed
     ('bank', give_res, get_res)          # at the player's best ratio
     ('trade', partner, give(5), get(5))  # already agreed player trade
     ('end',)                             # also "pass" in the special building phase
@@ -19,14 +19,14 @@ Options (all off by default, so a seed replays the classic game):
 import random
 
 from .board import Board
-from .constants import (BANK_START, COSTS, DESERT, DEV_DECK_COUNTS, KNIGHT, LARGE_BANK_START,
+from .constants import (BANK_START, COSTS, BADLANDS, DEV_DECK_COUNTS, RANGER, LARGE_BANK_START,
                         LARGE_DEV_DECK_COUNTS, LARGE_FROM, MAX_CITIES, MAX_ROADS, MAX_SETTLEMENTS,
-                        MONOPOLY, RES_NAMES, ROAD_BUILDING, UNKNOWN_DEV, VP_CARD, WIN_VP,
-                        YEAR_OF_PLENTY, DEV_NAMES)
+                        HOARD, RES_NAMES, PATHFINDER, UNKNOWN_DEV, VP_CARD, WIN_VP,
+                        WINDFALL, DEV_NAMES)
 
 SETUP_SETTLE, SETUP_ROAD = "setup_settlement", "setup_road"
-PRE_ROLL, MAIN, DISCARD, ROBBER, ROAD_BUILD, OVER = (
-    "pre_roll", "main", "discard", "move_robber", "road_building", "game_over")
+PRE_ROLL, MAIN, DISCARD, BANDIT, ROAD_BUILD, OVER = (
+    "pre_roll", "main", "discard", "move_bandit", "road_building", "game_over")
 SPECIAL = "special_build"  # 5-6 players: after each turn the others may build (no trading)
 
 DICE_MODES = ("random", "balanced")
@@ -72,7 +72,7 @@ class GameState:
         self.hands = [[0] * 5 for _ in range(n_players)]
         self.devs = [[0] * 6 for _ in range(n_players)]      # playable (owned before this turn)
         self.new_devs = [[0] * 6 for _ in range(n_players)]  # bought this turn
-        self.knights = [0] * n_players
+        self.rangers = [0] * n_players
         self.v_owner = [-1] * b.V
         self.v_level = [0] * b.V
         self.e_owner = [-1] * b.E
@@ -81,9 +81,9 @@ class GameState:
         self.roads = [[] for _ in range(n_players)]
         self.road_len = [0] * n_players
         self.bank = [self.bank_start] * 5
-        self.robber = b.desert
+        self.bandit = b.badlands
         self.longest = -1
-        self.army = -1
+        self.patrol = -1
 
         self.setup_order = list(range(n_players)) + list(reversed(range(n_players)))
         self.setup_idx = 0
@@ -93,7 +93,7 @@ class GameState:
         self.turn = 0              # increments every time a turn ends
         self.dev_played = False
         self.discards = {}         # player -> cards owed
-        self.robber_return = MAIN
+        self.bandit_return = MAIN
         self.free_roads = 0
         self.last_roll = None
         self.winner = -1
@@ -114,7 +114,7 @@ class GameState:
         c.hands = [h[:] for h in self.hands]
         c.devs = [d[:] for d in self.devs]
         c.new_devs = [d[:] for d in self.new_devs]
-        c.knights = self.knights[:]
+        c.rangers = self.rangers[:]
         c.v_owner = self.v_owner[:]
         c.v_level = self.v_level[:]
         c.e_owner = self.e_owner[:]
@@ -180,7 +180,7 @@ class GameState:
         vp = len(self.settlements[p]) + 2 * len(self.cities[p])
         if self.longest == p:
             vp += 2
-        if self.army == p:
+        if self.patrol == p:
             vp += 2
         return vp
 
@@ -254,7 +254,7 @@ class GameState:
             return []
         return list(self.settlements[p])
 
-    def robber_targets(self, p, h):
+    def bandit_targets(self, p, h):
         vics = set()
         for v in self.board.hex_vertices[h]:
             o = self.v_owner[v]
@@ -263,7 +263,7 @@ class GameState:
         return sorted(vics)
 
     def _bank_has_pair(self, r1, r2):
-        """Can the bank hand out one r1 and one r2 (Year of Plenty)?"""
+        """Can the bank hand out one r1 and one r2 (Windfall)?"""
         return self.bank[r1] >= 1 + (r1 == r2) and self.bank[r2] >= 1
 
     def playable(self, p, card):
@@ -278,16 +278,16 @@ class GameState:
             return [("settle", v) for v in self.legal_settlements(p, setup=True)]
         if ph == SETUP_ROAD:
             return [("road", e) for e in self.legal_setup_roads(p)]
-        if ph == ROBBER:
+        if ph == BANDIT:
             acts = []
             for h in range(self.board.H):
-                if h == self.robber:
+                if h == self.bandit:
                     continue
-                vics = self.robber_targets(p, h)
+                vics = self.bandit_targets(p, h)
                 if vics:
-                    acts += [("robber", h, v) for v in vics]
+                    acts += [("bandit", h, v) for v in vics]
                 else:
-                    acts.append(("robber", h, -1))
+                    acts.append(("bandit", h, -1))
             return acts
         if ph == ROAD_BUILD:
             acts = [("road", e) for e in self.legal_roads(p)]
@@ -322,14 +322,14 @@ class GameState:
         if self.dev_played:
             return acts
         d = self.devs[p]
-        if d[KNIGHT]:
-            acts.append(("play_knight",))
-        if d[ROAD_BUILDING] and self.legal_roads(p):
+        if d[RANGER]:
+            acts.append(("play_ranger",))
+        if d[PATHFINDER] and self.legal_roads(p):
             acts.append(("play_road",))
-        if d[MONOPOLY]:
-            acts += [("play_mono", r) for r in range(5)]
-        if d[YEAR_OF_PLENTY]:
-            acts += [("play_yop", a, b) for a in range(5) for b in range(a, 5)
+        if d[HOARD]:
+            acts += [("play_hoard", r) for r in range(5)]
+        if d[WINDFALL]:
+            acts += [("play_windfall", a, b) for a in range(5) for b in range(a, 5)
                      if self._bank_has_pair(a, b)]
         return acts
 
@@ -412,7 +412,7 @@ class GameState:
             if v not in self.legal_settlements(p):
                 raise IllegalAction("not a legal settlement spot (needs your road + distance rule)")
             if not self.can_afford(p, COSTS["settlement"]):
-                raise IllegalAction("can't afford a settlement (wood, brick, sheep, wheat)")
+                raise IllegalAction("can't afford a settlement (timber, clay, wool, grain)")
             self.pay(p, COSTS["settlement"])
         self.v_owner[v] = p
         self.v_level[v] = 1
@@ -424,7 +424,7 @@ class GameState:
                 got = []
                 for h in self.board.vertex_hexes[v]:
                     r = self.board.hex_resource[h]
-                    if r != DESERT and self.bank[r] > 0:
+                    if r != BADLANDS and self.bank[r] > 0:
                         self.hands[p][r] += 1
                         self.bank[r] -= 1
                         got.append(RES_NAMES[r])
@@ -447,7 +447,7 @@ class GameState:
                 raise IllegalAction("road must connect to your network")
             if self.phase != ROAD_BUILD:
                 if not self.can_afford(p, COSTS["road"]):
-                    raise IllegalAction("can't afford a road (wood, brick)")
+                    raise IllegalAction("can't afford a road (timber, clay)")
                 self.pay(p, COSTS["road"])
         else:
             raise IllegalAction("can't build a road now")
@@ -467,12 +467,12 @@ class GameState:
         elif self.phase == ROAD_BUILD:
             self.free_roads -= 1
             if self.free_roads <= 0 or not self.legal_roads(p):
-                self.phase = self.robber_return
+                self.phase = self.bandit_return
 
     def _do_end_road_building(self, p):
         if self.phase != ROAD_BUILD:
             raise IllegalAction("not building free roads")
-        self.phase = self.robber_return
+        self.phase = self.bandit_return
 
     def _do_city(self, p, v):
         if self.phase not in (MAIN, SPECIAL):
@@ -482,7 +482,7 @@ class GameState:
         if len(self.cities[p]) >= MAX_CITIES:
             raise IllegalAction("no cities left")
         if not self.can_afford(p, COSTS["city"]):
-            raise IllegalAction("can't afford a city (2 wheat, 3 ore)")
+            raise IllegalAction("can't afford a city (2 grain, 3 stone)")
         self.pay(p, COSTS["city"])
         self.settlements[p].remove(v)
         self.cities[p].append(v)
@@ -493,7 +493,7 @@ class GameState:
         if self.phase not in (MAIN, SPECIAL):
             raise IllegalAction("buy during your main phase")
         if not self.can_afford(p, COSTS["dev"]):
-            raise IllegalAction("can't afford a development card (sheep, wheat, ore)")
+            raise IllegalAction("can't afford a development card (wool, grain, stone)")
         if self.deck_size() == 0:
             raise IllegalAction("development deck is empty")
         self.pay(p, COSTS["dev"])
@@ -533,8 +533,8 @@ class GameState:
                 hs = self.hand_size(q)
                 if hs > 7:
                     self.discards[q] = hs // 2
-            self.robber_return = MAIN
-            self.phase = DISCARD if self.discards else ROBBER
+            self.bandit_return = MAIN
+            self.phase = DISCARD if self.discards else BANDIT
         else:
             self._produce(total)
             self.phase = MAIN
@@ -543,7 +543,7 @@ class GameState:
         b = self.board
         gains = [[0] * 5 for _ in range(self.n)]
         for h in range(b.H):
-            if b.hex_number[h] != total or h == self.robber:
+            if b.hex_number[h] != total or h == self.bandit:
                 continue
             r = b.hex_resource[h]
             for v in b.hex_vertices[h]:
@@ -583,21 +583,21 @@ class GameState:
         txt = ", ".join(f"{counts[r]} {RES_NAMES[r]}" for r in range(5) if counts[r])
         self.log(f"{self.names[p]} discards {txt}", "discard", p)
         if not self.discards:
-            self.phase = ROBBER
+            self.phase = BANDIT
 
-    def _do_robber(self, p, h, victim=-1):
-        if self.phase != ROBBER:
-            raise IllegalAction("not moving the robber now")
-        if h == self.robber:
-            raise IllegalAction("robber must move to a different hex")
-        vics = self.robber_targets(p, h)
+    def _do_bandit(self, p, h, victim=-1):
+        if self.phase != BANDIT:
+            raise IllegalAction("not moving the bandit now")
+        if h == self.bandit:
+            raise IllegalAction("bandit must move to a different hex")
+        vics = self.bandit_targets(p, h)
         if vics and victim not in vics:
             raise IllegalAction("must steal from a player adjacent to that hex")
-        self.robber = h
-        self.log(f"{self.names[p]} moves the robber to {self.board.hex_label(h)}", "robber", p)
+        self.bandit = h
+        self.log(f"{self.names[p]} moves the bandit to {self.board.hex_label(h)}", "bandit", p)
         if victim != -1 and vics:
             self._steal(p, victim)
-        self.phase = self.robber_return
+        self.phase = self.bandit_return
 
     def _steal(self, p, victim):
         hand = self.hands[victim]
@@ -632,25 +632,25 @@ class GameState:
         self.devs[p][card] -= 1
         self.dev_played = True
 
-    def _do_play_knight(self, p):
-        self._start_dev(p, KNIGHT)
-        self.knights[p] += 1
-        self.log(f"{self.names[p]} plays a Knight ({self.knights[p]} total)", "dev", p)
-        self._update_army()
-        self.robber_return = self.phase
-        self.phase = ROBBER
+    def _do_play_ranger(self, p):
+        self._start_dev(p, RANGER)
+        self.rangers[p] += 1
+        self.log(f"{self.names[p]} plays a Ranger ({self.rangers[p]} total)", "dev", p)
+        self._update_patrol()
+        self.bandit_return = self.phase
+        self.phase = BANDIT
 
     def _do_play_road(self, p):
         if not self.legal_roads(p):
             raise IllegalAction("nowhere to build a road")
-        self._start_dev(p, ROAD_BUILDING)
-        self.log(f"{self.names[p]} plays Road Building", "dev", p)
-        self.robber_return = self.phase
+        self._start_dev(p, PATHFINDER)
+        self.log(f"{self.names[p]} plays Pathfinder", "dev", p)
+        self.bandit_return = self.phase
         self.free_roads = min(2, MAX_ROADS - len(self.roads[p]))
         self.phase = ROAD_BUILD
 
-    def _do_play_mono(self, p, r):
-        self._start_dev(p, MONOPOLY)
+    def _do_play_hoard(self, p, r):
+        self._start_dev(p, HOARD)
         total = 0
         took = []  # the cards are handed over in the open, so the log says who gave what
         for q in range(self.n):
@@ -662,17 +662,17 @@ class GameState:
         if self.sim:
             total = int(round(total))  # simulations run on estimated (fractional) hands
         self.hands[p][r] += total
-        self.log(f"{self.names[p]} plays Monopoly on {RES_NAMES[r]} and takes {total}"
+        self.log(f"{self.names[p]} plays Hoard on {RES_NAMES[r]} and takes {total}"
                  + (f" ({', '.join(took)})" if took else ""), "dev", p)
 
-    def _do_play_yop(self, p, r1, r2):
+    def _do_play_windfall(self, p, r1, r2):
         if not self._bank_has_pair(r1, r2):
             raise IllegalAction("bank doesn't have those resources")
-        self._start_dev(p, YEAR_OF_PLENTY)
+        self._start_dev(p, WINDFALL)
         for r in (r1, r2):
             self.hands[p][r] += 1
             self.bank[r] -= 1
-        self.log(f"{self.names[p]} plays Year of Plenty: {RES_NAMES[r1]} + {RES_NAMES[r2]}", "dev", p)
+        self.log(f"{self.names[p]} plays Windfall: {RES_NAMES[r1]} + {RES_NAMES[r2]}", "dev", p)
 
     # trading --------------------------------------------------------------
     def _do_bank(self, p, give, get):
@@ -751,23 +751,23 @@ class GameState:
         self.trades_this_turn = 0
         self._age_devs(self.current)  # bought while others were building
         self.log(f"--- {self.names[self.current]}'s turn ---", "turn", self.current)
-        # a player can only win on their own turn (e.g. longest road handed over)
+        # a player can only win on their own turn (e.g. great road handed over)
         self._check_win(self.current)
 
     # awards ---------------------------------------------------------------
-    def _update_army(self):
-        best = self.army
+    def _update_patrol(self):
+        best = self.patrol
         for q in range(self.n):
-            k = self.knights[q]
-            if k >= 3 and (best == -1 or k > self.knights[best]):
+            k = self.rangers[q]
+            if k >= 3 and (best == -1 or k > self.rangers[best]):
                 best = q
-        if best != self.army:
-            self.army = best
-            self.log(f"{self.names[best]} takes LARGEST ARMY", "award", best)
+        if best != self.patrol:
+            self.patrol = best
+            self.log(f"{self.names[best]} takes LARGEST PATROL", "award", best)
 
     def _update_longest(self):
         for q in range(self.n):
-            self.road_len[q] = longest_road(self, q)
+            self.road_len[q] = great_road(self, q)
         holder = self.longest
         mx = max(self.road_len)
         if holder != -1 and self.road_len[holder] >= 5 and self.road_len[holder] >= mx:
@@ -777,12 +777,12 @@ class GameState:
         if new != holder:
             self.longest = new
             if new != -1:
-                self.log(f"{self.names[new]} takes LONGEST ROAD ({mx})", "award", new)
+                self.log(f"{self.names[new]} takes GREAT ROAD ({mx})", "award", new)
             elif holder != -1:
-                self.log(f"{self.names[holder]} loses LONGEST ROAD", "award", holder)
+                self.log(f"{self.names[holder]} loses GREAT ROAD", "award", holder)
 
 
-def longest_road(s, p):
+def great_road(s, p):
     edges = s.roads[p]
     if not edges:
         return 0

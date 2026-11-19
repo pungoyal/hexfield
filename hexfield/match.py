@@ -42,7 +42,7 @@ def seat_plan(opponents, level, seed, seat, name, humans, styles):
 
 
 def public_reason(why):
-    """A bot's plan names later steps (e.g. '-> play Knight') that would reveal its hidden
+    """A bot's plan names later steps (e.g. '-> play Ranger') that would reveal its hidden
     cards; keep only the move it actually made."""
     if not why or not why.startswith("plan:"):
         return why

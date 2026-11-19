@@ -1,7 +1,7 @@
 // Keyboard: one handler presses the visible control whose badge matches the key.
 
 import { act, render, undo } from "./app.js";
-import { moveRobber, robberHits, targetsNow } from "./board.js";
+import { moveBandit, banditHits, targetsNow } from "./board.js";
 import { closeCoach } from "./coach.js";
 import { toast } from "./effects.js";
 import { replayKey } from "./games.js";
@@ -23,7 +23,7 @@ export let keyMap = []; // [{code, x, y, best} + one of v/kind, e, hex]
 
 // ---- "obvious" controls: in every scope (main screen, each dialog, the victim menu) the
 // recommended choice is ringed green, and Space presses it. Multi-step choices (a discard,
-// Year of Plenty) move the ring along, so pressing Space repeatedly plays the recommended line.
+// Windfall) move the ring along, so pressing Space repeatedly plays the recommended line.
 export function setObvious(scope, el) {
   for (const o of $$(".obvious", scope)) if (o !== el) o.classList.remove("obvious");
   el?.classList.add("obvious");
@@ -69,24 +69,24 @@ export function roadScore(e, have) {
   return best;
 }
 
-// the robber: opponents' pips blocked (the leaders' count more), never your own, and a card to steal
-export function robberScore(h) {
-  const hit = robberHits(h);
+// the bandit: opponents' pips blocked (the leaders' count more), never your own, and a card to steal
+export function banditScore(h) {
+  const hit = banditHits(h);
   let sc = 0;
   for (const [q, pips] of Object.entries(hit)) {
     sc += Number(q) === S.human ? -3 * pips : pips * (1 + S.players[q].vp / 5);
   }
-  return sc + ((S.legal.robber?.[h] || []).length ? 2 : 0);
+  return sc + ((S.legal.bandit?.[h] || []).length ? 2 : 0);
 }
 
 export function keyTargets() {
   if (!myDecision()) return [];
   const t = targetsNow();
-  const labelled = G.mode || ["setup_settlement", "setup_road", "road_building", "move_robber"].includes(S.phase);
+  const labelled = G.mode || ["setup_settlement", "setup_road", "road_building", "move_bandit"].includes(S.phase);
   if (!labelled) return [];
   const have = myResources();
   const items = [
-    ...t.h.map((h) => ({ hex: h, x: B.hexes[h].x, y: B.hexes[h].y - 26, score: robberScore(h) })),
+    ...t.h.map((h) => ({ hex: h, x: B.hexes[h].x, y: B.hexes[h].y - 26, score: banditScore(h) })),
     ...t.v.map(([v, kind]) => ({ v, kind, x: B.vertices[v].x, y: B.vertices[v].y,
       score: kind === "city" ? B.vertices[v].pips : spotScore(v, have) })),
     ...t.e.map((e) => {
@@ -134,7 +134,7 @@ export function pickKey(ch) {
     if (exact.hex !== undefined) {
       // the victim menu opens where the tag sits on screen
       const m = $("#board").getScreenCTM();
-      moveRobber(exact.hex, { clientX: m.a * exact.x + m.e, clientY: m.d * exact.y + m.f });
+      moveBandit(exact.hex, { clientX: m.a * exact.x + m.e, clientY: m.d * exact.y + m.f });
     } else if (exact.v !== undefined) act([exact.kind, exact.v]);
     else act(["road", exact.e]);
     return true;

@@ -1,10 +1,10 @@
 import unittest
 
 from hexfield.board import Board
-from hexfield.constants import (BRICK, COSTS, DESERT, KNIGHT, MONOPOLY, ORE, ROAD_BUILDING,
-                             VP_CARD, WOOD, YEAR_OF_PLENTY)
-from hexfield.game import (DISCARD, MAIN, OVER, PRE_ROLL, ROAD_BUILD, ROBBER, SETUP_ROAD,
-                        SETUP_SETTLE, GameState, IllegalAction, longest_road)
+from hexfield.constants import (CLAY, COSTS, BADLANDS, RANGER, HOARD, STONE, PATHFINDER,
+                             VP_CARD, TIMBER, WINDFALL)
+from hexfield.game import (DISCARD, MAIN, OVER, PRE_ROLL, ROAD_BUILD, BANDIT, SETUP_ROAD,
+                        SETUP_SETTLE, GameState, IllegalAction, great_road)
 from hexfield.ai import AIPlayer
 from hexfield.match import play_headless
 from hexfield.cli import parse_cards
@@ -55,8 +55,8 @@ class BoardTests(unittest.TestCase):
             self.assertEqual(len(b.ports), 9)
             port_vs = [v for v in range(b.V) if b.vertex_port[v] is not None]
             self.assertEqual(len(port_vs), 18)
-            self.assertEqual(b.hex_resource.count(DESERT), 1)
-            self.assertEqual(b.hex_number[b.desert], 0)
+            self.assertEqual(b.hex_resource.count(BADLANDS), 1)
+            self.assertEqual(b.hex_number[b.badlands], 0)
 
     def test_no_adjacent_red_numbers(self):
         for seed in range(50):
@@ -84,7 +84,7 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(s.current, 0)
         for p in range(3):
             second = s.settlements[p][1]
-            expected = sum(1 for h in s.board.vertex_hexes[second] if s.board.hex_resource[h] != DESERT)
+            expected = sum(1 for h in s.board.vertex_hexes[second] if s.board.hex_resource[h] != BADLANDS)
             self.assertEqual(s.hand_size(p), expected)
 
     def test_distance_rule(self):
@@ -147,10 +147,10 @@ class BuildTests(unittest.TestCase):
 
     def test_bank_trade_ratios(self):
         s, b = self.s, self.b
-        self.assertEqual(s.trade_ratio(0, WOOD), 4)
+        self.assertEqual(s.trade_ratio(0, TIMBER), 4)
         any_v = next(v for v in range(b.V) if b.vertex_port[v] == "any")
         put_settlement(s, 0, any_v)
-        self.assertEqual(s.trade_ratio(0, WOOD), 3)
+        self.assertEqual(s.trade_ratio(0, TIMBER), 3)
         res_v = next(v for v in range(b.V) if b.vertex_port[v] not in (None, "any"))
         r = b.vertex_port[res_v]
         put_settlement(s, 0, res_v)
@@ -193,14 +193,14 @@ class LongestRoadTests(unittest.TestCase):
         for i in range(6):
             a, c = vs[i], vs[(i + 1) % 6]
             put_road(s, 0, b.edge_id[(min(a, c), max(a, c))])
-        self.assertEqual(longest_road(s, 0), 6)
+        self.assertEqual(great_road(s, 0), 6)
 
 
 class DiceTests(unittest.TestCase):
-    def test_production_robber_and_bank_shortage(self):
+    def test_production_bandit_and_bank_shortage(self):
         s = GameState(3, seed=9)
         b = s.board
-        h = next(i for i in range(b.H) if b.hex_number[i] and i != s.robber)
+        h = next(i for i in range(b.H) if b.hex_number[i] and i != s.bandit)
         r = b.hex_resource[h]
         v0, v1 = b.hex_vertices[h][0], b.hex_vertices[h][3]
         put_settlement(s, 0, v0, city=True)
@@ -209,14 +209,14 @@ class DiceTests(unittest.TestCase):
         s.apply(("roll", b.hex_number[h]))
         self.assertGreaterEqual(s.hands[0][r], 2)
         self.assertGreaterEqual(s.hands[1][r], 1)
-        # robber blocks
+        # bandit blocks
         s.hands = [[0] * 5 for _ in range(3)]
-        s.robber = h
+        s.bandit = h
         s.phase = PRE_ROLL
         s.apply(("roll", b.hex_number[h]))
         self.assertEqual(s.hands[0][r], 0)
         # bank shortage with two takers -> nobody
-        s.robber = b.desert
+        s.bandit = b.badlands
         s.bank[r] = 2
         s.phase = PRE_ROLL
         before = [s.hands[q][r] for q in range(3)]
@@ -226,11 +226,11 @@ class DiceTests(unittest.TestCase):
         if not other_hexes:
             self.assertEqual([s.hands[q][r] for q in range(3)], before)
 
-    def test_seven_discard_robber_steal(self):
+    def test_seven_discard_bandit_steal(self):
         s = GameState(3, seed=9)
         b = s.board
         to_main(s)
-        h = next(i for i in range(b.H) if i != s.robber)
+        h = next(i for i in range(b.H) if i != s.bandit)
         put_settlement(s, 1, b.hex_vertices[h][0])
         s.hands[0] = [2, 2, 2, 2, 2]   # 10 -> discard 5
         s.hands[1] = [1, 0, 0, 0, 0]
@@ -242,13 +242,13 @@ class DiceTests(unittest.TestCase):
         with self.assertRaises(IllegalAction):
             s.apply(("discard", (1, 1, 1, 1, 0)))
         s.apply(("discard", (1, 1, 1, 1, 1)))
-        self.assertEqual(s.phase, ROBBER)
+        self.assertEqual(s.phase, BANDIT)
         with self.assertRaises(IllegalAction):
-            s.apply(("robber", s.robber, -1))
-        s.apply(("robber", h, 1))
-        self.assertEqual(s.robber, h)
+            s.apply(("bandit", s.bandit, -1))
+        s.apply(("bandit", h, 1))
+        self.assertEqual(s.bandit, h)
         self.assertEqual(s.hands[1], [0, 0, 0, 0, 0])
-        self.assertEqual(s.hands[0][WOOD], 2)
+        self.assertEqual(s.hands[0][TIMBER], 2)
         self.assertEqual(s.phase, MAIN)
 
 
@@ -259,41 +259,41 @@ class DevCardTests(unittest.TestCase):
 
     def test_cannot_play_card_bought_this_turn(self):
         s = self.s
-        s.deck = [KNIGHT]
+        s.deck = [RANGER]
         s.hands[0] = [0, 0, 1, 1, 1]
         s.apply(("buy_dev",))
-        self.assertEqual(s.new_devs[0][KNIGHT], 1)
+        self.assertEqual(s.new_devs[0][RANGER], 1)
         with self.assertRaises(IllegalAction):
-            s.apply(("play_knight",))
+            s.apply(("play_ranger",))
         s.apply(("end",))
-        self.assertEqual(s.devs[0][KNIGHT], 1)
+        self.assertEqual(s.devs[0][RANGER], 1)
 
-    def test_one_dev_per_turn_and_monopoly_yop(self):
+    def test_one_dev_per_turn_and_hoard_windfall(self):
         s = self.s
-        s.devs[0][MONOPOLY] = 1
-        s.devs[0][YEAR_OF_PLENTY] = 1
+        s.devs[0][HOARD] = 1
+        s.devs[0][WINDFALL] = 1
         s.hands[1] = [0, 0, 0, 0, 3]
         s.hands[2] = [0, 0, 0, 0, 2]
-        s.apply(("play_mono", ORE))
-        self.assertEqual(s.hands[0][ORE], 5)
-        self.assertEqual(s.hands[1][ORE] + s.hands[2][ORE], 0)
+        s.apply(("play_hoard", STONE))
+        self.assertEqual(s.hands[0][STONE], 5)
+        self.assertEqual(s.hands[1][STONE] + s.hands[2][STONE], 0)
         with self.assertRaises(IllegalAction):
-            s.apply(("play_yop", WOOD, BRICK))
+            s.apply(("play_windfall", TIMBER, CLAY))
         s.dev_played = False
-        s.apply(("play_yop", WOOD, BRICK))
-        self.assertEqual(s.hands[0][WOOD] + s.hands[0][BRICK], 2)
+        s.apply(("play_windfall", TIMBER, CLAY))
+        self.assertEqual(s.hands[0][TIMBER] + s.hands[0][CLAY], 2)
 
-    def test_largest_army_and_vp_cards(self):
+    def test_largest_patrol_and_vp_cards(self):
         s = self.s
         b = s.board
         for k in range(3):
-            s.devs[0][KNIGHT] += 1
+            s.devs[0][RANGER] += 1
             s.dev_played = False
-            s.apply(("play_knight",))
-            self.assertEqual(s.phase, ROBBER)
-            h = next(i for i in range(b.H) if i != s.robber)
-            s.apply(("robber", h, -1) if not s.robber_targets(0, h) else ("robber", h, s.robber_targets(0, h)[0]))
-        self.assertEqual(s.army, 0)
+            s.apply(("play_ranger",))
+            self.assertEqual(s.phase, BANDIT)
+            h = next(i for i in range(b.H) if i != s.bandit)
+            s.apply(("bandit", h, -1) if not s.bandit_targets(0, h) else ("bandit", h, s.bandit_targets(0, h)[0]))
+        self.assertEqual(s.patrol, 0)
         self.assertEqual(s.vp(0), 2)
         s.devs[0][VP_CARD] = 2
         self.assertEqual(s.vp(0), 4)
@@ -302,7 +302,7 @@ class DevCardTests(unittest.TestCase):
     def test_road_building(self):
         s = self.s
         put_settlement(s, 0, 20)
-        s.devs[0][ROAD_BUILDING] = 1
+        s.devs[0][PATHFINDER] = 1
         s.apply(("play_road",))
         self.assertEqual(s.phase, ROAD_BUILD)
         s.apply(("road", s.legal_roads(0)[0]))
@@ -346,10 +346,10 @@ class TradeTests(unittest.TestCase):
         self.assertEqual(s.hands[0], [2, 0, 0, 0, 0])
 
     def test_parse_cards(self):
-        self.assertEqual(parse_cards("2 wood ore".split()), [2, 0, 0, 0, 1])
-        self.assertEqual(parse_cards("w w o".split()), [2, 0, 0, 0, 1])
-        self.assertEqual(parse_cards("2w 1o wh".split()), [2, 0, 0, 1, 1])
-        self.assertEqual(parse_cards("sheep2".split()), [0, 0, 2, 0, 0])
+        self.assertEqual(parse_cards("2 timber stone".split()), [2, 0, 0, 0, 1])
+        self.assertEqual(parse_cards("t t s".split()), [2, 0, 0, 0, 1])
+        self.assertEqual(parse_cards("2t 1s g".split()), [2, 0, 0, 1, 1])
+        self.assertEqual(parse_cards("wool2".split()), [0, 0, 2, 0, 0])
         self.assertIsNone(parse_cards("banana".split()))
 
 
@@ -387,7 +387,7 @@ class AITests(unittest.TestCase):
         self.assertEqual(a[0], "city")
 
     def _road_win_position(self):
-        """8 VP, a 3-road chain and exactly the cards for 2 more roads: Longest Road wins."""
+        """8 VP, a 3-road chain and exactly the cards for 2 more roads: Great Road wins."""
         s = GameState(3, seed=6)
         to_main(s)
         b = s.board
@@ -402,7 +402,7 @@ class AITests(unittest.TestCase):
         s.hands[0] = [2, 2, 0, 0, 0]
         return s
 
-    def test_win_search_finds_two_road_longest_road(self):
+    def test_win_search_finds_two_road_great_road(self):
         s = self._road_win_position()
         ai = AIPlayer(s.board, "hard", seed=1)
         line = ai.find_win(ai.view(s, 0), 0)
@@ -417,7 +417,7 @@ class AITests(unittest.TestCase):
                 t.apply(a)
             self.assertEqual(t.winner, 0, level)
 
-    def test_win_search_plays_year_of_plenty(self):
+    def test_win_search_plays_windfall(self):
         s = GameState(3, seed=6)
         to_main(s)
         b = s.board
@@ -428,18 +428,18 @@ class AITests(unittest.TestCase):
         put_road(s, 0, e)
         put_road(s, 0, e2)
         s.devs[0][VP_CARD] = 8
-        s.devs[0][YEAR_OF_PLENTY] = 1
-        s.hands[0] = [0, 0, 1, 1, 0]           # missing wood + brick for the settlement
+        s.devs[0][WINDFALL] = 1
+        s.hands[0] = [0, 0, 1, 1, 0]           # missing timber + clay for the settlement
         self.assertTrue(s.legal_settlements(0))
         a, why = AIPlayer(s.board, "hard", seed=1).decide(s)
-        self.assertEqual(a, ("play_yop", WOOD, BRICK), why)
+        self.assertEqual(a, ("play_windfall", TIMBER, CLAY), why)
         s.apply(a)
         a, _ = AIPlayer(s.board, "hard", seed=1).decide(s)
         s.apply(a)
         self.assertEqual(s.winner, 0)
 
     def test_win_search_does_not_count_on_a_steal(self):
-        """A knight's steal is random: a line that needs the stolen card is not a forced win."""
+        """A ranger's steal is random: a line that needs the stolen card is not a forced win."""
         s = GameState(3, seed=6)
         to_main(s)
         put_settlement(s, 0, 0)
@@ -448,11 +448,11 @@ class AITests(unittest.TestCase):
         put_road(s, 0, e)
         put_road(s, 0, next(x for x in s.board.vertex_edges[w] if x != e))
         s.devs[0][VP_CARD] = 8
-        s.devs[0][KNIGHT] = 1
-        s.hands[0] = [1, 0, 1, 1, 0]           # one brick short
+        s.devs[0][RANGER] = 1
+        s.hands[0] = [1, 0, 1, 1, 0]           # one clay short
         s.hands[1] = [0, 5, 0, 0, 0]
         put_settlement(s, 1, next(v for v in range(s.board.V) if s.vertex_free(v)
-                                  and s.robber not in s.board.vertex_hexes[v]))
+                                  and s.bandit not in s.board.vertex_hexes[v]))
         s.belief = [[[float(x) for x in s.hands[q]] for q in range(3)] for _ in range(3)]
         ai = AIPlayer(s.board, "hard", seed=1)
         self.assertIsNone(ai.find_win(ai.view(s, 0), 0))
@@ -468,23 +468,23 @@ class AITests(unittest.TestCase):
         self.assertLess(best, 100)             # VP-eq scale, not the internal 1000
         self.assertEqual(coach.analyze(s, top=1)[0][1][0], "road")
 
-    def test_rolling_before_a_knight_is_not_a_mistake(self):
-        """The knight can still be played after the roll; rolling first only risks the
-        production the robber blocks this roll."""
+    def test_rolling_before_a_ranger_is_not_a_mistake(self):
+        """The ranger can still be played after the roll; rolling first only risks the
+        production the bandit blocks this roll."""
         for seed in range(6):
             s = GameState(3, seed=seed)
             to_main(s)
             s.phase = PRE_ROLL
             b = s.board
-            h = next(h for h in range(b.H) if b.hex_resource[h] != DESERT and h != s.robber)
+            h = next(h for h in range(b.H) if b.hex_resource[h] != BADLANDS and h != s.bandit)
             put_settlement(s, 1, b.hex_vertices[h][0])
-            put_settlement(s, 0, next(v for v in range(b.V) if s.vertex_free(v) and s.robber not in b.vertex_hexes[v]))
+            put_settlement(s, 0, next(v for v in range(b.V) if s.vertex_free(v) and s.bandit not in b.vertex_hexes[v]))
             s.hands[1] = [2, 2, 2, 2, 2]
             s.belief = [[[float(x) for x in s.hands[q]] for q in range(3)] for _ in range(3)]
-            s.devs[0][KNIGHT] = 1
+            s.devs[0][RANGER] = 1
             coach = AIPlayer(s.board, "hard", seed=1)
             ranked = {a[0]: sc for sc, a, _ in coach.rank_preroll(coach.view(s, 0), 0)}
-            self.assertLess(ranked["play_knight"] - ranked["roll"], 0.05)
+            self.assertLess(ranked["play_ranger"] - ranked["roll"], 0.05)
             self.assertAlmostEqual(coach.value_of_action(s, ("roll",)), ranked["roll"])
 
     def test_setup_scores_are_vp_equivalents(self):
@@ -504,7 +504,7 @@ class HiddenInfoTests(unittest.TestCase):
     def test_offer_judged_without_the_proposers_hidden_cards(self):
         """A bot judging an offer sees only how many dev cards the proposer holds."""
         gains = []
-        for hidden in (VP_CARD, KNIGHT):
+        for hidden in (VP_CARD, RANGER):
             s = GameState(3, seed=5)
             to_main(s, 0)
             for v in (0, 9, 20, 30):
@@ -529,15 +529,15 @@ class HiddenInfoTests(unittest.TestCase):
         s = GameState(3, seed=9)
         b = s.board
         to_main(s, p=1)
-        h = next(i for i in range(b.H) if i != s.robber)
+        h = next(i for i in range(b.H) if i != s.bandit)
         put_settlement(s, 2, b.hex_vertices[h][0])
         s.hands[2] = [1, 0, 0, 0, 1]
         s.belief = [[[float(x) for x in s.hands[q]] for q in range(3)] for _ in range(3)]
-        s.phase = ROBBER
-        s.robber_return = MAIN
-        s.apply(("robber", h, 2))
+        s.phase = BANDIT
+        s.bandit_return = MAIN
+        s.apply(("bandit", h, 2))
         stolen = 0 if s.hands[1][0] else 4
-        # thief and victim know exactly; player 0 only knows "one of wood/ore"
+        # thief and victim know exactly; player 0 only knows "one of timber/stone"
         self.assertEqual(s.belief[1][2], [float(x) for x in s.hands[2]])
         self.assertEqual(s.belief[2][1][stolen], 1.0)
         self.assertAlmostEqual(s.belief[0][2][0], 0.5)
@@ -560,7 +560,7 @@ class HiddenInfoTests(unittest.TestCase):
         s.hands[1] = [3, 0, 0, 0, 0]
         s.hands[0] = [0, 2, 0, 0, 0]
         text = ANSI_RE.sub("", "\n".join(Renderer(s, 0, color=False).panel_lines()))
-        self.assertIn("Br:2", text)
+        self.assertIn("Cl:2", text)
         self.assertNotIn("Wo:3", text)
 
 

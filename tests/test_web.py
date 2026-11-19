@@ -147,7 +147,7 @@ class WebTests(unittest.TestCase):
         g.offer = {"from": 1, "give": (1, 0, 0, 0, 0), "get": (0, 1, 0, 0, 0), "answers": {0: None, 2: True},
                    "counters": {}, "tries": {}, "notes": {}, "bot": True}
         self.assertNotIn("answers", g.view()["pending_offer"])
-        self.assertEqual(public_reason("plan: buy development card -> play Knight  (eval +0.40)"),
+        self.assertEqual(public_reason("plan: buy development card -> play Ranger  (eval +0.40)"),
                          "plan: buy development card  (eval +0.40)")
 
     def test_playtest_view_details(self):
@@ -231,7 +231,7 @@ class SessionTests(unittest.TestCase):
         before = g.view()
         r = WebGame.resume(g.gid)
         after = r.view()
-        for key in ("phase", "turn", "hand", "v_owner", "e_owner", "bank", "robber", "ev_total", "can_undo"):
+        for key in ("phase", "turn", "hand", "v_owner", "e_owner", "bank", "bandit", "ev_total", "can_undo"):
             self.assertEqual(before[key], after[key], key)
         self.assertEqual([e["msg"] for e in before["events"]], [e["msg"] for e in after["events"]])
         self.assertEqual([e.get("why") for e in before["events"]], [e.get("why") for e in after["events"]],
@@ -271,7 +271,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(rp.total, len(steps))
 
         def sig(s):
-            return (s.phase, s.turn, s.v_owner, s.e_owner, s.hands, s.robber)
+            return (s.phase, s.turn, s.v_owner, s.e_owner, s.hands, s.bandit)
 
         for k in (0, 1, 7, rp.total, 3, rp.total - 1, 45, 2):   # forward, back, forward again
             k = min(k, rp.total)
@@ -334,7 +334,7 @@ class SessionTests(unittest.TestCase):
         self.assertIn(a, g.waiting_on(), "the proposer isn't blocked while the offer is out")
         with self.assertRaises(Exception):
             g.act(["trade", b, [1, 0, 0, 0, 0], [0, 0, 0, 0, 1]], a)   # not agreed yet
-        # Bo answers with a counter-offer: two wood for the ore
+        # Bo answers with a counter-offer: two timber for the stone
         g.respond(False, b, counter={"give": [2, 0, 0, 0, 0], "get": [0, 0, 0, 0, 1]})
         reply = next(r for r in g.my_offer_for(a)["replies"] if r["p"] == b)
         self.assertEqual(reply["counter"], {"give": [2, 0, 0, 0, 0], "get": [0, 0, 0, 0, 1]})
@@ -368,7 +368,7 @@ class SessionTests(unittest.TestCase):
             self.assertEqual(g.s.hands[h], [0, 0, 0, 0, 3])
             g.respond(True)
             self.assertEqual(g.s.hands[h], [1, 0, 0, 0, 2])
-        else:    # it took four wood for one ore
+        else:    # it took four timber for one stone
             self.assertEqual(g.s.hands[h], [4, 0, 0, 0, 2])
         self.assertIsNone(g.offer)
         g.close()

@@ -16,11 +16,11 @@
   --warn: #f5c542;
   --bad: #f08a3c;
   --worst: #f0506e;
-  --wood: #2f8a55;
-  --brick: #c4613f;
-  --sheep: #93c95a;
-  --wheat: #e9b934;
-  --ore: #8d99ae;
+  --timber: #2f8a55;
+  --clay: #c4613f;
+  --wool: #93c95a;
+  --grain: #e9b934;
+  --stone: #8d99ae;
   --p0: #ef4f5a;
   --p1: #3d8ef8;
   --p2: #f79a2b;
@@ -28,7 +28,7 @@
   --radius: 14px;
   --shadow: 0 10px 30px rgb(0 0 0 / .35), 0 2px 6px rgb(0 0 0 / .25);
   --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mono: ui-monospace, "SF Hoard", Menlo, Consolas, monospace;
   color-scheme: dark;
 }
 
@@ -230,11 +230,11 @@ h2 .h-sub { text-transform: none; letter-spacing: 0; font-weight: 500; color: va
 .tt-pips { color: var(--accent); letter-spacing: -1px; }
 
 /* resource colouring */
-.r-wood { --rc: var(--wood); }
-.r-brick { --rc: var(--brick); }
-.r-sheep { --rc: var(--sheep); }
-.r-wheat { --rc: var(--wheat); }
-.r-ore { --rc: var(--ore); }
+.r-timber { --rc: var(--timber); }
+.r-clay { --rc: var(--clay); }
+.r-wool { --rc: var(--wool); }
+.r-grain { --rc: var(--grain); }
+.r-stone { --rc: var(--stone); }
 svg.ri { fill: var(--rc); }
 
 /* ------------------------------------------------------------ board */
@@ -283,7 +283,7 @@ svg.ri { fill: var(--rc); }
 .port-badge .rate.big { font: 700 14px Georgia, "Times New Roman", serif; }
 .port-badge .any { font: 700 6.5px var(--font); letter-spacing: .08em; text-transform: uppercase; fill: #7d6a44; }
 
-/* pieces: painted wood in the owner's colour, darker on the sides away from the light */
+/* pieces: painted timber in the owner's colour, darker on the sides away from the light */
 .road line { stroke-linecap: round; }
 .road .r-shadow { stroke: #000; stroke-width: 11; opacity: .28; }
 .road .under { stroke: #14100a; stroke-width: 11.5; }
@@ -305,8 +305,8 @@ svg.ri { fill: var(--rc); }
 .road.pop { transform-box: view-box; animation: draw .45s ease-out; }
 @keyframes draw { from { opacity: 0; } to { opacity: 1; } }
 
-.robber { transition: transform .55s cubic-bezier(.4, 1.4, .5, 1); pointer-events: none; }
-.robber .eye { fill: #ff5a5a; }
+.bandit { transition: transform .55s cubic-bezier(.4, 1.4, .5, 1); pointer-events: none; }
+.bandit .eye { fill: #ff5a5a; }
 
 /* interactive targets */
 .v-target, .e-target, .hex-target { cursor: pointer; }
@@ -461,7 +461,7 @@ dialog.wide { width: min(900px, calc(100vw - 32px)); }
 .rcard.bump { animation: bump .5s ease-out; }
 @keyframes bump { 35% { translate: 0 -10px; } }
 .devhand { display: flex; gap: 6px; min-height: 72px; align-items: center; }
-.devhand:empty::before { content: "None yet: buy one for sheep, wheat and ore"; color: var(--faint); font-size: 12px; max-width: 150px; line-height: 1.35; }
+.devhand:empty::before { content: "None yet: buy one for wool, grain and stone"; color: var(--faint); font-size: 12px; max-width: 150px; line-height: 1.35; }
 .dev-wrap { padding-left: 18px; border-left: 1px solid var(--line); }
 /* captions over the two hands: what it is, how many, and the over-7 warning */
 .dock-cap { display: flex; align-items: center; gap: 7px; height: 18px; margin-bottom: 7px; font-size: 11px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
@@ -819,7 +819,7 @@ dialog:focus { outline: none; }
 #offer-summary .th-builds { margin-top: 6px; }
 .bt-unlock { position: absolute; bottom: 2px; left: 4px; font-style: normal; font-size: 10px; color: var(--good); }
 
-/* robber targets: who each hex would block */
+/* bandit targets: who each hex would block */
 .hex-target.empty { stroke-opacity: .15; }
 .hex-target.hurts { stroke: var(--bad); }
 .rb-chip { pointer-events: none; }
@@ -873,7 +873,7 @@ dialog:focus { outline: none; }
 .bt-row.off .bt-give svg, .bt-row.off .bt-have { grid-row: auto; }
 .bt-row.off .bt-give { grid-template-rows: auto; }
 
-/* monopoly: the tracker's estimate under each resource */
+/* hoard: the tracker's estimate under each resource */
 .pick-res .haul { display: block; margin-top: 6px; font: 700 12px var(--mono); color: var(--muted); text-align: center; }
 
 /* help: rules first, keys tucked away */

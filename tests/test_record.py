@@ -15,7 +15,7 @@ def bot_seats(n):
 
 
 def fingerprint(s):
-    return (s.phase, s.turn, s.winner, s.hands, s.v_owner, s.e_owner, s.bank, s.robber, s.knights, len(s.events))
+    return (s.phase, s.turn, s.winner, s.hands, s.v_owner, s.e_owner, s.bank, s.bandit, s.rangers, len(s.events))
 
 
 class RecordTests(unittest.TestCase):
@@ -65,7 +65,7 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(rec.reviews, [{"at": 3, "seat": 0}], "reviews of undone moves go with them")
 
     def test_bad_files_are_refused(self):
-        for bad in ({}, {"version": 99}, {"version": 1, "seed": 1, "seats": []}, [1, 2]):
+        for bad in ({}, {"version": 99}, {"version": 2, "seed": 1, "seats": []}, [1, 2]):
             with self.assertRaises((ValueError, KeyError, TypeError)):
                 Record.from_dict(bad)
         with self.assertRaises(ValueError):

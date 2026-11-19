@@ -22,8 +22,8 @@ import time
 from .. import store
 from ..ai import LEVELS, STYLES, AIPlayer, describe
 from ..cli import VERDICTS
-from ..constants import DESERT, MAX_CITIES, MAX_ROADS, MAX_SETTLEMENTS, RES_NAMES
-from ..game import (DICE_MODES, LAYOUTS, MAIN, OVER, PRE_ROLL, ROAD_BUILD, ROBBER, SETUP_ROAD,
+from ..constants import BADLANDS, MAX_CITIES, MAX_ROADS, MAX_SETTLEMENTS, RES_NAMES
+from ..game import (DICE_MODES, LAYOUTS, MAIN, OVER, PRE_ROLL, ROAD_BUILD, BANDIT, SETUP_ROAD,
                     SETUP_SETTLE, SPECIAL, IllegalAction, fmt_cards)
 from ..match import AI_NAMES, bot_counters, clean_name, pick_partner, public_reason, seat_plan
 from ..record import Record
@@ -39,7 +39,7 @@ BUILD_STEP = {"city": "city", "settlement": "settle", "road": "road", "dev": "bu
 
 
 def parse_step(text):
-    """One step of an engine plan ('trade 4 wood -> ore', 'city at 12 [..]', 'road 30')
+    """One step of an engine plan ('trade 4 timber -> stone', 'city at 12 [..]', 'road 30')
     back to an action, or None when it isn't a simple build or bank trade."""
     text = text.strip()
     m = re.fullmatch(r"trade \d+ (\w+) -> (\w+)", text)
@@ -81,7 +81,7 @@ def board_geometry(b):
         r = b.hex_resource[h]
         hexes.append({
             "x": round(centers[h][0], 2), "y": round(centers[h][1], 2),
-            "res": None if r == DESERT else RES_NAMES[r],
+            "res": None if r == BADLANDS else RES_NAMES[r],
             "num": b.hex_number[h], "pips": b.hex_pips[h], "label": b.hex_label(h),
         })
     return {
@@ -96,8 +96,8 @@ def board_geometry(b):
 
 
 # number of integer arguments each simple action takes
-ARITY = {"settle": 1, "road": 1, "city": 1, "buy_dev": 0, "play_knight": 0, "play_road": 0,
-         "play_mono": 1, "play_yop": 2, "roll": 0, "robber": 2, "bank": 2, "end": 0,
+ARITY = {"settle": 1, "road": 1, "city": 1, "buy_dev": 0, "play_ranger": 0, "play_road": 0,
+         "play_hoard": 1, "play_windfall": 2, "roll": 0, "bandit": 2, "bank": 2, "end": 0,
          "end_road_building": 0}
 
 
@@ -179,7 +179,7 @@ class Table:
                 "hidden_vp": s.vp_cards(p) if shown else 0,
                 "cards": s.hand_size(p),
                 "devs": s.dev_count(p),
-                "knights": s.knights[p],
+                "rangers": s.rangers[p],
                 "road": s.road_len[p],
                 "left": {"road": MAX_ROADS - len(s.roads[p]),
                          "settlement": MAX_SETTLEMENTS - len(s.settlements[p]),
@@ -215,8 +215,8 @@ class Table:
             "phase": s.phase, "actor": s.actor() if s.phase != OVER else s.current,
             "current": s.current, "turn": s.turn, "round": self.round(),
             "last_roll": list(s.last_roll) if s.last_roll else None,
-            "robber": s.robber, "v_owner": s.v_owner, "v_level": s.v_level, "e_owner": s.e_owner,
-            "players": players, "longest": s.longest, "army": s.army,
+            "bandit": s.bandit, "v_owner": s.v_owner, "v_level": s.v_level, "e_owner": s.e_owner,
+            "players": players, "longest": s.longest, "patrol": s.patrol,
             "hand": s.hands[h], "devs": s.devs[h][:5], "new_devs": s.new_devs[h][:5],
             "bank": s.bank, "deck": s.deck_size(), "dev_played": s.dev_played,
             "free_roads": s.free_roads, "discard_owed": s.discards.get(h, 0),
@@ -295,13 +295,13 @@ class Table:
         if (not self.live or s.phase == OVER or self.open or s.actor() != h
                 or (self.offer and self.offer["bot"])):
             return {}
-        L = {"settle": [], "city": [], "road": [], "robber": {}, "kinds": []}
+        L = {"settle": [], "city": [], "road": [], "bandit": {}, "kinds": []}
         for a in s.legal_actions():
             k = a[0]
             if k in ("settle", "city", "road"):
                 L[k].append(a[1])
-            elif k == "robber":
-                victims = L["robber"].setdefault(str(a[1]), [])
+            elif k == "bandit":
+                victims = L["bandit"].setdefault(str(a[1]), [])
                 if a[2] != -1:
                     victims.append(a[2])
             if k not in L["kinds"]:
@@ -315,7 +315,7 @@ class Table:
         for p in sorted(range(s.n), key=lambda q: -s.vp(q)):
             rows.append({"p": p, "vp": s.vp(p), "settlements": len(s.settlements[p]),
                          "cities": len(s.cities[p]), "longest": s.longest == p,
-                         "army": s.army == p, "vp_cards": s.vp_cards(p)})
+                         "patrol": s.patrol == p, "vp_cards": s.vp_cards(p)})
         revs = [r for r in self.reviews if r.get("seat") == h and not r.get("forced")]
         counts = {v[1]: 0 for v in VERDICTS}
         for r in revs:
@@ -894,7 +894,7 @@ class WebGame(Table):
             best_desc = describe(s, best_a)
             if s.phase in (MAIN, SPECIAL) and why.startswith("plan:"):
                 best_desc = why[6:]
-            elif why and s.phase in (SETUP_SETTLE, SETUP_ROAD, ROBBER):
+            elif why and s.phase in (SETUP_SETTLE, SETUP_ROAD, BANDIT):
                 best_desc += f" — {why}"
             label = describe(s, a)
             if a[0] == "trade":

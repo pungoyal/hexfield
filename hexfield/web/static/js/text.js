@@ -6,7 +6,7 @@ import { COSTS, RES } from "./util.js";
 export { accuracy, covers, handPlus, scored, totalLost } from "./logic.js";
 
 // Expected production of player p: pips per resource (cards per 36 rolls),
-// the dice numbers that pay out, and what the robber is currently blocking.
+// the dice numbers that pay out, and what the bandit is currently blocking.
 export function production(p) {
   const pips = [0, 0, 0, 0, 0], blocked = [0, 0, 0, 0, 0], nums = [[], [], [], [], []];
   S.v_owner.forEach((o, v) => {
@@ -16,7 +16,7 @@ export function production(p) {
       const hx = B.hexes[h];
       if (!hx.res) continue;
       const r = RES.indexOf(hx.res);
-      if (h === S.robber) { blocked[r] += hx.pips * lv; continue; }
+      if (h === S.bandit) { blocked[r] += hx.pips * lv; continue; }
       pips[r] += hx.pips * lv;
       nums[r].push({ n: hx.num, lv, pips: hx.pips });
     }
@@ -46,13 +46,13 @@ export function buildChanges(before, after) {
     lost.length ? `gives up ${lost.map((n) => `<span class="bchip lost">${n}</span>`).join("")}` : ""].filter(Boolean).join(" · ");
 }
 
-// a hex by what it is ("9 brick") rather than its letter
+// a hex by what it is ("9 clay") rather than its letter
 export function hexName(label) {
   const h = B?.hexes.find((x) => x.label === label);
-  return !h ? label : h.res ? `${h.num} ${h.res}` : "the desert";
+  return !h ? label : h.res ? `${h.num} ${h.res}` : "the badlands";
 }
 
-// a spot by what it touches: "8 wheat, 5 sheep · 3:1 port"
+// a spot by what it touches: "8 grain, 5 wool · 3:1 port"
 export function spotName(v) {
   const vx = B.vertices[v];
   const hs = (vx.hexes || []).map((h) => B.hexes[h]).filter((h) => h.res).sort((a, b) => b.pips - a.pips).map((h) => `${h.num} ${h.res}`);
@@ -77,7 +77,7 @@ export function roadsToward(edges) {
   return spotName(end);
 }
 
-// engine notation -> readable line: "road 4 -> road 9 -> city at 12 [..]" => "2 roads toward 8 wheat → city [..]"
+// engine notation -> readable line: "road 4 -> road 9 -> city at 12 [..]" => "2 roads toward 8 grain → city [..]"
 export function human(s) {
   const text = String(s).replace(/\s*\(eval [^)]*\)/g, "")
     .replace(/bank-trade \(([^)]*)\) and build (\w+)/g, (_, t, k) => `trade ${t.replace(/(\d+ \w+) ?-> ?(\w+)/g, "$1 for $2")}, build ${k}`)
@@ -112,7 +112,7 @@ export function edgeLine(e, k) {
   return { x1: a.x + (b.x - a.x) * k, y1: a.y + (b.y - a.y) * k, x2: b.x - (b.x - a.x) * k, y2: b.y - (b.y - a.y) * k };
 }
 
-export const plain = (s) => String(s).replace(/\brobber (to|on) ([A-Z]{1,2})\b(?: \([^)]*\))?/g, (_, w, l) => `robber ${w} ${hexName(l)}`).replace(/vertex \d+ ?/g, "").replace(/\b(road|settlement at|city at) \d+/g, "$1").replace(/settlement at \[/g, "settlement [").replace(/city at \[/g, "city [");
+export const plain = (s) => String(s).replace(/\bbandit (to|on) ([A-Z]{1,2})\b(?: \([^)]*\))?/g, (_, w, l) => `bandit ${w} ${hexName(l)}`).replace(/vertex \d+ ?/g, "").replace(/\b(road|settlement at|city at) \d+/g, "$1").replace(/settlement at \[/g, "settlement [").replace(/city at \[/g, "city [");
 export const symbol = (v) => ({ forced: "·", best: "✓", good: "✓", inaccuracy: "?!", mistake: "?", blunder: "??" })[v];
 export const engineLine = (r) => r.forced ? "no real choice" : r.delta < 0.05 ? "engine agrees" : `better: ${short(r.best)}`;
 
@@ -124,7 +124,7 @@ export function describeStep(a) {
     case "settle": return `settlement [${spotName(a[1])}]`;
     case "city": return `city [${spotName(a[1])}]`;
     case "buy_dev": return "buy development card";
-    case "robber": return `robber to ${B.hexes[a[1]].label}${a[2] >= 0 ? `, rob ${S.players[a[2]].name}` : ""}`;
+    case "bandit": return `bandit to ${B.hexes[a[1]].label}${a[2] >= 0 ? `, rob ${S.players[a[2]].name}` : ""}`;
     default: return a[0].replace("play_", "play ").replace("_", " ");
   }
 }

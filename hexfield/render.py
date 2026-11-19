@@ -6,15 +6,15 @@ import re
 import shutil
 from itertools import zip_longest
 
-from .constants import (COSTS, DEV_NAMES, KNIGHT, MONOPOLY, PIPS, RES_NAMES, ROAD_BUILDING,
-                        VP_CARD, YEAR_OF_PLENTY, MAX_ROADS, MAX_SETTLEMENTS, MAX_CITIES)
+from .constants import (COSTS, DEV_NAMES, RANGER, HOARD, PIPS, RES_NAMES, PATHFINDER,
+                        VP_CARD, WINDFALL, MAX_ROADS, MAX_SETTLEMENTS, MAX_CITIES)
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 # 256-colour palette
-TERRAIN_BG = (28, 130, 107, 178, 245, 180)          # wood brick sheep wheat ore desert
+TERRAIN_BG = (28, 130, 107, 178, 245, 180)          # timber clay wool grain stone badlands
 TERRAIN_FG = (157, 223, 230, 230, 255, 94)
-TERRAIN_TXT = ("WOOD", "BRICK", "SHEEP", "WHEAT", "ORE", "DESERT")
+TERRAIN_TXT = ("TIMBER", "CLAY", "WOOL", "GRAIN", "STONE", "BADLANDS")
 RES_CHIP_BG = TERRAIN_BG[:5]
 RES_CHIP_FG = (231, 231, 231, 16, 16)
 OCEAN_BG = 24
@@ -25,8 +25,8 @@ PLAYER_COLORS = (196, 39, 208, 255, 77, 170)
 PLAYER_COLOR_NAMES = ("Red", "Blue", "Orange", "White", "Green", "Purple")
 TOKEN_BG = 230
 DICE = "⚀⚁⚂⚃⚄⚅"
-RES_ABBR = [name[:2].title() for name in RES_NAMES]     # Wo Br Sh Wh Or
-EVENT_ICONS = {"build": "⌂", "roll": "⚄", "produce": "+", "robber": "☗", "steal": "✋",
+RES_ABBR = [name[:2].title() for name in RES_NAMES]     # Ti Cl Wo Gr St
+EVENT_ICONS = {"build": "⌂", "roll": "⚄", "produce": "+", "bandit": "☗", "steal": "✋",
                "dev": "★", "trade": "⇄", "award": "♛", "discard": "−", "win": "♛"}
 
 
@@ -166,8 +166,8 @@ class Renderer:
                 cv.text(cx - 1, cy, f"{n:^3}", fg=160 if red else 16, bg=TOKEN_BG, bold=True)
                 pips = "•" * PIPS[n]
                 cv.ctext(cx, cy + 1, pips, fg=160 if red else fg, bg=bg, bold=red)
-            if h == s.robber:
-                cv.ctext(cx, cy + 2, " ROBBER ", fg=231, bg=16, bold=True)
+            if h == s.bandit:
+                cv.ctext(cx, cy + 2, " BANDIT ", fg=231, bg=16, bold=True)
             if highlight and h in highlight:
                 cv.ctext(cx, cy - 3, "▼▼▼", fg=226, bg=bg, bold=True)
         # edges
@@ -276,19 +276,19 @@ class Renderer:
         L.append(st("│", fg=240) + pad(st(title, bold=True), width - 2) + st("│", fg=240))
         L.append(st("│", fg=240) + pad(" Dice " + self.dice(), width - 2) + st("│", fg=240))
         L.append(st("╰" + "─" * (width - 2) + "╯", fg=240))
-        hdr = f"   {'player':<9}{'VP':>3} {'cards':>5} {'dev':>3} {'kn':>3} {'road':>4}  awards"
+        hdr = f"   {'player':<9}{'VP':>3} {'cards':>5} {'dev':>3} {'rg':>3} {'road':>4}  awards"
         L.append(st(hdr, dim=True))
         for p in range(s.n):
             vp = s.public_vp(p) + (s.vp_cards(p) if p == self.human else 0)
             awards = []
             if s.longest == p:
-                awards.append(st("LONGEST", fg=226, bold=True))
-            if s.army == p:
-                awards.append(st("ARMY", fg=213, bold=True))
+                awards.append(st("GREAT ROAD", fg=226, bold=True))
+            if s.patrol == p:
+                awards.append(st("PATROL", fg=213, bold=True))
             marker = st("▶", fg=226, bold=True) if p == cur else " "
             row = (f"{marker} {self.swatch(p)}{self.pname(p, 8)}"
                    f"{st(f'{vp:>3}', bold=True)} {s.hand_size(p):>5} {s.dev_count(p):>3} "
-                   f"{s.knights[p]:>3} {s.road_len[p]:>4}  {' '.join(awards)}")
+                   f"{s.rangers[p]:>3} {s.road_len[p]:>4}  {' '.join(awards)}")
             L.append(row)
             if p == self.human:
                 L.append("      " + " ".join(self.chip(r, s.hands[p][r]) for r in range(5)))
@@ -297,7 +297,7 @@ class Renderer:
         h = self.human
         dv, nd = s.devs[h], s.new_devs[h]
         cards = []
-        for c in (KNIGHT, ROAD_BUILDING, MONOPOLY, YEAR_OF_PLENTY, VP_CARD):
+        for c in (RANGER, PATHFINDER, HOARD, WINDFALL, VP_CARD):
             if dv[c] + nd[c]:
                 tag = f"{DEV_NAMES[c]} x{dv[c] + nd[c]}"
                 if nd[c]:
@@ -405,7 +405,7 @@ def second_person(msg, human_name):
     for i in range(len(words) - 1):
         if words[i] in ("You", "(You"):
             subject = True
-        # 'You play Monopoly on ore and takes 5': the verb after 'and' is yours too
+        # 'You play Hoard on stone and takes 5': the verb after 'and' is yours too
         if (words[i] in ("You", "(You") or (subject and words[i] == "and")) and words[i + 1] in _VERBS:
             words[i + 1] = _VERBS[words[i + 1]]
     # 'You' as an object, not at the start of a sentence

@@ -2,7 +2,7 @@
 //
 //   boardDefs()        gradients and the small reusable drawings (trees, sheep, peaks...)
 //   terrain(hex, i)    the landscape painted on one hex; no two hexes come out the same
-//   settlement / city / road / robber / token / portBadge   the playing pieces
+//   settlement / city / road / bandit / token / portBadge   the playing pieces
 //   installSprites()   full-colour emblems for the resource and development cards
 //
 // Everything is lit from the upper left. Shadows are plain offset shapes, not filters, so
@@ -47,12 +47,12 @@ const pick = (rand, list) => list[Math.floor(rand() * list.length)];
 
 // ------------------------------------------------------------------ shared definitions
 const TERRAIN_BASE = {
-  wood: ["#3f9d63", "#2a7a4b", "#1a5735"],
-  brick: ["#e08a5c", "#c5643f", "#96422a"],
-  sheep: ["#c2e584", "#9bd062", "#6fa942"],
-  wheat: ["#f9dc7a", "#eabd3b", "#c2921d"],
-  ore: ["#b3bccb", "#8893a6", "#5f6a7e"],
-  desert: ["#f1e2b6", "#dfc98f", "#bda36a"],
+  timber: ["#3f9d63", "#2a7a4b", "#1a5735"],
+  clay: ["#e08a5c", "#c5643f", "#96422a"],
+  wool: ["#c2e584", "#9bd062", "#6fa942"],
+  grain: ["#f9dc7a", "#eabd3b", "#c2921d"],
+  stone: ["#b3bccb", "#8893a6", "#5f6a7e"],
+  badlands: ["#f1e2b6", "#dfc98f", "#bda36a"],
 };
 
 export function boardDefs() {
@@ -65,7 +65,7 @@ export function boardDefs() {
     <radialGradient id="vignette" cx="50%" cy="46%" r="62%"><stop offset=".62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></radialGradient>
     <radialGradient id="g-token" cx="38%" cy="30%" r="80%"><stop offset="0" stop-color="#fffaf0"/><stop offset=".7" stop-color="#f1e6c8"/><stop offset="1" stop-color="#d9c79b"/></radialGradient>
     <radialGradient id="g-sand" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#f0dfae"/><stop offset="1" stop-color="#d2b77c"/></radialGradient>
-    <linearGradient id="g-robber" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5a6070"/><stop offset=".45" stop-color="#2b2f39"/><stop offset="1" stop-color="#0d0f14"/></linearGradient>
+    <linearGradient id="g-bandit" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5a6070"/><stop offset=".45" stop-color="#2b2f39"/><stop offset="1" stop-color="#0d0f14"/></linearGradient>
     <linearGradient id="g-mound" x1=".15" y1="0" x2=".85" y2="1"><stop offset="0" stop-color="#f3a77a"/><stop offset=".5" stop-color="#cf6a43"/><stop offset="1" stop-color="#8e3b24"/></linearGradient>
     <linearGradient id="g-dune" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fbf0cc"/><stop offset="1" stop-color="#e3cd96"/></linearGradient>
     <linearGradient id="g-wood-ring" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b98a56"/><stop offset="1" stop-color="#6e4a28"/></linearGradient>
@@ -189,7 +189,7 @@ export function boardDefs() {
 
 // ------------------------------------------------------------------ terrain
 const SCENES = {
-  wood(rand) {
+  timber(rand) {
     let s = "";
     for (let i = 0; i < 9; i++) {
       const x = (rand() * 2 - 1) * 46, y = (rand() * 2 - 1) * 52;
@@ -200,7 +200,7 @@ const SCENES = {
     }
     return s;
   },
-  sheep(rand) {
+  wool(rand) {
     const tilt = rand() * 10 - 5;
     let s = `<g transform="rotate(${f1(tilt)})">
       <path d="M-70-12C-40-30-8-4 28-20S62-28 72-22V-70H-70z" fill="#d3ef98" opacity=".75"/>
@@ -217,7 +217,7 @@ const SCENES = {
     for (const p of scatter(rand, 5, 19, (x, y) => clearOfToken(27)(x, y) && y < 30, 46)) s += use("t-sheep", p.x, p.y, 1.05 + rand() * 0.3, rand() < 0.5);
     return s;
   },
-  wheat(rand) {
+  grain(rand) {
     const turn = Math.floor(rand() * 180);
     const cuts = [-80, -26 + rand() * 8, 2 + rand() * 8, 30 + rand() * 6, 80];
     const tints = ["#f6d457", "#e2ae2a", "#f9e184", "#d9a020"];
@@ -235,7 +235,7 @@ const SCENES = {
     for (const p of scatter(rand, 7, 20, clearOfToken(27), 46)) s += use(rand() < 0.62 ? "t-sheaf" : "t-hay", p.x, p.y + 4, 1.05 + rand() * 0.3, rand() < 0.5);
     return s;
   },
-  brick(rand) {
+  clay(rand) {
     let s = "";
     for (let i = 0; i < 7; i++) {
       const x = (rand() * 2 - 1) * 46, y = (rand() * 2 - 1) * 52;
@@ -247,7 +247,7 @@ const SCENES = {
     });
     return s;
   },
-  ore(rand) {
+  stone(rand) {
     let s = "";
     for (let i = 0; i < 7; i++) {
       const x = (rand() * 2 - 1) * 46, y = (rand() * 2 - 1) * 52;
@@ -260,7 +260,7 @@ const SCENES = {
     things.sort((a, b) => a[0] - b[0]);
     return s + things.map((t) => t[1]).join("");
   },
-  desert(rand) {
+  badlands(rand) {
     let s = "";
     for (const p of scatter(rand, 7, 24, () => true, 52)) s += use("t-dune", p.x, p.y, 0.8 + rand() * 0.6, rand() < 0.5);
     for (let i = 0; i < 16; i++) {
@@ -278,7 +278,7 @@ const SCENES = {
 
 // the inside of one hex, drawn around its own centre for a radius of 60
 export function terrain(hex, index) {
-  const res = hex.res || "desert";
+  const res = hex.res || "badlands";
   const rand = seeded(7919 * (index + 1) + 131 * (hex.num || 0) + res.length);
   return `
     <polygon class="tile" points="${hexPoints(0, 0, 59)}" fill="url(#g-${res})"/>
@@ -328,9 +328,9 @@ export function roadArt({ x1, y1, x2, y2 }) {
     <line class="low" ${off(-2.3)}/><line class="shine" ${off(2.1)}/>`;
 }
 
-export const ROBBER = `
+export const BANDIT = `
   <ellipse cx="2" cy="16.5" rx="12.5" ry="3.8" fill="#000" opacity=".42"/>
-  <path d="M0-19a7.4 7.4 0 0 1 7.4 7.4c0 2.6-1.3 4.8-3.3 6.1C8-3.6 10.6 1 10.6 6.6V13c0 2.2-1.7 3.4-4.4 3.4H-6.2c-2.7 0-4.4-1.2-4.4-3.4V6.6C-10.6 1-8-3.6-4.1-5.5a7.3 7.3 0 0 1-3.3-6.1A7.4 7.4 0 0 1 0-19z" fill="url(#g-robber)" stroke="#07080b" stroke-width="1.4"/>
+  <path d="M0-19a7.4 7.4 0 0 1 7.4 7.4c0 2.6-1.3 4.8-3.3 6.1C8-3.6 10.6 1 10.6 6.6V13c0 2.2-1.7 3.4-4.4 3.4H-6.2c-2.7 0-4.4-1.2-4.4-3.4V6.6C-10.6 1-8-3.6-4.1-5.5a7.3 7.3 0 0 1-3.3-6.1A7.4 7.4 0 0 1 0-19z" fill="url(#g-bandit)" stroke="#07080b" stroke-width="1.4"/>
   <path d="M-6.4-13.6A6.4 6.4 0 0 1-1-17.9M-9 5.4C-8.6 1.6-7-1.6-4.4-3.4" fill="none" stroke="#aab2c4" stroke-width="1.5" stroke-linecap="round" opacity=".6"/>
   <path d="M-4.6-12.4h9.2a4.6 4.6 0 0 1-9.2 0z" fill="#07080b" opacity=".75"/>
   <circle class="eye" cx="-2.2" cy="-10.6" r="1.25"/><circle class="eye" cx="2.2" cy="-10.6" r="1.25"/>`;
@@ -359,7 +359,7 @@ const SPRITES = `
   <radialGradient id="a-grain" cx="40%" cy="35%" r="75%"><stop offset="0" stop-color="#f8ddb0"/><stop offset="1" stop-color="#d59f5e"/></radialGradient>
   <linearGradient id="a-clay" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ec8460"/><stop offset="1" stop-color="#b9482b"/></linearGradient>
 
-  <symbol id="a-wood" viewBox="0 0 48 48">
+  <symbol id="a-timber" viewBox="0 0 48 48">
     <ellipse cx="25" cy="42.5" rx="19" ry="3" fill="#000" opacity=".22"/>
     <g id="a-log"><circle cx="19.4" cy="30.2" r="8.6" fill="#3d2410"/>
       <circle cx="14" cy="33.2" r="8.6" fill="url(#a-bark)"/><circle cx="14" cy="33.2" r="6.7" fill="url(#a-grain)"/>
@@ -370,7 +370,7 @@ const SPRITES = `
     <path d="M9.6 12.6a8.6 8.6 0 0 1 4-3" stroke="#d9a877" stroke-width="1.3" fill="none" stroke-linecap="round" transform="translate(8.8 0)"/>
   </symbol>
 
-  <symbol id="a-brick" viewBox="0 0 48 48">
+  <symbol id="a-clay" viewBox="0 0 48 48">
     <ellipse cx="25" cy="42" rx="19" ry="3" fill="#000" opacity=".22"/>
     <path d="M6 15.5 12 9.5h32l-6 6z" fill="#f4a384"/><path d="M38 15.5l6-6V34l-6 6z" fill="#8f3520"/>
     <rect x="6" y="15.5" width="32" height="24.5" fill="#7b2c18"/>
@@ -380,7 +380,7 @@ const SPRITES = `
     <path d="M8.4 18h11.6M24 18h11.6M16.2 25.8h11.6M8.4 33.6h11.6M24 33.6h11.6M8.4 25.8h3.8M31.8 25.8h3.8" stroke="#ffd0bb" stroke-width="1" stroke-linecap="round" opacity=".8"/>
   </symbol>
 
-  <symbol id="a-sheep" viewBox="0 0 48 48">
+  <symbol id="a-wool" viewBox="0 0 48 48">
     <ellipse cx="25" cy="42.5" rx="17" ry="3" fill="#000" opacity=".22"/>
     <path d="M17 33v8.4M22.6 34v7.4M29.6 34v7.4M35 33v8.4" stroke="#2d2623" stroke-width="3" stroke-linecap="round"/>
     <g fill="#dfe4d3"><circle cx="18" cy="29" r="7.4"/><circle cx="34" cy="29" r="7.4"/><circle cx="26" cy="31" r="7.8"/></g>
@@ -391,7 +391,7 @@ const SPRITES = `
     <path d="M9.6 27.2h2.4" stroke="#8d7f78" stroke-width="1" stroke-linecap="round"/>
   </symbol>
 
-  <symbol id="a-wheat" viewBox="0 0 48 48">
+  <symbol id="a-grain" viewBox="0 0 48 48">
     <ellipse cx="24.6" cy="43" rx="14" ry="2.6" fill="#000" opacity=".22"/>
     <path d="M17.6 43 21.6 29h4.8L30.4 43z" fill="#d9a322"/><path d="M24 43 26.4 29l4 14z" fill="#b07d0e"/>
     <g id="a-ear"><path d="M24 30V11" stroke="#d9a322" stroke-width="1.8" stroke-linecap="round"/>
@@ -403,7 +403,7 @@ const SPRITES = `
     <rect x="19.6" y="28" width="8.8" height="3.6" rx="1.6" fill="#b3352b"/><path d="M20.6 29h6.8" stroke="#f08a7e" stroke-width=".8" stroke-linecap="round"/>
   </symbol>
 
-  <symbol id="a-ore" viewBox="0 0 48 48">
+  <symbol id="a-stone" viewBox="0 0 48 48">
     <ellipse cx="24.6" cy="42.5" rx="20" ry="3" fill="#000" opacity=".22"/>
     <path d="M4 41 11.6 22.6 20 18l7 9.4-2 13.6z" fill="#8a94a8"/><path d="M20 18l7 9.4-2 13.6H14.6l1-13.4z" fill="#566076"/><path d="M11.6 22.6 20 18l-4.4 9.6z" fill="#c9d1de"/>
     <path d="M19 41 25.4 15 33.6 8l8 13.6L44 41z" fill="#a4aebf"/><path d="M33.6 8l8 13.6L44 41H31.6l-1.4-17.6z" fill="#5d687d"/><path d="M25.4 15 33.6 8l-3.4 15.4z" fill="#dfe5ee"/>
@@ -412,7 +412,7 @@ const SPRITES = `
     <path d="M36 22.6l2-3 2 3-2 2.8z" fill="#c2f3ff"/>
   </symbol>
 
-  <symbol id="a-knight" viewBox="0 0 48 48">
+  <symbol id="a-ranger" viewBox="0 0 48 48">
     <path d="M36.6 4 41 8.4 22.6 30l-4.4.4.4-4.4z" fill="url(#a-steel)" stroke="#3d4658" stroke-width="1" stroke-linejoin="round"/>
     <path d="M14 27l7.6 7.6-3 3L11 30z" fill="url(#a-gold)" stroke="#7a4d06" stroke-width="1" stroke-linejoin="round"/>
     <path d="M12.4 34.4l-5 5a2.3 2.3 0 0 0 3.2 3.2l5-5z" fill="#7a4a22" stroke="#3f230c" stroke-width="1"/>
@@ -440,7 +440,7 @@ const SPRITES = `
     <path d="m12 6 1.100 2.700 2.700 1.100-2.700 1.100L12 13.600l-1.100-2.700-2.700-1.100 2.700-1.100z" fill="#fff3b8"/>
   </symbol>
 
-  <symbol id="a-mono" viewBox="0 0 48 48">
+  <symbol id="a-hoard" viewBox="0 0 48 48">
     <ellipse cx="24" cy="42.500" rx="17" ry="2.800" fill="#000" opacity=".22"/>
     <path d="M6 14l9 10 9-15 9 15 9-10-3.600 22H9.600z" fill="url(#a-gold)" stroke="#8a5a06" stroke-width="1.400" stroke-linejoin="round"/>
     <path d="M24 9l9 15 9-10-3.600 22H24z" fill="#b9780c" opacity=".35"/>
@@ -450,7 +450,7 @@ const SPRITES = `
     <path d="M10.600 20.400l4.600 5 6.400-10.600" stroke="#fff8d6" stroke-width="1.400" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/>
   </symbol>
 
-  <symbol id="a-yop" viewBox="0 0 48 48">
+  <symbol id="a-windfall" viewBox="0 0 48 48">
     <ellipse cx="24" cy="43" rx="18" ry="2.800" fill="#000" opacity=".22"/>
     <path d="M7 22h34v17a3 3 0 0 1-3 3H10a3 3 0 0 1-3-3z" fill="#8a5a2f" stroke="#3f230c" stroke-width="1.300"/>
     <path d="M24 22h17v17a3 3 0 0 1-3 3H24z" fill="#6d4420"/>
@@ -466,6 +466,6 @@ const SPRITES = `
 
 export function installSprites() {
   const sprite = document.querySelector("svg.sprite");
-  if (!sprite || sprite.querySelector("#a-wood")) return;
+  if (!sprite || sprite.querySelector("#a-timber")) return;
   sprite.insertAdjacentHTML("beforeend", SPRITES);
 }
