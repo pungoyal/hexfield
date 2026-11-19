@@ -252,9 +252,9 @@ gh variable set DEPLOY_ENABLED --body true      # last
 
 Before the first deploy, the edge must be running (it creates the network), `hex.vaari.dev`
 needs a DNS-only `A` record pointing at the VM (edge's `scripts/dns.sh`), and the deploy
-user needs passwordless `sudo` once so the job can create `/opt/hexfield`. Then open
-`https://hex.vaari.dev/?host=<HEXFIELD_HOST_KEY>` once to become the host. To deploy again
-without a new commit, re-run the workflow's latest run on `main`.
+user needs passwordless `sudo` once so the job can create `/opt/hexfield`. Then use
+`HEXFIELD_HOST_KEY` to become the host, as described under [Hosting](#hosting). To deploy
+again without a new commit, re-run the workflow's latest run on `main`.
 
 ## Rules
 
