@@ -1,7 +1,7 @@
 # Hexfield
 
 A complete base-game engine in pure Python (3.10+, no dependencies). You play against
-2 or 3 machine opponents in a coloured terminal UI. A coach can suggest moves, review
+2 to 5 machine opponents in a coloured terminal UI or in the browser, alone or with other people. A coach can suggest moves, review
 every decision you make, and replay the same board and dice from a seed.
 
 ```
@@ -11,7 +11,47 @@ python3 -m hexfield --seed 1234 --seat 1   # replay exact board + dice, you go f
 python3 -m hexfield -l medium          # easier bots (easy | medium | hard)
 python3 -m hexfield --fast             # no pause between bot actions
 python3 -m hexfield --no-review --no-reasoning   # play "blind"
+python3 -m hexfield -o 5               # six players: the large board and the special building phase
+python3 -m hexfield --dice balanced --layout beginner   # dealt dice, the rulebook's starting map
+python3 -m hexfield --resume           # pick up your last unfinished game
+python3 -m hexfield --games            # your saved games; --replay ID steps through one
+python3 -m hexfield --stats            # accuracy across your finished games, and where the points go
 ```
+
+`pip install .` adds the commands `hexfield` and `hexfield-web`; running from a checkout
+with `python3 -m` works just as well.
+
+### Saved games, replays and your progress
+
+Every game is saved as you play, in `~/.hexfield/games` (set `HEXFIELD_HOME` to move it).
+A save is the seed, the table and the list of decisions, so it stays valid when the bots
+change. Quit at any point and resume later, in the terminal or the browser, with your undo
+history intact.
+
+In the browser, **Games** (`Shift+G`) lists them. **Replay** steps through a game move by
+move (`←` `→`, `[` `]` for your own decisions, `Space` to play). At each of your decisions
+it shows what you played, the coach's verdict and the engine's line on the board, and can
+list what else there was. **All cards** turns every hand face up. **Play on from here**
+starts a new game from that position, on the same board with the same dice: the way to find
+out what the other line would have done. Games can be exported to a file and imported.
+
+**Your progress** adds up your finished solo games: accuracy game by game, win rate, and a
+table of where the lost points go (opening, building and trading, robber, discards, trade
+offers, knights), so you can see what to practise.
+
+### Playing with other people
+
+A new game can seat several humans, with bots in the other chairs (3 to 6 players in all).
+
+* **Pass and play**: one screen. It goes dark between players and the next one confirms
+  before their cards show.
+* **Online**: one device each. Start the server with `python3 -m hexfield.web --lan`, create
+  the game and send the others the invite link from the lobby. Each seat has its own secret
+  key, kept in that browser; a player only ever receives their own hand. Only the machine
+  running the server can start, resume, list or delete games.
+
+Undo is for single-player games. Offers between humans work like offers to bots: the others
+accept, decline or answer with a counter-offer, and the proposer picks.
 
 ### Web interface
 
@@ -30,7 +70,12 @@ the bots play, in the discard and bot-offer dialogs (an **Undo** button, or `U`)
 the game ends. Bots play at a
 selectable speed. Keys: `R` roll, `1/2/3` road/settlement/city, `D` dev card,
 `T` trade, `E` end turn, `H` hint, `Ctrl+Z` (`⌘Z` on a Mac) undo, `?` help. Reloading the
-page resumes the game.
+page resumes the game, and so does restarting the server.
+
+Every spot you can build on is also a real button: `Tab` to it and press `Enter`, and a
+screen reader hears what it is ("Build a settlement: 8 wheat, 5 sheep, 9 pips"). **Marks**
+(`Shift+C`) switches to a colour-blind-safe palette and puts each player's seat number on
+their pieces. Animations are dropped when the system asks for reduced motion.
 
 Each hint line names where it builds ("2 roads toward 8 wheat · 3:1 port"); selecting a line
 lights its spots on the board, and **Play** carries out bank trades together with the build
@@ -99,6 +144,23 @@ colour off.
   to the bots, and bots make offers to you and to each other.
 * First to 10 VP **on their own turn** wins. Hidden VP cards count.
 
+Options (all off unless you ask, so an old seed still deals the same game):
+
+* **5 or 6 players.** The large board: 30 hexes in rows of 3-4-5-6-5-4-3, two deserts,
+  28 number tokens, 11 harbours, 24 cards of each resource and a 34-card development deck
+  (20 knights). After every turn comes the **special building phase**: each other player
+  in turn may build or buy a development card with the cards in hand, without trading or
+  playing cards. Players who can't afford anything are skipped. (Newer printings replace
+  this phase with "paired players"; the classic rule is the one implemented.)
+* **Beginner board.** The fixed starting map from the rulebook, for up to 4 players.
+* **Balanced dice.** The 36 combinations are dealt from a shuffled deck, reshuffled when
+  fewer than 13 are left, so a long drought of one number can't happen and the tail of a
+  deck can't be counted. It is a plain deck: the extra anti-streak weighting some online
+  versions add is not included.
+* **Counter-offers.** A player who turns an offer down may name a price: one more card, or
+  one fewer in return. Bots do this to you and to each other, and you can answer any offer
+  with terms of your own (two tries against a bot's offer).
+
 ## Commands
 
 | command | |
@@ -110,8 +172,9 @@ colour off.
 | `d` | buy a development card |
 | `k`, `rb`, `mono ore`, `yop wheat ore` | play development cards |
 | `t wood ore` / `t wood ore 3` | bank/port trade at your best ratio; the number is how many trades (all or none) |
-| `offer 2 wood for ore` | offer a trade to the bots |
-| `e` | end turn |
+| `offer 2 wood for ore` | offer a trade to the bots; one that says no may name its price |
+| `c wood for ore` | at a bot's offer: your counter-offer (you give wood, you get ore) |
+| `e` | end turn (or pass, in the special building phase) |
 | `h` / `hint` | the engine's top 5 options for the current decision, with reasons |
 | `eval` | engine evaluation of every player plus production (pips per resource) |
 | `review on/off`, `reason on/off` | post-move review / bot reasoning (bare `review` shows the setting) |
@@ -138,6 +201,8 @@ discard prompt card names come first: `b w w` discards brick, wood, wood (`board
   3 VP-eq over the position).
 * **End-of-game report.** You get an accuracy %, the total value lost, and your five
   biggest misses with the engine's preferred line.
+* **Across games.** `--stats` (or **Your progress** in the browser) shows accuracy over
+  time and which kinds of decision cost you the most.
 * **Seeds.** Board, dice, dev deck and steals each use their own random stream. The
   same `--seed` replays the same board and dice sequence even if you play differently.
   `undo` uses the same mechanism inside a game.
@@ -192,22 +257,80 @@ that tracked view, never the real hands. The coach also uses *your* tracker, so 
 or the deck order. A dev card bought inside a simulation is valued at the deck's
 expected value.
 
-Strength check (`python3 tools/selfplay.py --levels hard,medium,easy --games 30`):
-`hard` wins about 70% against one `medium` and one `easy` bot, where a fair share is 33%.
+6. **Styles.** Every bot has a style: *balanced*, *builder* (roads, settlements, Longest
+   Road), *citizen* (wheat and ore, early cities), *general* (development cards, Largest
+   Army) or *trader* (harbours and deals). A style is a handful of multipliers on the
+   evaluation weights, so all of them play the same sound game with different tastes. By
+   default each bot gets one at random (`--styles balanced` turns that off). In 96-game
+   matches between hard bots no style was distinguishable from *balanced*: variety, not a
+   handicap.
+
+All the evaluation weights live in one table, `PARAMS` in `hexfield/ai.py`.
+
+### Measuring and tuning
+
+```
+python3 tools/selfplay.py --levels hard,medium,easy --games 180
+python3 tools/selfplay.py --levels hard,hard,hard,hard --styles balanced,builder,citizen,general --games 96
+python3 tools/tune.py --iterations 50 --games 48 --out tuned.json
+```
+
+`selfplay.py` runs on every core (about 3 hard games a second on a 12-core laptop), rotates
+the seats and prints each entry's win rate with a 95% interval. Over 180 games `hard` won
+74% (67-80%) against one `medium` and one `easy` bot, where a fair share is 33%.
+
+`tune.py` searches the weights by self-play with SPSA, the method chess engines use for
+this, and then plays the result against the current weights. Adopt a tuned set only when
+the whole interval is above 50%.
+
+Two attempts to make `hard` stronger were measured this way and **not** kept:
+
+* Tuned weights (50 iterations of 48 games) scored 45.5% against the hand-set ones over 200
+  games (95% interval 39-52%): no better.
+* A look past the bot's own turn (re-ranking its best lines over sampled dice for the next
+  round) scored 48.8% over 480 games: no better, at twice the thinking time.
+
+Both agree with what others have found for this game: at small budgets, rollouts and
+chance-averaging lose to or tie a good evaluation, and weight tuning stays inside the
+noise. What does pay is in place here already: a planner inside the turn, an exact
+win-this-turn search and a look-ahead opening. Telling a few percent apart needs on the
+order of a thousand games per comparison.
 
 ## Code layout
 
 ```
 hexfield/constants.py   rules data
-hexfield/board.py       geometry (screen-coordinate vertices), board/port generation
-hexfield/game.py        state, legal moves, transitions, longest road
-hexfield/ai.py          evaluator, beam search, setup lookahead, trading
-hexfield/match.py       trade resolution, headless games
+hexfield/board.py       geometry (screen-coordinate vertices), board/port generation, both sizes
+hexfield/game.py        state, legal moves, transitions, longest road, rule options
+hexfield/ai.py          evaluation weights and styles, beam search, setup lookahead, trading
+hexfield/match.py       seating, trade resolution with counter-offers, headless games
+hexfield/record.py      a game as data: seed + decisions; exact replay
+hexfield/store.py       saved games on disk, statistics across games
 hexfield/render.py      ANSI board + panel
-hexfield/cli.py         interactive game, coach, undo, reports
-hexfield/web/           browser UI: session.py (game + async reviews), server.py, static/
-tests/               rules, hidden-info, AI, scripted CLI and HTTP end-to-end tests
-tools/selfplay.py    bot-vs-bot benchmark with seat rotation
+hexfield/cli.py         terminal game, coach, undo, resume, replay, statistics
+hexfield/web/session.py live games (any mix of humans and bots), offers, reviews, replays
+hexfield/web/server.py  HTTP API: several games at once, seat keys, long polling
+hexfield/web/static/js  the browser client as ES modules, no build step:
+                        app (game loop) · state · board · panels · keys · coach · dialogs ·
+                        effects · games (saves, replay, lobby, pass and play) · text · util ·
+                        logic (DOM-free, unit-tested)
+tests/                  rules, options, records, hidden information, bots, scripted terminal
+                        and HTTP games, multiplayer, and tests/js for the client's logic
+tools/selfplay.py       parallel bot-vs-bot benchmark with seat rotation and intervals
+tools/tune.py           SPSA weight tuning with validation
+tools/browser.mjs       a small headless-Chrome driver (DevTools protocol, no packages)
+tools/e2e.mjs           a real browser plays through the main screens
 ```
 
-Run the tests with `python3 -m unittest discover -s tests -t .` (about 10 s).
+## Tests
+
+```
+python3 -m unittest                                   # everything (about 45 s)
+node --test tests/js                                  # just the browser client's logic
+HEXFIELD_BROWSER_TESTS=1 python3 -m unittest tests.test_js   # plus the real-browser run
+```
+
+The suite needs only Python. With Node 20+ on the path it also runs the client's unit
+tests and checks that every module parses and every import resolves; without Node those
+are skipped. The real-browser run needs Node 22+ and Chrome and is opt-in. GitHub Actions
+(`.github/workflows/tests.yml`) runs all of it on Python 3.10, 3.12 and 3.13.

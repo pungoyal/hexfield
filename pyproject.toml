@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hexfield"
+dynamic = ["version"]
+description = "A hex-board settling and trading game against tough bots, with a built-in coach. Terminal and browser, no dependencies."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["board game", "strategy", "ai", "terminal", "coach"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Topic :: Games/Entertainment :: Board Games",
+]
+
+[project.scripts]
+hexfield = "hexfield.cli:main"
+hexfield-web = "hexfield.web.server:main"
+
+[tool.setuptools]
+packages = ["hexfield", "hexfield.web"]
+
+[tool.setuptools.dynamic]
+version = { attr = "hexfield.__version__" }
+
+[tool.setuptools.package-data]
+"hexfield.web" = ["static/*", "static/js/*"]

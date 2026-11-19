@@ -959,3 +959,109 @@ dialog:focus { outline: none; }
 .pill-link { font: inherit; font-size: 13px; font-weight: 700; color: var(--accent); background: rgb(240 180 41 / .12); border: 1px solid rgb(240 180 41 / .4); border-radius: 999px; padding: 2px 10px; margin-left: 4px; cursor: pointer; }
 .pill-link:hover { background: rgb(240 180 41 / .22); }
 .pill-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ============ five and six players ============ */
+:root { --p4: #3ecf8e; --p5: #b07cf7; }
+body.many .players { gap: 6px; }
+body.many .player { padding-block: 7px; }
+body.many .p-race { margin-top: 4px; }
+body.many .p-stats { margin-top: 4px; font-size: 11.5px; gap: 2px 8px; }
+
+/* ============ colour-blind friendly marks ============ */
+body.marks { --p0: #e69f00; --p1: #56b4e9; --p2: #009e73; --p3: #f0e442; --p4: #cc79a7; --p5: #ffffff; }
+.p-seat { display: none; flex: none; min-width: 17px; height: 17px; border-radius: 5px; background: var(--pc); color: #10151d; font: 800 11px/17px var(--mono); text-align: center; margin-right: 6px; }
+body.marks .p-seat { display: inline-block; }
+.piece .seat-mark { display: none; font: 800 10px var(--mono); text-anchor: middle; fill: #10151d; stroke: rgb(255 255 255 / .75); stroke-width: 2.2px; paint-order: stroke; pointer-events: none; }
+body.marks .piece .seat-mark { display: block; }
+.board [role="button"]:focus { outline: none; }
+.board [role="button"]:focus-visible .ring, .board [role="button"]:focus-visible .vis, .board polygon[role="button"]:focus-visible { stroke: #fff; stroke-width: 3.5; opacity: 1; }
+.log:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.p-open { display: flex; flex-wrap: wrap; gap: 2px 8px; margin-top: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.p-open span { display: inline-flex; align-items: center; gap: 3px; }
+.p-open svg { width: 13px; height: 13px; }
+
+/* ============ new game: more options ============ */
+.multi { margin-top: 4px; }
+.names { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 12px; }
+.more-opts { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.more-opts summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 600; }
+.more-opts summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+[hidden] { display: none !important; }
+
+/* ============ saved games and progress ============ */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 6px 0 14px; }
+.tab { position: relative; font: inherit; font-weight: 700; color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; cursor: pointer; }
+.tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+#games-body { min-height: 220px; }
+.games-table td { vertical-align: middle; }
+.games-table .won { font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.row-actions .btn { padding: 4px 10px; font-size: 12.5px; text-decoration: none; }
+.nowrap { white-space: nowrap; }
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.stat-tiles > div { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.stat-tiles b { font-size: 24px; font-variant-numeric: tabular-nums; }
+.stat-tiles b.up { color: var(--good); }
+.stat-tiles b.down { color: var(--worst); }
+.stat-tiles span { font-size: 12px; color: var(--muted); }
+.spark { width: 100%; height: auto; margin-top: 14px; background: #0e141d; border: 1px solid var(--line); border-radius: 12px; }
+.spark .grid { stroke: var(--line); stroke-width: 1; }
+.spark .axis { fill: var(--faint); font: 10px var(--mono); }
+.spark .line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.spark circle { fill: #0e141d; stroke: var(--accent); stroke-width: 2; }
+.spark circle.won { fill: var(--accent); }
+.spark-key { font-size: 12px; margin: 6px 0 0; }
+.bar-cell { width: 28%; }
+.bar-cell .bar { display: block; height: 8px; border-radius: 4px; background: #0e141d; overflow: hidden; }
+.bar-cell .bar i { display: block; height: 100%; background: var(--warn); border-radius: 4px; }
+#dlg-games h3 { margin: 18px 0 8px; }
+
+/* ============ replay ============ */
+.replay-bar { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 3; display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; justify-content: center; padding: 8px 12px; border-radius: 14px; background: rgb(17 24 35 / .95); border: 1px solid var(--line-2); box-shadow: 0 10px 30px rgb(0 0 0 / .45); }
+.replay-bar .btn { padding: 6px 10px; }
+.replay-bar input[type="range"] { width: clamp(120px, 22vw, 320px); accent-color: var(--accent); }
+.rp-pos { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 150px; }
+body.replaying .dice { bottom: 74px; }
+body.replaying .dock .actions, body.replaying #btn-hint, body.replaying #btn-eval { opacity: .35; pointer-events: none; }
+.rp-decision { padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--muted); }
+.rp-decision p { margin: 0 0 6px; }
+.rp-decision.v-best, .rp-decision.v-good { border-left-color: var(--good); }
+.rp-decision.v-inaccuracy { border-left-color: var(--warn); }
+.rp-decision.v-mistake, .rp-decision.v-blunder { border-left-color: var(--worst); }
+
+/* ============ lobby, joining, pass and play ============ */
+.lobby { position: absolute; inset: 50% auto auto 50%; translate: -50% -50%; z-index: 4; width: min(430px, calc(100% - 24px)); padding: 18px 20px; border-radius: 16px; background: rgb(17 24 35 / .97); border: 1px solid var(--line-2); box-shadow: 0 18px 50px rgb(0 0 0 / .55); }
+.lobby h2 { font-size: 18px; text-transform: none; letter-spacing: 0; color: var(--text); margin: 0 0 10px; }
+.seat-list { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+.seat-list li { display: flex; align-items: center; gap: 8px; }
+.seat-list .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.invite { display: flex; gap: 8px; }
+.invite input { flex: 1; min-width: 0; font: 12.5px var(--mono); color: var(--text); background: #0e141d; border: 1px solid var(--line-2); border-radius: 10px; padding: 8px 10px; }
+.warn-note { color: var(--warn); font-size: 12.5px; }
+.warn-note code { font: 12px var(--mono); background: #0e141d; padding: 1px 5px; border-radius: 5px; }
+dialog.curtain { text-align: center; width: min(420px, calc(100vw - 32px)); }
+dialog.curtain::backdrop { background: #070a10; backdrop-filter: none; }
+dialog.curtain .dlg-actions { justify-content: center; }
+body.curtained .app { visibility: hidden; }
+
+/* ============ counter-offers ============ */
+.bo-counter { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: #0e141d; border: 1px solid var(--line); }
+.bo-note { min-height: 1.2em; font-size: 12.5px; margin: 8px 0 0; }
+.reply .ans.counter { color: var(--warn); font-weight: 600; font-size: 12.5px; text-align: right; }
+.btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+
+@media (max-width: 899px) {
+  .replay-bar { position: static; translate: none; margin: 8px auto 0; }
+  .rp-pos { min-width: 0; }
+}
+
+/* the replay bar takes its own strip under the board instead of covering it */
+body.replaying .board { height: calc(100% - 104px); }
+body.replaying .dice { bottom: 114px; }
+.replay-bar .kb { display: none; }
+.replay-bar input[type="range"] { flex: 1 1 160px; width: auto; }
+.row-actions { flex-wrap: nowrap; }
+.games-table td:nth-child(3) { white-space: nowrap; }
+dialog.wide { width: min(980px, calc(100vw - 32px)); }
+@media (max-width: 899px) { .row-actions { flex-wrap: wrap; } body.replaying .board { height: 100%; } }

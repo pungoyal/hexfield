@@ -3,6 +3,7 @@
 import json
 import random
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -11,7 +12,9 @@ from http.server import ThreadingHTTPServer
 from hexfield.ai import AIPlayer
 from hexfield.game import OVER
 from hexfield.web import server
-from hexfield.web.session import WebGame, public_reason
+from hexfield.match import public_reason
+from hexfield import store
+from hexfield.web.session import Replay, WebGame
 
 
 class Client:
@@ -20,7 +23,8 @@ class Client:
 
     def call(self, route, body=None):
         data = None if body is None else json.dumps(body).encode()
-        req = urllib.request.Request(self.base + route, data=data, method="POST" if body is not None else "GET")
+        req = urllib.request.Request(self.base + route, data=data, method="POST" if body is not None else "GET",
+                                     headers={"Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req) as r:
                 return json.loads(r.read())
@@ -140,7 +144,8 @@ class WebTests(unittest.TestCase):
 
     def test_bot_answers_and_plans_stay_hidden(self):
         g = WebGame(2, "easy", seed=13, seat=1)
-        g.pending_offer = {"from": 1, "give": [1, 0, 0, 0, 0], "get": [0, 1, 0, 0, 0], "answers": {"2": True}}
+        g.offer = {"from": 1, "give": (1, 0, 0, 0, 0), "get": (0, 1, 0, 0, 0), "answers": {0: None, 2: True},
+                   "counters": {}, "tries": {}, "notes": {}, "bot": True}
         self.assertNotIn("answers", g.view()["pending_offer"])
         self.assertEqual(public_reason("plan: buy development card -> play Knight  (eval +0.40)"),
                          "plan: buy development card  (eval +0.40)")
@@ -170,7 +175,7 @@ class WebTests(unittest.TestCase):
         self.assertIn(multi[0]["steps"][-1][0], ("city", "settle", "road", "buy_dev"))
         # offers come back with a reason for every refusal
         g.s.hands[1] = [0, 0, 0, 0, 0]
-        replies = g.offer([1, 0, 0, 0, 0], [0, 0, 0, 0, 1])["replies"]
+        replies = g.make_offer([1, 0, 0, 0, 0], [0, 0, 0, 0, 1])["replies"]
         self.assertTrue(all(r["why"] for r in replies if not r["ok"]))
         self.assertEqual(next(r for r in replies if r["p"] == 1)["why"], "not interested")
         # undo names the decision it took back
@@ -186,6 +191,334 @@ class WebTests(unittest.TestCase):
             va, vb = geo["vertices"][a], geo["vertices"][b]
             d = ((va["x"] - vb["x"]) ** 2 + (va["y"] - vb["y"]) ** 2) ** 0.5
             self.assertAlmostEqual(d, geo["radius"], delta=0.1)
+
+
+def play_until(g, stop, limit=4000):
+    """Drive a WebGame with a simple pilot (every human seat) until stop(g) is true."""
+    rnd = random.Random(g.seed)
+    for _ in range(limit):
+        if stop(g) or g.s.phase == OVER:
+            return
+        waiting = g.waiting_on()
+        if g.offer and any(g.offer["answers"].get(h, 0) is None for h in g.humans):
+            h = next(h for h in g.humans if g.offer["answers"].get(h, 0) is None)
+            g.respond(rnd.random() < 0.5, h)
+            continue
+        if not waiting:
+            g.step()
+            continue
+        h = waiting[0]
+        s = g.s
+        if s.phase == "discard":
+            k, c = s.discards[h], [0] * 5
+            for r in range(5):
+                t = min(k, s.hands[h][r])
+                c[r], k = t, k - t
+            g.act(["discard", c], h)
+            continue
+        acts = s.legal_actions()
+        a = ("end",) if ("end",) in acts and rnd.random() < 0.5 else rnd.choice(acts)
+        g.act(list(a), h)
+    raise AssertionError("game did not get there")
+
+
+class SessionTests(unittest.TestCase):
+    def test_a_saved_game_resumes_with_its_undo_history(self):
+        g = WebGame(2, "easy", seed=21, seat=1)
+        play_until(g, lambda g: g.s.turn >= 6)
+        g._jobs.join()
+        g.save()
+        before = g.view()
+        r = WebGame.resume(g.gid)
+        after = r.view()
+        for key in ("phase", "turn", "hand", "v_owner", "e_owner", "bank", "robber", "ev_total", "can_undo"):
+            self.assertEqual(before[key], after[key], key)
+        self.assertEqual([e["msg"] for e in before["events"]], [e["msg"] for e in after["events"]])
+        self.assertEqual([e.get("why") for e in before["events"]], [e.get("why") for e in after["events"]],
+                         "the bots' reasoning is part of the save")
+        self.assertEqual(len(before["reviews"]), len(after["reviews"]))
+        self.assertEqual(len(r.history), len(g.history))
+        # the seat key still works, and undo steps back through decisions made before the save
+        self.assertEqual(r.tokens, g.tokens)
+        entries = len(r.rec.entries)
+        r.undo()
+        self.assertLess(len(r.rec.entries), entries)
+        self.assertEqual(r.s.actor(), r.human)
+        for x in (g, r):
+            x.close()
+
+    def test_play_on_from_any_point(self):
+        g = WebGame(2, "easy", seed=22, seat=1)
+        play_until(g, lambda g: g.s.turn >= 5)
+        g.save()
+        cut = g.rec.steps()[len(g.rec.steps()) // 2]
+        b = WebGame.resume(g.gid, upto=cut)
+        self.assertNotEqual(b.gid, g.gid)
+        self.assertEqual(len(b.rec.entries), cut)
+        self.assertEqual(b.rec.meta["branched_from"], g.gid)
+        play_until(b, lambda b: b.s.turn >= g.s.turn + 1)   # it is a live game
+        self.assertEqual(len(store.load(g.gid)[0].entries), len(g.rec.entries), "the original is untouched")
+        for x in (g, b):
+            x.close()
+
+    def test_replay_steps_both_ways(self):
+        g = WebGame(2, "easy", seed=23, seat=1)
+        play_until(g, lambda g: g.s.turn >= 6)
+        g._jobs.join()
+        g.save()
+        rp = Replay(g.gid)
+        steps = g.rec.steps()
+        self.assertEqual(rp.total, len(steps))
+
+        def sig(s):
+            return (s.phase, s.turn, s.v_owner, s.e_owner, s.hands, s.robber)
+
+        for k in (0, 1, 7, rp.total, 3, rp.total - 1, 45, 2):   # forward, back, forward again
+            k = min(k, rp.total)
+            rp.seek(k)
+            # position k: the first k actions, and the notes written before the next one
+            cut = steps[k] if k < len(steps) else len(g.rec.entries)
+            self.assertEqual(sig(rp.s), sig(g.rec.replay(cut)), k)
+        v = rp.view()
+        self.assertEqual(v["legal"], {}, "a replay can't be played")
+        self.assertFalse(v["can_undo"])
+        marks = v["replay"]["marks"]
+        self.assertTrue(marks and all(0 <= m["k"] <= rp.total for m in marks))
+        self.assertTrue(any(m["verdict"] for m in marks), "decisions carry the coach's verdict")
+        # hidden cards stay hidden unless asked for
+        self.assertNotIn("hand", v["players"][1])
+        self.assertEqual(rp.view(reveal=True)["players"][1]["hand"], rp.s.hands[1])
+        # a hint is available where the player had a decision
+        rp.seek(marks[0]["k"])
+        self.assertTrue(rp.hint_here()["options"])
+        g.close()
+
+    def test_pass_and_play_keeps_hands_apart(self):
+        g = WebGame(1, "easy", seed=24, humans=["Ann", "Bo"], mode="hotseat")
+        self.assertEqual(len(g.humans), 2)
+        self.assertEqual(len(g.tokens), 2)
+        a, b = g.humans
+        play_until(g, lambda g: g.s.turn >= 3)
+        va, vb = g.view(a), g.view(b)
+        self.assertEqual(va["hand"], g.s.hands[a])
+        self.assertEqual(vb["hand"], g.s.hands[b])
+        self.assertEqual((va["human"], vb["human"]), (a, b))
+        for v in (va, vb):
+            self.assertFalse(v["can_undo"])
+            self.assertTrue(all("hand" not in pl for pl in v["players"]))
+        # each sees the log from their own chair, and nobody sees the other's private lines
+        self.assertTrue(any(e["msg"].startswith("You ") for e in va["events"]))
+        self.assertFalse(any("Ann" in e["msg"] for e in va["events"]))
+        self.assertTrue(any("Ann" in e["msg"] for e in vb["events"]))
+        with self.assertRaises(Exception):
+            g.undo()
+        # only the player whose turn it is may move
+        actor = g.s.actor()
+        if actor in g.humans:
+            other = b if actor == a else a
+            with self.assertRaises(Exception):
+                g.act(list(g.s.legal_actions()[0]), other)
+        g.close()
+
+    def test_offers_between_humans(self):
+        g = WebGame(1, "easy", seed=25, humans=["Ann", "Bo"], mode="hotseat")
+        a, b = g.humans
+        g.s.phase, g.s.current, g.s.turn = "main", a, 3
+        g.s.hands[a] = [2, 0, 0, 0, 0]
+        g.s.hands[b] = [0, 0, 0, 0, 2]
+        mine = g.make_offer([1, 0, 0, 0, 0], [0, 0, 0, 0, 1], a)
+        reply = next(r for r in mine["replies"] if r["p"] == b)
+        self.assertIsNone(reply["ok"], "the other human hasn't answered yet")
+        self.assertEqual(g.pending_for(b)["from"], a)
+        self.assertIn(b, g.waiting_on())
+        self.assertIn(a, g.waiting_on(), "the proposer isn't blocked while the offer is out")
+        with self.assertRaises(Exception):
+            g.act(["trade", b, [1, 0, 0, 0, 0], [0, 0, 0, 0, 1]], a)   # not agreed yet
+        # Bo answers with a counter-offer: two wood for the ore
+        g.respond(False, b, counter={"give": [2, 0, 0, 0, 0], "get": [0, 0, 0, 0, 1]})
+        reply = next(r for r in g.my_offer_for(a)["replies"] if r["p"] == b)
+        self.assertEqual(reply["counter"], {"give": [2, 0, 0, 0, 0], "get": [0, 0, 0, 0, 1]})
+        g.act(["trade", b, [2, 0, 0, 0, 0], [0, 0, 0, 0, 1]], a)       # Ann takes the counter
+        self.assertEqual((g.s.hands[a], g.s.hands[b]), ([0, 0, 0, 0, 1], [2, 0, 0, 0, 1]))
+        self.assertIsNone(g.offer)
+        g.close()
+
+    def test_countering_a_bots_offer(self):
+        g = WebGame(2, "hard", seed=26, seat=1)
+        h, bot = 0, 1
+        g.s.phase, g.s.current, g.s.turn = "main", bot, 3
+        g.s.hands[h] = [0, 0, 0, 0, 3]
+        g.s.hands[bot] = [4, 0, 0, 0, 0]
+        g._bot_propose(bot, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1), "offers")
+        po = g.view()["pending_offer"]
+        self.assertEqual(po["counters_left"], 2)
+        for bad in ({"give": [1, 0, 0, 0, 0], "get": [0, 0, 0, 0, 1]},      # the same offer
+                    {"give": [1, 0, 0, 0, 0], "get": [0, 0, 0, 0, 9]},      # cards you don't have
+                    {"give": [1, 0, 0, 0, 0], "get": [1, 0, 0, 0, 0]},      # the same card both ways
+                    {"give": [0] * 5, "get": [0, 0, 0, 0, 1]}, "x", {"give": [1], "get": [1]}):
+            with self.assertRaises(Exception):
+                g.respond(False, counter=bad)
+        self.assertIsNotNone(g.offer, "a refused request leaves the offer on the table")
+        # an absurd counter is turned down, and costs one of the two tries
+        g.respond(False, counter={"give": [4, 0, 0, 0, 0], "get": [0, 0, 0, 0, 1]})
+        po = g.view()["pending_offer"]
+        if po:   # the bot said no
+            self.assertEqual(po["counters_left"], 1)
+            self.assertIn("turned", po["note"])
+            self.assertEqual(g.s.hands[h], [0, 0, 0, 0, 3])
+            g.respond(True)
+            self.assertEqual(g.s.hands[h], [1, 0, 0, 0, 2])
+        else:    # it took four wood for one ore
+            self.assertEqual(g.s.hands[h], [4, 0, 0, 0, 2])
+        self.assertIsNone(g.offer)
+        g.close()
+
+    def test_bots_name_their_price(self):
+        hits = 0
+        for seed in range(30, 42):
+            g = WebGame(2, "hard", seed=seed, seat=1, persist=False)
+            play_until(g, lambda g: g.s.turn >= 1 and g.s.actor() == g.human and g.s.phase == "main", 300)
+            if g.s.phase != "main":
+                g.close()
+                continue
+            g.s.hands[0] = [3, 3, 2, 0, 0]
+            for q in (1, 2):
+                g.s.hands[q] = [0, 0, 0, 3, 3]
+            for viewer in range(3):
+                for q in range(3):
+                    g.s.belief[viewer][q] = [float(x) for x in g.s.hands[q]]
+            for r in g.make_offer([1, 0, 0, 0, 0], [0, 0, 0, 0, 1])["replies"]:
+                c = r["counter"]
+                if not c or not all(n <= g.s.hands[0][i] for i, n in enumerate(c["give"])):
+                    continue
+                hits += 1
+                self.assertFalse(r["ok"])
+                g.act(["trade", r["p"], c["give"], c["get"]])   # trading on the bot's terms is legal
+                self.assertEqual(g.s.hands[0][4], c["get"][4])
+                break
+            g.close()
+        self.assertGreater(hits, 0, "no bot ever made a counter-offer")
+
+    def test_six_players_with_the_special_building_phase(self):
+        g = WebGame(5, "easy", seed=27, seat=1, persist=False)
+        seen = set()
+
+        def stop(g):
+            seen.add(g.s.phase)
+            return g.s.turn >= 14
+        play_until(g, stop)
+        v = g.view()
+        self.assertEqual((v["n"], v["large"], v["special_build"]), (6, True, True))
+        self.assertEqual(len(g.geometry["hexes"]), 30)
+        self.assertEqual(len({h["label"] for h in g.geometry["hexes"]}), 30)
+        self.assertIn("special_build", seen)
+        self.assertTrue(all(pl["style"] for pl in v["players"] if pl["bot"]))
+        g.close()
+
+
+class OnlineTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+        cls.c = Client(cls.httpd.server_address[1])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+
+    def test_lobby_join_and_seat_keys(self):
+        c = self.c
+        st = c.call("new", {"mode": "online", "humans": 2, "opponents": 1, "seed": 51, "name": "Host"})
+        gid = st["gid"]
+        self.assertTrue(st["lobby"])
+        (host_seat, host_key), = st["tokens"].items()
+        self.assertEqual(sum(pl["open"] for pl in st["players"]), 1)
+        # nothing moves until everyone is in
+        self.assertEqual(c.call(f"act?g={gid}&t={host_key}", {"action": ["end"]})["status"], 400)
+        c.call(f"step?g={gid}&t={host_key}", {})
+        self.assertEqual(c.call(f"state?g={gid}&t={host_key}")["ev_total"], 0)
+        # a visitor without a key sees the lobby only: no board state, no hands
+        peek = c.call(f"state?g={gid}")
+        self.assertTrue(peek["join"])
+        self.assertNotIn("hand", peek)
+        self.assertEqual(c.call(f"state?g={gid}&t=wrong")["status"], 403)
+        joined = c.call(f"join?g={gid}", {"name": "Guest"})
+        (guest_seat, guest_key), = joined["tokens"].items()
+        self.assertNotEqual(guest_seat, host_seat)
+        self.assertFalse(joined["lobby"])
+        self.assertIn("board", joined)
+        self.assertEqual(joined["players"][int(guest_seat)]["name"], "Guest")
+        self.assertEqual(c.call(f"join?g={gid}", {"name": "Late"})["status"], 400)
+        # each key acts for its own seat and sees its own hand
+        host = c.call(f"state?g={gid}&t={host_key}")
+        guest = c.call(f"state?g={gid}&t={guest_key}")
+        self.assertEqual((host["human"], guest["human"]), (int(host_seat), int(guest_seat)))
+        self.assertFalse(host["can_undo"])
+        self.assertEqual(c.call(f"undo?g={gid}&t={host_key}", {})["status"], 400)
+        # the right player can move; the other can't move for them
+        for _ in range(40):
+            now = c.call(f"state?g={gid}&t={host_key}")
+            if now["waiting_on"]:
+                break
+            c.call(f"step?g={gid}&t={host_key}", {"v": now["version"]})
+        seat = now["waiting_on"][0]
+        key, other = (host_key, guest_key) if seat == int(host_seat) else (guest_key, host_key)
+        mine = c.call(f"state?g={gid}&t={key}")
+        spot = mine["legal"]["settle"][0]
+        self.assertEqual(c.call(f"act?g={gid}&t={other}", {"action": ["settle", spot]})["status"], 400)
+        done = c.call(f"act?g={gid}&t={key}", {"action": ["settle", spot]})
+        self.assertNotIn("error", done)
+        self.assertEqual(done["v_owner"][spot], seat)
+
+    def test_stale_steps_do_nothing_and_waiting_returns(self):
+        c = self.c
+        st = c.call("new", {"opponents": 2, "seed": 52, "seat": 3, "level": "easy"})
+        v = st["version"]
+        a = c.call("step", {"v": v})
+        self.assertGreater(a["version"], v)
+        b = c.call("step", {"v": v})            # a second browser, a moment late
+        self.assertEqual(b["version"], a["version"], "a stale step must not move the game")
+        t0 = time.time()
+        w = c.call(f"wait?v={v}")               # already past v: answers at once
+        self.assertLess(time.time() - t0, 2)
+        self.assertEqual(w["version"], a["version"])
+
+    def test_start_with_bots_and_host_routes(self):
+        c = self.c
+        st = c.call("new", {"mode": "online", "humans": 3, "opponents": 0, "seed": 53})
+        gid, (seat, key) = st["gid"], next(iter(st["tokens"].items()))
+        started = c.call(f"start?g={gid}&t={key}", {})
+        self.assertFalse(started["lobby"])
+        self.assertEqual(sum(pl["bot"] for pl in started["players"]), 2)
+        # saved games, export, import, replay, delete
+        game = server.APP.games[gid]
+        play_until(game, lambda g: g.s.turn >= 2)
+        game.save()
+        self.assertIn(gid, [g["id"] for g in c.call("games")["games"]])
+        raw = c.call(f"export?id={gid}")
+        self.assertEqual(raw["seed"], 53)
+        new_id = c.call("import", {"record": raw})["id"]
+        rp = c.call(f"replay?id={new_id}&k=5")
+        self.assertEqual(rp["replay"]["k"], 5)
+        self.assertIn("board", rp)
+        self.assertEqual(c.call("import", {"record": {"version": 1}})["status"], 400)
+        self.assertEqual(c.call("replay?id=nope")["status"], 400)
+        self.assertIn("games", c.call("stats"))
+        branch = c.call("branch", {"id": new_id, "entry": 6})
+        self.assertNotIn(branch["gid"], (gid, new_id))
+        self.assertTrue(c.call("delete", {"id": new_id})["deleted"])
+        self.assertNotIn(new_id, [g["id"] for g in c.call("games")["games"]])
+
+    def test_only_json_posts_are_accepted(self):
+        # a form post from another web page must not be able to start or move a game
+        req = urllib.request.Request(self.c.base + "new", data=b"opponents=2", method="POST",
+                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req)
+        self.assertEqual(ctx.exception.code, 400)
+        ctx.exception.close()
 
 
 if __name__ == "__main__":

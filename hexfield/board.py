@@ -10,7 +10,8 @@ perfect agreement.
 import math
 import random
 
-from .constants import DESERT, NUMBER_BAG, PIPS, PORT_BAG, RES_NAMES, TILE_BAG
+from .constants import (BEGINNER_PORTS, BEGINNER_TILES, DESERT, LARGE_NUMBER_BAG, LARGE_PORT_BAG,
+                        LARGE_TILE_BAG, NUMBER_BAG, PIPS, PORT_BAG, RES_NAMES, TILE_BAG)
 
 # character-grid geometry
 HEX_DX = 12          # horizontal distance between hex centres in a row
@@ -21,7 +22,10 @@ CORNER_OFFSETS = ((0, -4), (6, -2), (6, 2), (0, 4), (-6, 2), (-6, -2))  # N NE S
 AXIAL_NEIGHBORS = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, -1), (-1, 1))
 
 
-def axial_coords():
+def axial_coords(large=False):
+    """Hex centres row by row: 3-4-5-4-3, or 3-4-5-6-5-4-3 on the large board."""
+    if large:
+        return [(q, r) for r in range(-3, 4) for q in range(max(-3, -3 - r), min(2, 2 - r) + 1)]
     return [(q, r) for r in range(-2, 3) for q in range(-2, 3) if abs(q + r) <= 2]
 
 
@@ -29,22 +33,27 @@ def axial_coords():
 # read as something else: B/H/Q in the terminal (board, hint, quit) and
 # D/E/H/R/T in the browser (dev card, end turn, hint, roll, trade).
 HEX_LETTERS = "ACFGIJKLMNOPSUVWXYZ"
+# the large board has more hexes than letters: the rest are AA, AC, AF ...
+HEX_LABELS = list(HEX_LETTERS) + ["A" + c for c in HEX_LETTERS]
 
 
 class Board:
     """Immutable (after generation) topology + tile layout."""
 
-    def __init__(self, seed=None):
+    def __init__(self, seed=None, large=False, layout="random"):
+        """`large` is the 30-hex board for 5-6 players; layout "beginner" is the fixed
+        starting map (standard size only)."""
         rng = random.Random(seed)
-        self.coords = axial_coords()
+        self.large = bool(large)
+        self.layout = "random" if large else layout
+        self.coords = axial_coords(large)
         self.H = len(self.coords)
-        self.hex_xy = []
-        for q, r in self.coords:
-            cx = MARGIN_X + 24 + HEX_DX * q + 6 * r
-            cy = MARGIN_Y + 12 + HEX_DY * r
-            self.hex_xy.append((cx, cy))
-        self.width = MARGIN_X * 2 + 49
-        self.height = MARGIN_Y * 2 + 25
+        xs = [HEX_DX * q + 6 * r for q, r in self.coords]
+        r0 = min(r for _, r in self.coords)
+        self.hex_xy = [(MARGIN_X + x - min(xs), MARGIN_Y + HEX_DY * (r - r0))
+                       for x, (_, r) in zip(xs, self.coords)]
+        self.width = MARGIN_X * 2 + max(xs) - min(xs) + 1
+        self.height = MARGIN_Y * 2 + HEX_DY * (max(r for _, r in self.coords) - r0) + 1
 
         # ---- vertices
         raw = set()
@@ -99,6 +108,44 @@ class Board:
 
     # ------------------------------------------------------------------ tiles
     def _generate_tiles(self, rng):
+        if self.layout == "beginner":
+            tiles = [t for t, _ in BEGINNER_TILES]
+            numbers = [n for _, n in BEGINNER_TILES]
+        elif self.large:
+            tiles, numbers = self._large_tiles(rng)
+        else:
+            tiles, numbers = self._standard_tiles(rng)
+        self.hex_resource = tiles
+        self.hex_number = numbers
+        self.deserts = [h for h, t in enumerate(tiles) if t == DESERT]
+        self.desert = self.deserts[0]
+
+    def _large_tiles(self, rng):
+        """Three each of 6 and 8 rarely land apart by chance: seat them first, on hexes
+        that don't touch, then deal the other numbers until no equal pair touches."""
+        for _ in range(10000):
+            tiles = LARGE_TILE_BAG[:]
+            rng.shuffle(tiles)
+            land = [h for h, t in enumerate(tiles) if t != DESERT]
+            rng.shuffle(land)
+            red = []
+            for h in land:
+                if len(red) < 6 and not any(n in red for n in self.hex_neighbors[h]):
+                    red.append(h)
+            if len(red) < 6:
+                continue
+            numbers = [0] * self.H
+            for h, n in zip(red, rng.sample([6, 6, 6, 8, 8, 8], 6)):
+                numbers[h] = n
+            rest = [n for n in LARGE_NUMBER_BAG if n not in (6, 8)]
+            rng.shuffle(rest)
+            for h, n in zip([h for h in sorted(land) if h not in red], rest):
+                numbers[h] = n
+            if self._fair_numbers(numbers):
+                break
+        return tiles, numbers
+
+    def _standard_tiles(self, rng):
         for _ in range(10000):
             tiles = TILE_BAG[:]
             rng.shuffle(tiles)
@@ -108,9 +155,7 @@ class Board:
             numbers = [0 if t == DESERT else next(it) for t in tiles]
             if self._fair_numbers(numbers):
                 break
-        self.hex_resource = tiles
-        self.hex_number = numbers
-        self.desert = tiles.index(DESERT)
+        return tiles, numbers
 
     def _fair_numbers(self, numbers):
         """No 6/8 touching another 6/8, and no identical numbers touching."""
@@ -135,11 +180,23 @@ class Board:
             return math.atan2(((y1 + y2) / 2 - cy) * 2, (x1 + x2) / 2 - cx)
 
         coastal.sort(key=ang)
-        start = rng.randrange(len(coastal))
-        gaps = [3, 3, 4] * 3
-        rng.shuffle(gaps)
-        kinds = PORT_BAG[:]
-        rng.shuffle(kinds)
+        if self.layout == "beginner":
+            # the rulebook's harbours: the first on the north-west edge of the top-left hex,
+            # the rest clockwise, each on the edge the printed map shows
+            start, gaps, kinds = 4, [3, 4, 3, 3, 3, 4, 3, 4, 3], BEGINNER_PORTS[:]
+        elif self.large:
+            start = rng.randrange(len(coastal))
+            kinds = LARGE_PORT_BAG[:]
+            each, extra = divmod(len(coastal), len(kinds))
+            gaps = [each + 1] * extra + [each] * (len(kinds) - extra)
+            rng.shuffle(gaps)
+            rng.shuffle(kinds)
+        else:
+            start = rng.randrange(len(coastal))
+            gaps = [3, 3, 4] * 3
+            rng.shuffle(gaps)
+            kinds = PORT_BAG[:]
+            rng.shuffle(kinds)
         self.ports = []  # (edge, kind) kind = 'any' or resource int
         idx = start
         for i, g in enumerate(gaps):
@@ -163,11 +220,11 @@ class Board:
         self.scarcity = [max(0.8, min(1.35, (avg / t) ** 0.5 if t else 1.35)) for t in tot]
 
     def hex_label(self, h):
-        return HEX_LETTERS[h]
+        return HEX_LABELS[h]
 
     def hex_from_label(self, s):
         s = s.strip().upper()
-        i = HEX_LETTERS.find(s) if len(s) == 1 else -1
+        i = HEX_LABELS.index(s) if s in HEX_LABELS else -1
         return i if 0 <= i < self.H else None
 
     def describe_vertex(self, v):

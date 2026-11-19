@@ -29,6 +29,26 @@ TILE_BAG = [WOOD] * 4 + [SHEEP] * 4 + [WHEAT] * 4 + [BRICK] * 3 + [ORE] * 3 + [D
 NUMBER_BAG = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12]
 PORT_BAG = ["any"] * 4 + list(RESOURCES)
 
+# 5-6 player extension: a 30-hex board (rows of 3-4-5-6-5-4-3), 11 harbours, a bigger
+# bank and development deck. Pieces per player and the 10 VP target stay the same.
+LARGE_TILE_BAG = [WOOD] * 6 + [SHEEP] * 6 + [WHEAT] * 6 + [BRICK] * 5 + [ORE] * 5 + [DESERT] * 2
+LARGE_NUMBER_BAG = [2, 2, 12, 12] + [n for n in (3, 4, 5, 6, 8, 9, 10, 11) for _ in range(3)]
+LARGE_PORT_BAG = ["any"] * 5 + list(RESOURCES) + [SHEEP]
+LARGE_BANK_START = 24
+LARGE_DEV_DECK_COUNTS = (20, 5, 3, 3, 3)
+LARGE_FROM = 5  # this many players or more play on the large board
+
+# The fixed beginner board, row by row (3-4-5-4-3), as (terrain, number).
+BEGINNER_TILES = [
+    (ORE, 10), (SHEEP, 2), (WOOD, 9),
+    (WHEAT, 12), (BRICK, 6), (SHEEP, 4), (BRICK, 10),
+    (WHEAT, 9), (WOOD, 11), (DESERT, 0), (WOOD, 3), (ORE, 8),
+    (WOOD, 8), (ORE, 3), (WHEAT, 4), (SHEEP, 5),
+    (BRICK, 5), (WHEAT, 6), (SHEEP, 11),
+]
+# its harbours clockwise from the north-west corner
+BEGINNER_PORTS = ["any", WHEAT, ORE, "any", SHEEP, "any", "any", BRICK, WOOD]
+
 RES_ALIASES = {
     "w": WOOD, "wd": WOOD, "wood": WOOD, "lumber": WOOD, "lum": WOOD,
     "b": BRICK, "br": BRICK, "brick": BRICK, "bricks": BRICK, "clay": BRICK,

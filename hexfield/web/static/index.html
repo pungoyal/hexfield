@@ -7,7 +7,7 @@
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 7v14l-12 7-12-7V9z' fill='%23e8b931'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="app.css">
-<script type="module" src="app.js"></script>
+<script type="module" src="js/app.js"></script>
 </head>
 <body>
 <svg class="sprite" aria-hidden="true" width="0" height="0">
@@ -52,6 +52,7 @@
       <span class="seed" id="seed" title="Seed — replays this exact board and dice"></span>
       <button class="btn ghost" id="btn-undo" data-key="⌘Z" title="Undo your last decision (Ctrl+Z)"><svg><use href="#i-undo"/></svg><span>Undo</span></button>
       <button class="btn ghost" id="btn-stats" data-key="⇧S" title="Dice statistics (Shift+S)"><svg><use href="#i-dice"/></svg><span>Dice</span></button>
+      <button class="btn ghost" id="btn-games" data-key="⇧G" title="Saved games, replays and your progress (Shift+G)"><svg><use href="#i-chart"/></svg><span>Games</span></button>
       <button class="btn ghost" id="btn-help" data-key="?" title="Rules and shortcuts (?)"><svg><use href="#i-help"/></svg><span>Help</span></button>
       <button class="btn" id="btn-new" data-key="⇧N" title="Start a new game (Shift+N)"><svg><use href="#i-plus"/></svg><span>New game</span></button>
     </nav>
@@ -70,7 +71,22 @@
   </aside>
 
   <main class="board-wrap">
-    <svg id="board" class="board" role="img" aria-label="Game board"></svg>
+    <svg id="board" class="board" role="group" aria-label="Game board. Spots you can build on are buttons: Tab to one and press Enter, or type its letters."></svg>
+    <div class="lobby" id="lobby" hidden></div>
+    <div class="replay-bar" id="replay-bar" hidden role="toolbar" aria-label="Replay controls">
+      <button class="btn ghost" id="rp-first" data-key="⇧←" title="Start (Home)" aria-label="Go to the start">⏮</button>
+      <button class="btn ghost" id="rp-prevd" data-key="[" title="Your previous decision ([)" aria-label="Your previous decision">◆‹</button>
+      <button class="btn" id="rp-prev" data-key="←" title="One move back (←)" aria-label="One move back">◀</button>
+      <button class="btn primary obvious" id="rp-play" title="Play / pause (Space)">Play</button>
+      <button class="btn" id="rp-next" data-key="→" title="One move forward (→)" aria-label="One move forward">▶</button>
+      <button class="btn ghost" id="rp-nextd" data-key="]" title="Your next decision (])" aria-label="Your next decision">›◆</button>
+      <button class="btn ghost" id="rp-last" data-key="⇧→" title="End (End)" aria-label="Go to the end">⏭</button>
+      <input type="range" id="rp-slider" min="0" max="1" value="0" aria-label="Position in the game">
+      <span class="rp-pos" id="rp-pos" aria-live="polite"></span>
+      <label class="switch" title="Show every player's cards"><input type="checkbox" id="rp-reveal">All cards</label>
+      <button class="btn ghost" id="rp-branch" title="Start a new game from this position: same board, same dice, your choices">Play on from here</button>
+      <button class="btn ghost" id="rp-close" data-key="Esc" title="Leave the replay (Esc)">Close</button>
+    </div>
     <div class="dice" id="dice" aria-label="Last roll"></div>
     <div class="recap" id="recap" role="status" aria-live="polite"></div>
     <div class="victims" id="victims" popover></div>
@@ -100,8 +116,9 @@
         <label class="switch" data-key="⇧F" title="Bot speed (Shift+F cycles)">Speed <select id="speed">
           <option value="fast">fast</option><option value="normal">normal</option><option value="slow">slow</option></select></label>
         <label class="switch" data-key="⇧O" title="Roll automatically unless you can play a knight first (Shift+O)"><input type="checkbox" id="autoroll">Auto-roll</label>
+        <label class="switch" data-key="⇧C" title="Colour-blind friendly: a safer palette and each player's seat number on their pieces (Shift+C)"><input type="checkbox" id="marks">Marks</label>
       </div>
-      <ol class="log" id="log"></ol>
+      <ol class="log" id="log" role="log" aria-label="Game log" tabindex="0"></ol>
     </section>
   </aside>
 
@@ -135,28 +152,67 @@
   <form method="dialog" id="form-new">
     <h2 id="new-title">New game</h2>
     <p class="muted">You against machine opponents that search several moves ahead and track every card you play.</p>
-    <fieldset class="seg"><legend>Opponents</legend>
-      <label data-key="2"><input type="radio" name="opponents" value="2">2 bots</label>
-      <label data-key="3"><input type="radio" name="opponents" value="3" checked>3 bots</label>
+    <fieldset class="seg"><legend>Who plays</legend>
+      <label><input type="radio" name="mode" value="solo" checked>Just me</label>
+      <label title="Several people share this device and pass it around"><input type="radio" name="mode" value="hotseat">Pass and play</label>
+      <label title="Each player uses their own device on your network"><input type="radio" name="mode" value="online">Online</label>
     </fieldset>
+    <div class="multi" id="new-multi" hidden>
+      <fieldset class="seg"><legend>Human players</legend>
+        <label><input type="radio" name="humans" value="2" checked>2</label>
+        <label><input type="radio" name="humans" value="3">3</label>
+        <label><input type="radio" name="humans" value="4">4</label>
+        <label><input type="radio" name="humans" value="5">5</label>
+        <label><input type="radio" name="humans" value="6">6</label>
+      </fieldset>
+      <div class="names" id="new-names"></div>
+      <p class="seg-note muted" id="new-multi-note"></p>
+    </div>
+    <fieldset class="seg"><legend>Bots</legend>
+      <label class="opp" data-key="0"><input type="radio" name="opponents" value="0">None</label>
+      <label class="opp" data-key="1"><input type="radio" name="opponents" value="1">1</label>
+      <label class="opp" data-key="2"><input type="radio" name="opponents" value="2">2</label>
+      <label class="opp" data-key="3"><input type="radio" name="opponents" value="3" checked>3</label>
+      <label class="opp" data-key="4"><input type="radio" name="opponents" value="4">4</label>
+      <label class="opp" data-key="5"><input type="radio" name="opponents" value="5">5</label>
+    </fieldset>
+    <p class="seg-note muted" id="new-size-note"></p>
     <fieldset class="seg"><legend>Bot strength</legend>
       <label data-key="E"><input type="radio" name="level" value="easy">Easy</label>
       <label data-key="M"><input type="radio" name="level" value="medium">Medium</label>
       <label data-key="H"><input type="radio" name="level" value="hard" checked>Hard</label>
     </fieldset>
     <p class="seg-note muted">Easy plays its first idea and slips often · Medium looks two moves ahead · Hard searches four moves deep and never slips on purpose.</p>
-    <fieldset class="seg"><legend>Your seat</legend>
+    <fieldset class="seg" id="new-seat"><legend>Your seat</legend>
       <label data-key="⇧0"><input type="radio" name="seat" value="" checked>Random</label>
       <label data-key="⇧1"><input type="radio" name="seat" value="1">1st</label>
       <label data-key="⇧2"><input type="radio" name="seat" value="2">2nd</label>
       <label data-key="⇧3"><input type="radio" name="seat" value="3">3rd</label>
       <label class="seat4" data-key="⇧4"><input type="radio" name="seat" value="4">4th</label>
+      <label class="seat5" data-key="⇧5"><input type="radio" name="seat" value="5">5th</label>
+      <label class="seat6" data-key="⇧6"><input type="radio" name="seat" value="6">6th</label>
     </fieldset>
+    <details class="more-opts">
+      <summary>More options</summary>
+      <fieldset class="seg"><legend>Bot styles</legend>
+        <label title="Each bot gets its own taste: a road builder, a city builder, a card buyer, a trader or an all-rounder"><input type="radio" name="styles" value="mixed" checked>Mixed</label>
+        <label title="Every bot simply plays the position"><input type="radio" name="styles" value="balanced">All-rounders</label>
+      </fieldset>
+      <fieldset class="seg"><legend>Dice</legend>
+        <label><input type="radio" name="dice" value="random" checked>Random</label>
+        <label title="The 36 combinations are dealt from a shuffled deck, so every number comes up about as often as it should"><input type="radio" name="dice" value="balanced">Balanced</label>
+      </fieldset>
+      <fieldset class="seg" id="new-layout"><legend>Board</legend>
+        <label><input type="radio" name="layout" value="random" checked>Random</label>
+        <label title="The fixed starting map from the rulebook (up to 4 players)"><input type="radio" name="layout" value="beginner">Beginner</label>
+      </fieldset>
+    </details>
     <div class="row2">
-      <label class="field">Your name<input name="name" value="You" maxlength="14" autocomplete="nickname"></label>
+      <label class="field" id="new-name-field">Your name<input name="name" value="You" maxlength="14" autocomplete="nickname"></label>
       <label class="field"><span class="nowrap">Seed <span class="muted">(optional)</span></span><input name="seed" inputmode="numeric" pattern="[0-9]*" placeholder="random"></label>
     </div>
     <div class="dlg-actions">
+      <button class="btn ghost" type="button" id="new-saved" data-key="G" title="Resume or replay a saved game">Saved games…</button>
       <button class="btn ghost" value="cancel" id="new-cancel" data-key="Esc" formnovalidate>Cancel</button>
       <button class="btn primary obvious" value="start" data-key="↵" autofocus>Start game</button>
     </div>
@@ -210,8 +266,18 @@
   </div>
   <div class="trade-hand" id="bo-hand"></div>
   <p class="bo-coach" id="bo-hint" aria-live="polite"></p>
+  <section class="bo-counter" id="bo-counter" hidden aria-label="Your counter-offer">
+    <div class="pick-label">You would give</div>
+    <div class="picks" id="boc-give"></div>
+    <div class="pick-label">You would get</div>
+    <div class="picks" id="boc-get"></div>
+    <div class="offer-bar"><div class="offer-summary" id="boc-summary"></div>
+      <button class="btn primary" id="boc-send" data-key="↵" disabled>Send counter-offer</button></div>
+  </section>
+  <p class="bo-note muted" id="bo-note" aria-live="polite"></p>
   <div class="dlg-actions bo-actions">
     <button class="btn ghost dlg-undo" data-key="U" title="Undo your last decision"><svg><use href="#i-undo"/></svg>Undo</button>
+    <button class="btn ghost" id="bo-counter-btn" data-key="C" title="Propose different terms (C)">Counter…</button>
     <button class="btn danger" id="bo-no" data-key="N">Decline</button>
     <button class="btn primary" id="bo-yes" data-key="Y">Accept</button>
   </div>
@@ -242,9 +308,41 @@
   <div class="dlg-actions">
     <button class="btn ghost dlg-undo" data-key="U" title="Undo your last decision"><svg><use href="#i-undo"/></svg>Undo</button>
     <form method="dialog"><button class="btn ghost" data-key="Esc">See board</button></form>
-    <button class="btn" id="over-replay" data-key="R">Replay this seed</button>
+    <button class="btn" id="over-watch" data-key="W" title="Step through this game move by move, with the coach's verdicts">Watch the replay</button>
+    <button class="btn" id="over-replay" data-key="R" title="A new game on the same board with the same dice">Play this seed again</button>
     <button class="btn primary obvious" id="over-new" data-key="N">New game</button>
   </div>
+</dialog>
+
+<dialog id="dlg-games" class="wide" aria-labelledby="games-title" closedby="any">
+  <div class="dlg-head">
+    <h2 id="games-title">Games</h2>
+    <form method="dialog"><button class="btn ghost icon-only" aria-label="Close" data-key="Esc">✕</button></form>
+  </div>
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-saved" data-key="1" aria-selected="true">Saved games</button>
+    <button class="tab" role="tab" id="tab-progress" data-key="2" aria-selected="false">Your progress</button>
+  </div>
+  <div id="games-body" role="tabpanel"></div>
+  <div class="dlg-actions">
+    <label class="btn ghost" title="Open a game file exported from Hexfield">Import…<input type="file" id="games-import" accept="application/json,.json" hidden></label>
+    <button class="btn primary" id="games-new" data-key="N">New game</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-join" aria-labelledby="join-title" closedby="none">
+  <form method="dialog" id="form-join">
+    <h2 id="join-title">Join the game</h2>
+    <div id="join-body"></div>
+    <label class="field">Your name<input name="name" maxlength="14" autocomplete="nickname" required></label>
+    <div class="dlg-actions"><button class="btn primary obvious" value="join" data-key="↵" id="join-ok">Join</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-pass" class="curtain" aria-labelledby="pass-title" closedby="none">
+  <h2 id="pass-title"></h2>
+  <p class="muted" id="pass-sub"></p>
+  <div class="dlg-actions"><button class="btn big primary obvious" id="pass-ok" data-key="↵" autofocus></button></div>
 </dialog>
 
 <div class="toasts" id="toasts" popover="manual" aria-live="polite"></div>

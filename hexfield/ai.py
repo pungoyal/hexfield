@@ -33,20 +33,71 @@ from collections import deque
 
 from .constants import (COSTS, DESERT, KNIGHT, MAX_CITIES, MAX_SETTLEMENTS, MONOPOLY,
                         RES_NAMES, ROAD_BUILDING, UNKNOWN_DEV, VP_CARD, WIN_VP,
-                        YEAR_OF_PLENTY, DEV_DECK_COUNTS)
+                        YEAR_OF_PLENTY)
 from .game import (DISCARD, MAIN, PRE_ROLL, ROAD_BUILD, ROBBER, SETUP_ROAD,
-                   SETUP_SETTLE, fmt_cards)
+                   SETUP_SETTLE, SPECIAL, fmt_cards)
 
-PIP_VALUE = 0.105
-W_EARLY = (1.15, 1.15, 0.80, 1.00, 0.80)
-W_LATE = (0.70, 0.70, 0.70, 1.15, 1.25)
 SETUP_W = (1.10, 1.10, 0.80, 1.00, 0.87)
-DEV_VALUE = {KNIGHT: 0.33, ROAD_BUILDING: 0.42, MONOPOLY: 0.45, YEAR_OF_PLENTY: 0.55}
-# an unseen card: 56% knight, 20% VP, 8% each of the progress cards
-UNKNOWN_DEV_VALUE = (0.56 * DEV_VALUE[KNIGHT] + 0.2 * 1.0
-                     + 0.08 * (DEV_VALUE[ROAD_BUILDING] + DEV_VALUE[MONOPOLY] + DEV_VALUE[YEAR_OF_PLENTY]))
 DIST_DISC = (0.55, 0.38, 0.22)
 ROAD_SETTLE = (2, 2, 1, 1, 0)
+
+# Every weight of the evaluation, in one place: tools/tune.py searches over these and the
+# play styles below are small changes to them. Values are VP-equivalents unless noted.
+PARAMS = {
+    "pip_value": 0.105,          # one pip of production (a card per 36 rolls)
+    "w_wood_early": 1.15, "w_brick_early": 1.15, "w_sheep_early": 0.80, "w_wheat_early": 1.00, "w_ore_early": 0.80,
+    "w_wood_late": 0.70, "w_brick_late": 0.70, "w_sheep_late": 0.70, "w_wheat_late": 1.15, "w_ore_late": 1.25,
+    "missing_res": 3.2,          # pips docked for a resource you don't produce
+    "expansion": 1.0,            # scale of the open-spots term
+    "port_any": 1.2,             # a 3:1 harbour on an open spot (pips)
+    "hand_card": 0.09,           # a loose card, divided by its trade ratio
+    "hand_build": 0.40,          # scale of the "close to a build" bonus
+    "util_settlement": 1.5, "util_road_settle": 1.25, "util_city": 1.45, "util_dev": 0.5, "util_road": 0.3,
+    "seven_risk": 0.13,          # per card a 7 would cost, times the chance of a 7
+    "dev_knight": 0.33, "dev_road": 0.42, "dev_mono": 0.45, "dev_yop": 0.55,
+    "dev_hidden": 0.30,          # an opponent's face-down card
+    "army_knight": 0.1, "army_reach": 0.55, "army_near": 0.2, "award_threat": 0.3,
+    "road_race": 0.75,
+    "opp_base": 0.28, "opp_lead": 0.25, "opp_8": 0.35, "opp_9": 0.4,   # how much rivals' values count against you
+    "trade_margin": 0.05,        # a trade must gain the responder this much
+    "propose_gain": 0.25,        # a trade must gain the proposer this much to be offered
+}
+
+# Play styles: the same engine with different tastes. Factors multiply PARAMS.
+STYLES = {
+    "balanced": {},
+    "builder": {    # roads and settlements, the Longest Road
+        "w_wood_early": 1.12, "w_brick_early": 1.12, "w_wood_late": 1.2, "w_brick_late": 1.2,
+        "expansion": 1.35, "road_race": 1.6, "util_settlement": 1.15, "util_road": 1.6},
+    "citizen": {    # wheat and ore: cities first
+        "w_wheat_early": 1.15, "w_ore_early": 1.25, "w_wheat_late": 1.08, "w_ore_late": 1.08,
+        "util_city": 1.25, "expansion": 0.85},
+    "general": {    # development cards and the Largest Army
+        "w_sheep_early": 1.15, "w_sheep_late": 1.25, "util_dev": 2.0, "dev_knight": 1.3, "dev_mono": 1.2,
+        "dev_yop": 1.2, "army_knight": 1.6, "army_reach": 1.5, "army_near": 1.5},
+    "trader": {     # harbours and deals
+        "port_any": 2.2, "hand_card": 1.25, "trade_margin": 0.4, "propose_gain": 0.5, "missing_res": 0.8},
+}
+STYLE_NOTES = {
+    "balanced": "plays the position",
+    "builder": "expands fast and races for the Longest Road",
+    "citizen": "wants wheat and ore, and builds cities early",
+    "general": "buys development cards and goes for the Largest Army",
+    "trader": "settles on harbours and trades often",
+}
+
+
+def make_params(style="balanced", overrides=None):
+    P = dict(PARAMS)
+    for k, f in STYLES[style].items():
+        P[k] *= f
+    if overrides:
+        unknown = set(overrides) - set(P)
+        if unknown:
+            raise KeyError(f"unknown evaluation parameters: {sorted(unknown)}")
+        P.update(overrides)
+    return P
+
 
 BUILD_ACTION = {"city": "city", "settlement": "settle", "road": "road", "dev": "buy_dev"}
 
@@ -63,8 +114,13 @@ def clamp(x, lo, hi):
 
 
 class Evaluator:
-    def __init__(self, board):
+    def __init__(self, board, params=None):
         self.b = board
+        self.P = P = params or PARAMS
+        self.w_early = tuple(P[f"w_{r}_early"] for r in RES_NAMES)
+        self.w_late = tuple(P[f"w_{r}_late"] for r in RES_NAMES)
+        self.dev_value = {KNIGHT: P["dev_knight"], ROAD_BUILDING: P["dev_road"],
+                          MONOPOLY: P["dev_mono"], YEAR_OF_PLENTY: P["dev_yop"]}
 
     # ------------------------------------------------------------- helpers
     def production(self, s, q):
@@ -139,7 +195,7 @@ class Evaluator:
                 val += 1.8
         port = b.vertex_port[v]
         if port == "any":
-            val += 1.2
+            val += self.P["port_any"]
         elif port is not None and prod[port] >= 5:
             val += 0.35 * prod[port]
         return val
@@ -149,12 +205,22 @@ class Evaluator:
         """Position value of every player as seen by `viewer`."""
         n = s.n
         b = self.b
+        P = self.P
+        W_EARLY, W_LATE, DEV_VALUE = self.w_early, self.w_late, self.dev_value
+        PIP_VALUE = P["pip_value"]
+        counts = s.dev_counts
+        left = sum(counts) - counts[VP_CARD]
+        # an unseen card: a victory point or, in proportion, a knight or a progress card
+        unknown_dev = (counts[VP_CARD] * 1.0 + counts[KNIGHT] * DEV_VALUE[KNIGHT]
+                       + counts[ROAD_BUILDING] * DEV_VALUE[ROAD_BUILDING] + counts[MONOPOLY] * DEV_VALUE[MONOPOLY]
+                       + counts[YEAR_OF_PLENTY] * DEV_VALUE[YEAR_OF_PLENTY]) / sum(counts)
+        p_knight = counts[KNIGHT] / float(left + counts[VP_CARD])
         if s.winner != -1:
             return [1000.0 if q == s.winner else 0.0 for q in range(n)]
         # hidden-information estimates
         own_vp_cards = s.vp_cards(viewer)
         unknown = s.deck_size() + sum(s.dev_count(q) for q in range(n) if q != viewer)
-        p_vp = (DEV_DECK_COUNTS[VP_CARD] - own_vp_cards) / unknown if unknown else 0.0
+        p_vp = (counts[VP_CARD] - own_vp_cards) / unknown if unknown else 0.0
         p_vp = clamp(p_vp, 0.0, 1.0)
 
         est_vp = []
@@ -197,7 +263,7 @@ class Evaluator:
                                     disc *= 0.75
                         spots.append((qv * disc, dist[v]))
                 spots.sort(reverse=True)
-            exp_val = PIP_VALUE * horizon * sum(x for x, _ in spots[:min(2, sett_left)])
+            exp_val = P["expansion"] * PIP_VALUE * horizon * sum(x for x, _ in spots[:min(2, sett_left)])
             has_spot0 = any(d == 0 for _, d in spots[:3])
             has_spot = bool(spots)
             if not has_spot:
@@ -214,7 +280,7 @@ class Evaluator:
                     x = cap + (x - cap) * k
                 pv += w[r] * b.scarcity[r] * x
                 if prod[r] == 0:
-                    pv -= 3.2 * w[r] * (0.5 if 2 in ratios else 1.0)
+                    pv -= P["missing_res"] * w[r] * (0.5 if 2 in ratios else 1.0)
             prod_val = PIP_VALUE * horizon * pv
             if city_left == 0 and sett_left == 0:
                 prod_val *= 0.6
@@ -224,18 +290,18 @@ class Evaluator:
             hs = sum(h)
             hv = 0.0
             for r in range(5):
-                hv += h[r] * max(0.03, 0.09 / ratios[r])
+                hv += h[r] * max(0.03, P["hand_card"] / ratios[r])
             targets = []
             if sett_left > 0 and has_spot0:
-                targets.append((COSTS["settlement"], 1.5))
+                targets.append((COSTS["settlement"], P["util_settlement"]))
             elif sett_left > 0 and has_spot:
-                targets.append((ROAD_SETTLE, 1.25))
+                targets.append((ROAD_SETTLE, P["util_road_settle"]))
             if city_left > 0 and s.settlements[q]:
-                targets.append((COSTS["city"], 1.45))
+                targets.append((COSTS["city"], P["util_city"]))
             if s.deck_size() > 0:
-                targets.append((COSTS["dev"], 0.5))
+                targets.append((COSTS["dev"], P["util_dev"]))
             if has_spot and not has_spot0:
-                targets.append((COSTS["road"], 0.3))
+                targets.append((COSTS["road"], P["util_road"]))
             bonuses = []
             for cost, util in targets:
                 have = 0
@@ -251,12 +317,12 @@ class Evaluator:
                         deficit += c - h[r]
                 have += min(deficit, trade_units)
                 frac = have / float(sum(cost))
-                bonuses.append(util * frac * frac * 0.40)
+                bonuses.append(util * frac * frac * P["hand_build"])
             if bonuses:
                 bonuses.sort(reverse=True)
                 hv += bonuses[0] + (0.3 * bonuses[1] if len(bonuses) > 1 else 0.0)
             if hs > 7:
-                hv -= p7 * (hs // 2) * 0.13
+                hv -= p7 * (hs // 2) * P["seven_risk"]
 
             # --- development cards
             dv = 0.0
@@ -270,12 +336,12 @@ class Evaluator:
                             val += 0.012 * self.blocked_pips(s, q)
                         dv += c * val
                 unk = s.new_devs[q][UNKNOWN_DEV] + s.devs[q][UNKNOWN_DEV]
-                dv += unk * UNKNOWN_DEV_VALUE
-                knights_in_hand = s.devs[q][KNIGHT] + s.new_devs[q][KNIGHT] + 0.56 * unk
+                dv += unk * unknown_dev
+                knights_in_hand = s.devs[q][KNIGHT] + s.new_devs[q][KNIGHT] + p_knight * unk
             else:
                 hidden = s.dev_count(q)
-                dv += hidden * 0.30
-                knights_in_hand = hidden * 0.56
+                dv += hidden * P["dev_hidden"]
+                knights_in_hand = hidden * p_knight
 
             # --- largest army race
             av = 0.0
@@ -283,13 +349,13 @@ class Evaluator:
             if s.army != q:
                 k = s.knights[q]
                 needk = max(3, best_other + 1)
-                av += 0.1 * k
+                av += P["army_knight"] * k
                 if k + knights_in_hand >= needk:
-                    av += 0.55
+                    av += P["army_reach"]
                 elif k + knights_in_hand + 1 >= needk:
-                    av += 0.2
+                    av += P["army_near"]
             elif best_other >= s.knights[q] - 1:
-                av -= 0.3
+                av -= P["award_threat"]
 
             # --- longest road race
             rv = 0.0
@@ -298,9 +364,9 @@ class Evaluator:
                 holder_len = s.road_len[s.longest] if s.longest != -1 else 4
                 target = max(5, holder_len + 1)
                 if L >= 3:
-                    rv += 0.75 * (min(L, target) / target) ** 3
+                    rv += P["road_race"] * (min(L, target) / target) ** 3
             elif max((s.road_len[o] for o in range(n) if o != q), default=0) >= L - 1:
-                rv -= 0.3
+                rv -= P["award_threat"]
 
             out.append(est_vp[q] + prod_val + exp_val + hv + dv + av + rv)
         return out
@@ -311,24 +377,29 @@ class Evaluator:
         vals = self.values(s, p)
         opp = [q for q in range(s.n) if q != p]
         lead = max(opp, key=lambda q: vals[q])
+        P = self.P
         sc = vals[p]
+        # the same total pressure at any table size (the weights were set for four players)
+        k = 3.0 / len(opp) if len(opp) > 3 else 1.0
         for q in opp:
-            wgt = 0.28
+            wgt = P["opp_base"] * k
             if q == lead:
-                wgt += 0.25
+                wgt += P["opp_lead"]
             pv = s.public_vp(q)
             if pv >= 8:
-                wgt += 0.35
+                wgt += P["opp_8"]
             if pv >= 9:
-                wgt += 0.4
+                wgt += P["opp_9"]
             sc -= wgt * vals[q]
         return sc
 
 
 # ====================================================================== AI
 class AIPlayer:
-    def __init__(self, board, level="hard", seed=None):
-        self.ev = Evaluator(board)
+    def __init__(self, board, level="hard", seed=None, style="balanced", params=None):
+        self.level, self.style = level, style
+        self.P = make_params(style, params)
+        self.ev = Evaluator(board, self.P)
         self.b = board
         self.cfg = LEVELS[level]
         self.rng = random.Random(seed)
@@ -378,8 +449,8 @@ class AIPlayer:
             line = self.win_line(s, p)
             if line:
                 return line[0], self.win_reason(s, line)
-        if ph == MAIN:
-            offer = self.maybe_propose(s, p)
+        if ph in (MAIN, SPECIAL):
+            offer = self.maybe_propose(s, p) if ph == MAIN else None
             if offer is not None:
                 return offer
             _, plan, why = self.plan_turn(s, p)
@@ -965,8 +1036,8 @@ class AIPlayer:
         for _ in range(depth):
             nxt = []
             for _, seq, st in frontier:
-                if st.winner != -1:
-                    continue
+                if st.winner != -1 or st.actor() != p or st.turn != s.turn:
+                    continue  # won, or (special building) the turn has moved on
                 for a in self._candidates(st, p):
                     t = st.clone()
                     try:
@@ -980,7 +1051,7 @@ class AIPlayer:
                     sc = self.score(t, p)
                     nxt.append((sc, seq + [a], t))
                     if sc > best[0] + 1e-9:
-                        best = (sc, seq + [a] + ([("end",)] if t.phase == MAIN else []))
+                        best = (sc, seq + [a] + ([("end",)] if t.phase in (MAIN, SPECIAL) else []))
             if not nxt:
                 break
             nxt.sort(key=lambda x: -x[0])
@@ -1043,7 +1114,7 @@ class AIPlayer:
         if s.phase == DISCARD:
             c = self.choose_discard(s, p)
             return [(0.0, ("discard", tuple(c)), "discard " + fmt_cards(c))]
-        if s.phase == MAIN:
+        if s.phase in (MAIN, SPECIAL):
             return self.rank_main(s, p, top)
         ranked = self._rank(s, p)
         if s.phase == ROAD_BUILD:
@@ -1062,9 +1133,9 @@ class AIPlayer:
                 continue
             firsts.append((self.ev.score(t, p), a, t))
         firsts.sort(key=lambda x: -x[0])
-        out = [(base, ("end",), "end turn, keep cards")]
+        out = [(base, ("end",), "pass, keep cards" if s.phase == SPECIAL else "end turn, keep cards")]
         for sc0, a, t in firsts[:8]:
-            if t.phase == MAIN and t.winner == -1:
+            if t.phase in (MAIN, SPECIAL) and t.winner == -1 and t.actor() == p and t.turn == s.turn:
                 sc, plan, _ = self.plan_turn(t, p, beam=3, depth=3)
             else:
                 sc, plan = sc0, [("end",)]
@@ -1106,12 +1177,12 @@ class AIPlayer:
             t = s.clone()
             self._apply_compound(t, a, p)
             return self.ev.score(t, p)
-        if ph == MAIN:
+        if ph in (MAIN, SPECIAL):
             if a[0] == "end":
                 return self.ev.score(s, p)
             t = s.clone()
             self._apply_compound(t, a, p)
-            if t.phase == MAIN and t.winner == -1:
+            if t.phase in (MAIN, SPECIAL) and t.winner == -1 and t.actor() == p and t.turn == s.turn:
                 sc, _, _ = self.plan_turn(t, p, beam=max(4, self.cfg["beam"]), depth=3)  # matches best_value
                 return max(sc, self.ev.score(t, p))
             return self.ev.score(t, p)
@@ -1122,7 +1193,7 @@ class AIPlayer:
     def best_value(self, s):
         p = s.actor()
         ph = s.phase
-        if ph == MAIN:
+        if ph in (MAIN, SPECIAL):
             v = self.view(s, p)
             win = self._coach_win(v, p)
             if win is not None:
@@ -1155,10 +1226,64 @@ class AIPlayer:
         else:
             without, with_ = s, t
         gain = self.ev.score(with_, responder) - self.ev.score(without, responder)
-        margin = 0.05
+        margin = self.P["trade_margin"]
         if s.public_vp(proposer) >= 8:
             margin += 0.5  # never feed someone about to win
         return gain > margin, gain
+
+    MAX_OFFER = 4  # cards on one side of a counter-offer
+
+    def counter_offer(self, real, responder, proposer, give, get):
+        """The responder turned down `give` for `get`. Is there a nearby deal it would
+        take instead? It asks for one more card the proposer is believed to hold, or
+        gives one card fewer. Returns (give, get, gain) from the proposer's side, or None.
+        The smallest change that works is preferred, so the answer is a real offer and
+        not an opening bid."""
+        if real.public_vp(proposer) >= 8 or not real.can_afford(responder, get):
+            return None
+        _, base = self.evaluate_offer(real, responder, proposer, give, get)
+        if base < -0.8:
+            return None  # too far apart to be worth haggling over
+        believed = real.belief[responder][proposer] if real.belief is not None else real.hands[proposer]
+        mine = real.hands[responder]
+        options = []
+        if sum(give) < self.MAX_OFFER:
+            for r in range(5):
+                if get[r] == 0 and believed[r] - give[r] >= 0.99:
+                    options.append((tuple(g + (i == r) for i, g in enumerate(give)), tuple(get)))
+        if sum(get) > 1:
+            for r in range(5):
+                if get[r]:
+                    options.append((tuple(give), tuple(g - (i == r) for i, g in enumerate(get))))
+        best = None
+        for g2, t2 in options:
+            ok, gain = self.evaluate_offer(real, responder, proposer, g2, t2)
+            if not ok:
+                continue
+            # prefer the card we hold fewest of, then the smaller gain (the fairer deal)
+            extra = next((r for r in range(5) if g2[r] > give[r]), None)
+            key = (mine[extra] if extra is not None else -1, gain)
+            if best is None or key < best[0]:
+                best = (key, (g2, t2, gain))
+        return best[1] if best else None
+
+    def trade_gain(self, real, p, give, get):
+        """What giving `give` for `get` is worth to p on its own turn: its best turn with
+        the trade against its best turn without."""
+        s = self.view(real, p)
+        if not s.can_afford(p, give):
+            return -9.0
+        base, _, _ = self.plan_turn(s, p, beam=2, depth=2)
+        t = s.clone()
+        for i in range(5):
+            t.hands[p][i] += get[i] - give[i]
+        sc, _, _ = self.plan_turn(t, p, beam=2, depth=2)
+        return sc - base
+
+    def accepts_counter(self, real, p, give, get):
+        """Would proposer p take this changed deal? (A little less than it asks of its own offers.)"""
+        gain = self.trade_gain(real, p, give, get)
+        return gain > 0.6 * self.P["propose_gain"], gain
 
     def _proposer_follow_up(self, s, proposer):
         _, plan, _ = self.plan_turn(s, proposer, beam=2, depth=2)
@@ -1208,7 +1333,7 @@ class AIPlayer:
             for i in range(5):
                 t.hands[p][i] += get[i] - give[i]
             sc, _, _ = self.plan_turn(t, p, beam=2, depth=2)
-            if sc - base_sc > 0.25:
+            if sc - base_sc > self.P["propose_gain"]:
                 scored.append((sc - base_sc, give, get))
         # keep the cheapest offer for each wanted resource
         best = {}
@@ -1252,7 +1377,7 @@ def describe(s, a):
     if k == "roll":
         return "roll"
     if k == "end":
-        return "end turn"
+        return "pass" if s.phase == SPECIAL else "end turn"
     if k == "discard":
         return "discard " + fmt_cards(a[1])
     return str(a)

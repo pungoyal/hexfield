@@ -1,0 +1,43 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # rules, bots, terminal UI, web server, and the browser client's logic (node --test)
+      - run: python -m unittest -v
+      # the package installs and its commands start
+      - run: |
+          pip install .
+          hexfield --games
+          cd / && python -c "import hexfield.web.server, os; from hexfield.web.server import STATIC; assert os.path.isfile(os.path.join(STATIC, 'js', 'app.js'))"
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # a real (headless) Chrome plays through the main screens
+      - run: python -m unittest -v tests.test_js
+        env:
+          HEXFIELD_BROWSER_TESTS: "1"

@@ -1,0 +1,70 @@
+// Small helpers with no knowledge of the game.
+
+import { RES } from "./logic.js";
+export { RES, parseCards } from "./logic.js";
+
+
+export const COSTS = { road: [1, 1, 0, 0, 0], settle: [1, 1, 1, 1, 0], city: [0, 0, 0, 2, 3], dev: [0, 0, 1, 1, 1] };
+export const DEVS = [
+  { key: "knight", name: "Knight", icon: "i-knight", play: "play_knight", hot: "4" },
+  { key: "vp", name: "Victory pt", icon: "i-vp", play: null },
+  { key: "roadb", name: "Road bldg", icon: "i-roadb", play: "play_road", hot: "5" },
+  { key: "mono", name: "Monopoly", icon: "i-mono", play: "play_mono", hot: "6" },
+  { key: "yop", name: "Plenty", icon: "i-yop", play: "play_yop", hot: "7" },
+];
+export const VERDICT_COLORS = { forced: "var(--muted)", best: "var(--good)", good: "var(--ok)", inaccuracy: "var(--warn)", mistake: "var(--bad)", blunder: "var(--worst)" };
+export const LOG_ICONS = { build: "⌂", roll: "⚄", produce: "+", robber: "☗", steal: "✋", dev: "★", trade: "⇄", award: "♛",
+  discard: "−", offer: "?", reply: "·", info: "·", win: "♛", private: "👁", private_steal: "👁" };
+export const STYLE_NOTES = {
+  balanced: "plays the position", builder: "expands fast and races for the Longest Road",
+  citizen: "wants wheat and ore, and builds cities early", general: "buys development cards and goes for the Largest Army",
+  trader: "settles on harbours and trades often",
+};
+export const SPEEDS = { fast: 60, normal: 380, slow: 900 };
+export const SVGNS = "http://www.w3.org/2000/svg";
+
+export const $ = (s, el = document) => el.querySelector(s);
+export const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+export const pc = (p) => `var(--p${p})`;
+export const icon = (id, cls = "") => `<svg class="${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
+export const resIcon = (r, cls = "ri") => `<svg class="${cls} r-${RES[r]}" aria-hidden="true"><use href="#i-${RES[r]}"/></svg>`;
+
+// replace an element's markup only when it changed (keeps hover/focus state and avoids churn)
+export function setHTML(el, html) {
+  if (el.dataset.html === html) return false;
+  el.dataset.html = html;
+  el.innerHTML = html;
+  return true;
+}
+
+export function svg(tag, attrs = {}, parent) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+
+export function store(key, fallback) {
+  try { const v = localStorage.getItem("hexfield." + key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; }
+}
+export function save(key, v) { try { localStorage.setItem("hexfield." + key, JSON.stringify(v)); } catch { /* private mode */ } }
+
+export function flash(el, cls, ms) {
+  if (!el) return;
+  el.classList.remove(cls);
+  void el.getBoundingClientRect();
+  el.classList.add(cls);
+  setTimeout(() => el.classList.remove(cls), ms);
+}
+
+// a "+2" / "−1" that floats up off a card
+export function delta(card, n, cls = "") {
+  if (!card) return;
+  const d = document.createElement("span");
+  d.className = `delta ${cls} ${n < 0 ? "neg" : ""}`;
+  d.textContent = (n > 0 ? "+" : "") + n;
+  card.appendChild(d);
+  setTimeout(() => d.remove(), 1400);
+}

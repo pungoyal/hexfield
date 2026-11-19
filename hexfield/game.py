@@ -8,19 +8,32 @@ Actions are plain tuples:
     ('robber', hex, victim)              # victim = -1 when nobody can be robbed
     ('bank', give_res, get_res)          # at the player's best ratio
     ('trade', partner, give(5), get(5))  # already agreed player trade
-    ('end',)
+    ('end',)                             # also "pass" in the special building phase
+
+Options (all off by default, so a seed replays the classic game):
+    dice="balanced"     the 36 dice combinations are dealt from a shuffled deck
+    layout="beginner"   the fixed starting map
+    5 or 6 players      play on the large board with the special building phase
 """
 
 import random
 
 from .board import Board
-from .constants import (BANK_START, COSTS, DESERT, DEV_DECK_COUNTS, KNIGHT, MAX_CITIES,
-                        MAX_ROADS, MAX_SETTLEMENTS, MONOPOLY, RES_NAMES, ROAD_BUILDING,
-                        UNKNOWN_DEV, VP_CARD, WIN_VP, YEAR_OF_PLENTY, DEV_NAMES)
+from .constants import (BANK_START, COSTS, DESERT, DEV_DECK_COUNTS, KNIGHT, LARGE_BANK_START,
+                        LARGE_DEV_DECK_COUNTS, LARGE_FROM, MAX_CITIES, MAX_ROADS, MAX_SETTLEMENTS,
+                        MONOPOLY, RES_NAMES, ROAD_BUILDING, UNKNOWN_DEV, VP_CARD, WIN_VP,
+                        YEAR_OF_PLENTY, DEV_NAMES)
 
 SETUP_SETTLE, SETUP_ROAD = "setup_settlement", "setup_road"
 PRE_ROLL, MAIN, DISCARD, ROBBER, ROAD_BUILD, OVER = (
     "pre_roll", "main", "discard", "move_robber", "road_building", "game_over")
+SPECIAL = "special_build"  # 5-6 players: after each turn the others may build (no trading)
+
+DICE_MODES = ("random", "balanced")
+LAYOUTS = ("random", "beginner")
+# balanced dice: all 36 combinations in a deck; it is reshuffled when this few are left,
+# so the last rolls of a deck can't be worked out by counting
+BALANCED_RESHUFFLE = 13
 
 
 class IllegalAction(Exception):
@@ -28,11 +41,23 @@ class IllegalAction(Exception):
 
 
 class GameState:
-    def __init__(self, n_players=4, seed=None, board=None, names=None):
+    def __init__(self, n_players=4, seed=None, board=None, names=None, dice="random",
+                 layout="random", special_build=None):
+        if not 2 <= n_players <= 6:
+            raise ValueError("2 to 6 players")
+        if dice not in DICE_MODES or layout not in LAYOUTS:
+            raise ValueError("unknown dice mode or layout")
         master = random.Random(seed)
-        self.board = board or Board(master.randrange(1 << 30))
+        large = n_players >= LARGE_FROM
+        self.board = board or Board(master.randrange(1 << 30), large=large, layout=layout)
         b = self.board
         self.n = n_players
+        self.dice_mode = dice
+        self.dice_bag = [] if dice == "balanced" else None
+        self.special_build = large if special_build is None else bool(special_build)
+        self.special_queue = []
+        self.dev_counts = LARGE_DEV_DECK_COUNTS if large else DEV_DECK_COUNTS
+        self.bank_start = LARGE_BANK_START if large else BANK_START
         self.names = names or [f"P{i}" for i in range(n_players)]
         # independent random streams so a replay with the same seed gets the same
         # dice / deck even if decisions differ
@@ -40,7 +65,7 @@ class GameState:
         self.steal_rng = random.Random(master.randrange(1 << 30))
         deck_rng = random.Random(master.randrange(1 << 30))
         self.deck = []
-        for t, c in enumerate(DEV_DECK_COUNTS):
+        for t, c in enumerate(self.dev_counts):
             self.deck += [t] * c
         deck_rng.shuffle(self.deck)
 
@@ -55,7 +80,7 @@ class GameState:
         self.cities = [[] for _ in range(n_players)]
         self.roads = [[] for _ in range(n_players)]
         self.road_len = [0] * n_players
-        self.bank = [BANK_START] * 5
+        self.bank = [self.bank_start] * 5
         self.robber = b.desert
         self.longest = -1
         self.army = -1
@@ -100,6 +125,9 @@ class GameState:
         c.bank = self.bank[:]
         c.discards = dict(self.discards)
         c.roll_hist = self.roll_hist[:]
+        c.special_queue = self.special_queue[:]
+        if self.dice_bag is not None:
+            c.dice_bag = self.dice_bag[:]
         if sim:
             c.sim = True
             c.belief = None
@@ -135,6 +163,8 @@ class GameState:
                     return p
         if self.phase in (SETUP_SETTLE, SETUP_ROAD):
             return self.setup_order[self.setup_idx]
+        if self.phase == SPECIAL:
+            return self.special_queue[0]
         return self.current
 
     def hand_size(self, p):
@@ -264,7 +294,7 @@ class GameState:
             return acts or [("end_road_building",)]
         if ph in (DISCARD, OVER):
             return []
-        acts = self._dev_actions(p)
+        acts = [] if ph == SPECIAL else self._dev_actions(p)
         if ph == PRE_ROLL:
             acts.append(("roll",))
             return acts
@@ -277,7 +307,7 @@ class GameState:
             acts += [("road", e) for e in self.legal_roads(p)]
         if self.can_afford(p, COSTS["dev"]) and self.deck_size() > 0:
             acts.append(("buy_dev",))
-        if include_trades:
+        if include_trades and ph == MAIN:
             for give in range(5):
                 ratio = self.trade_ratio(p, give)
                 if self.hands[p][give] >= ratio:
@@ -317,6 +347,8 @@ class GameState:
             self._stolen = None
             fn(p, *a[1:])
             self._track(before)
+        if self.phase == SPECIAL and kind != "end":
+            self._special_next()  # nothing left to build with: the phase moves on
         if self.phase != OVER and p == self.current and self.phase not in (SETUP_SETTLE, SETUP_ROAD):
             self._check_win(p)
 
@@ -375,7 +407,7 @@ class GameState:
             if not self.vertex_free(v):
                 raise IllegalAction("spot not available (distance rule)")
         else:
-            if self.phase != MAIN:
+            if self.phase not in (MAIN, SPECIAL):
                 raise IllegalAction("can only build during your main phase")
             if v not in self.legal_settlements(p):
                 raise IllegalAction("not a legal settlement spot (needs your road + distance rule)")
@@ -410,10 +442,10 @@ class GameState:
         if self.phase == SETUP_ROAD:
             if e not in self.legal_setup_roads(p):
                 raise IllegalAction("setup road must touch the settlement you just placed")
-        elif self.phase in (ROAD_BUILD, MAIN):
+        elif self.phase in (ROAD_BUILD, MAIN, SPECIAL):
             if e not in self.legal_roads(p):
                 raise IllegalAction("road must connect to your network")
-            if self.phase == MAIN:
+            if self.phase != ROAD_BUILD:
                 if not self.can_afford(p, COSTS["road"]):
                     raise IllegalAction("can't afford a road (wood, brick)")
                 self.pay(p, COSTS["road"])
@@ -443,7 +475,7 @@ class GameState:
         self.phase = self.robber_return
 
     def _do_city(self, p, v):
-        if self.phase != MAIN:
+        if self.phase not in (MAIN, SPECIAL):
             raise IllegalAction("can only build during your main phase")
         if v not in self.settlements[p]:
             raise IllegalAction("cities upgrade one of your settlements")
@@ -458,7 +490,7 @@ class GameState:
         self.log(f"{self.names[p]} upgrades {v} to a city", "build", p)
 
     def _do_buy_dev(self, p):
-        if self.phase != MAIN:
+        if self.phase not in (MAIN, SPECIAL):
             raise IllegalAction("buy during your main phase")
         if not self.can_afford(p, COSTS["dev"]):
             raise IllegalAction("can't afford a development card (sheep, wheat, ore)")
@@ -481,6 +513,12 @@ class GameState:
         if forced is not None:
             total = forced
             d1 = d2 = None
+        elif self.dice_bag is not None and self.dice_rng is not None:
+            if len(self.dice_bag) < BALANCED_RESHUFFLE:
+                self.dice_bag = [(a, b) for a in range(1, 7) for b in range(1, 7)]
+                self.dice_rng.shuffle(self.dice_bag)
+            d1, d2 = self.dice_bag.pop()
+            total = d1 + d2
         else:
             rng = self.dice_rng or random
             d1 = rng.randint(1, 6)
@@ -614,14 +652,18 @@ class GameState:
     def _do_play_mono(self, p, r):
         self._start_dev(p, MONOPOLY)
         total = 0
+        took = []  # the cards are handed over in the open, so the log says who gave what
         for q in range(self.n):
             if q != p:
+                if self.hands[q][r] and not self.sim:
+                    took.append(f"{self.hands[q][r]} from {self.names[q]}")
                 total += self.hands[q][r]
                 self.hands[q][r] = 0
         if self.sim:
             total = int(round(total))  # simulations run on estimated (fractional) hands
         self.hands[p][r] += total
-        self.log(f"{self.names[p]} plays Monopoly on {RES_NAMES[r]} and takes {total}", "dev", p)
+        self.log(f"{self.names[p]} plays Monopoly on {RES_NAMES[r]} and takes {total}"
+                 + (f" ({', '.join(took)})" if took else ""), "dev", p)
 
     def _do_play_yop(self, p, r1, r2):
         if not self._bank_has_pair(r1, r2):
@@ -667,16 +709,47 @@ class GameState:
         self.log(f"{self.names[p]} trades {fmt_cards(give)} for {fmt_cards(get)} with {self.names[partner]}", "trade", p)
 
     def _do_end(self, p):
+        if self.phase == SPECIAL:  # p is done building
+            self.special_queue.pop(0)
+            self._special_next()
+            return
         if self.phase != MAIN:
             raise IllegalAction("roll first")
+        self._age_devs(p)
+        if self.special_build:
+            self.special_queue = [(p + i) % self.n for i in range(1, self.n)]
+            self.phase = SPECIAL
+            self._special_next()
+        else:
+            self._next_turn()
+
+    def _age_devs(self, p):
+        """Cards bought earlier become playable."""
         for i in range(6):
             self.devs[p][i] += self.new_devs[p][i]
             self.new_devs[p][i] = 0
+
+    def can_special_build(self, p):
+        """Does p hold the cards for anything it has room to build?"""
+        return ((self.can_afford(p, COSTS["road"]) and bool(self.legal_roads(p)))
+                or (self.can_afford(p, COSTS["settlement"]) and bool(self.legal_settlements(p)))
+                or (self.can_afford(p, COSTS["city"]) and bool(self.legal_cities(p)))
+                or (self.can_afford(p, COSTS["dev"]) and self.deck_size() > 0))
+
+    def _special_next(self):
+        """Move on to the next player who can build something; then to the next turn."""
+        while self.special_queue and not self.can_special_build(self.special_queue[0]):
+            self.special_queue.pop(0)
+        if not self.special_queue:
+            self._next_turn()
+
+    def _next_turn(self):
         self.current = (self.current + 1) % self.n
         self.turn += 1
         self.phase = PRE_ROLL
         self.dev_played = False
         self.trades_this_turn = 0
+        self._age_devs(self.current)  # bought while others were building
         self.log(f"--- {self.names[self.current]}'s turn ---", "turn", self.current)
         # a player can only win on their own turn (e.g. longest road handed over)
         self._check_win(self.current)
