@@ -16,7 +16,7 @@ import { leaveReplay, openJoin, openReplay, passDevice, renderLobby, renderRepla
 import { decorateKeys, onKey, renderKeys } from "./keys.js";
 import {
   appendLog, pinLog, renderActions, renderBank, renderDice, renderEcon, renderHand, renderPlayers,
-  renderStatus, wireLog,
+  renderStatus, showVenturePeek, wireLog,
 } from "./panels.js";
 import { B, G, S, api, building, can, els, localSeats, myDecision, prefs, session, setB, setS, setSession } from "./state.js";
 import { human } from "./text.js";
@@ -261,9 +261,28 @@ export function wireUI() {
     navigator.clipboard?.writeText(String(S.seed)).then(() => toast("Seed copied", `Start a new game with seed ${S.seed} to replay this board and dice.`, "var(--muted)", 2600), () => {});
   };
 
-  $("#venturehand").addEventListener("click", (e) => {
+  const vh = $("#venturehand");
+  // the close-up follows the mouse and the keyboard; on a touch screen, press and hold
+  let held = null, heldShown = false;
+  vh.addEventListener("pointerover", (e) => { if (e.pointerType === "mouse") showVenturePeek(e.target.closest(".dcard")); });
+  vh.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") showVenturePeek(null); });
+  vh.addEventListener("focusin", (e) => { if (e.target.matches(".dcard:focus-visible")) showVenturePeek(e.target); });
+  vh.addEventListener("focusout", () => showVenturePeek(null));
+  vh.addEventListener("pointerdown", (e) => {
+    const c = e.target.closest(".dcard");
+    if (e.pointerType === "mouse" || !c) return;
+    heldShown = false;
+    held = setTimeout(() => { heldShown = true; showVenturePeek(c); }, 380);
+  });
+  const letGo = () => { clearTimeout(held); if (heldShown) setTimeout(() => showVenturePeek(null), 1600); };
+  for (const t of ["pointerup", "pointercancel"]) vh.addEventListener(t, letGo);
+  vh.addEventListener("contextmenu", (e) => { if (e.target.closest(".dcard") && heldShown) e.preventDefault(); });
+  vh.addEventListener("click", (e) => {
+    // a press-and-hold was a look, not a play
+    if (heldShown) { heldShown = false; return; }
     const c = e.target.closest(".dcard.playable");
     if (!c || G.busy) return;
+    showVenturePeek(null);
     const k = Number(c.dataset.venture);
     if (k === 3) openPick("hoard");
     else if (k === 4) openPick("windfall");

@@ -12,6 +12,14 @@
   Terminal shortcuts follow the new names: `t c w g s` for resources, `v`, `tn`, `tr` and
   `vn` to build, `rg` and `pf` for the cards. Games saved by earlier versions no longer
   load.
+* The board no longer zooms in on clustered choices (the trail beside a new village, a
+  free trail, a town): the whole island stays in view for every decision.
+* Ventures take the emphasis instead. A playable venture rises out of the tray, larger
+  and ringed in gold, springing up once as it becomes playable, while the rest of the
+  hand steps back. Pointing at a venture, focusing it or pressing and holding it opens
+  a close-up with what it does and whether it can be played now. The status line names
+  the ventures you can play and their keys, and the reason a venture is blocked sits on
+  the card's edge instead of over its picture.
 
 ## 2.1.0
 
