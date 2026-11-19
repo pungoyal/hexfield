@@ -151,8 +151,12 @@ class Table:
         self.offer = None        # the trade offer on the table, if any
         self.history = []        # undo points: dicts, one per human decision
         self.review_on = {h: True for h in self.humans}
+        self.muted = set()       # human seats that don't want trade offers from bots
         self.open = set()        # online: human seats nobody has taken yet
         self.version = 0
+        self.takeback = None     # online: a decision someone asks to take back, until the others answer
+        self.takeback_result = None  # how the last request ended: {"n", "ok", "from", "by", "label"}
+        self.epoch = 0           # grows with every undo: the log each browser holds is stale
 
     @property
     def reviews(self):
@@ -226,9 +230,11 @@ class Table:
             "legal": self.legal_for(h),
             "events": evs, "ev_total": len(s.events),
             "reviews": sorted(revs, key=lambda r: r["token"]), "review_on": self.review_on.get(h, False),
+            "mute_offers": h in self.muted,
             "pending_offer": po, "my_offer": self.my_offer_for(h),
             "waiting_on": self.waiting_on(), "lobby": bool(self.open),
-            "can_undo": self.live and len(self.humans) == 1 and bool(self.history), "winner": s.winner,
+            "can_undo": self.can_undo(h), "winner": s.winner, "epoch": self.epoch,
+            "takeback": self.takeback_for(h), "takeback_result": self.takeback_result and {**self.takeback_result, "label": self.you(self.takeback_result["label"], h)},
             "reviewing": self.reviewing(),
         }
         if s.phase == OVER:
@@ -261,9 +267,28 @@ class Table:
             return None
         return [round(sum(s.belief[h][q][r] for q in range(s.n) if q != h), 1) for r in range(5)]
 
+    def can_undo(self, h):
+        """Alone you can always step back. In a shared game you may take back your own last
+        decision, as long as nobody else has decided since (and online, if the others agree)."""
+        if not self.live or not self.history or self.open:
+            return False
+        if len(self.humans) == 1:
+            return True
+        last = self.history[-1]
+        return self.takeback is None and self.s.phase != OVER and last["seat"] == h and not last.get("asked")
+
+    def takeback_for(self, h):
+        t = self.takeback
+        if not t:
+            return None
+        return {"from": t["from"], "label": self.you(t["label"], h), "mine": t["answers"].get(h, True) is None,
+                "waiting": sorted(q for q, a in t["answers"].items() if a is None)}
+
     def waiting_on(self):
         """The human seats the game is waiting for right now."""
         s = self.s
+        if self.takeback:  # nothing moves until the request is answered
+            return sorted(q for q, a in self.takeback["answers"].items() if a is None)
         if s.phase == OVER or self.open:
             return []
         out = [q for q, a in (self.offer["answers"].items() if self.offer else ()) if a is None]
@@ -489,6 +514,14 @@ class WebGame(Table):
             if h not in self.tokens.values():
                 self.tokens[secrets.token_urlsafe(12)] = h
         self.open = {int(q) for q in saved.get("open") or [] if int(q) in self.humans}
+        # preferences and a request in flight survive a restart of the server
+        self.muted = {int(q) for q in saved.get("muted") or [] if int(q) in self.humans}
+        self.epoch = int(saved.get("epoch") or 0)
+        t = saved.get("takeback")
+        if t and self.history and self.history[-1]["seat"] == t.get("from"):
+            self.history[-1]["asked"] = True
+            self.takeback = {"from": int(t["from"]), "label": self.history[-1]["label"],
+                             "answers": {int(q): a for q, a in t["answers"].items() if int(q) in self.humans}}
 
     def save(self, force=True):
         if not self.persist or (not force and time.time() - self._saved_at < 3):
@@ -505,7 +538,8 @@ class WebGame(Table):
             meta.pop("coach", None)
         try:
             store.save(self.gid, self.rec, self.owner, offer=_offer_out(self.offer), tokens=self.tokens,
-                       open=sorted(self.open))
+                       open=sorted(self.open), muted=sorted(self.muted), epoch=self.epoch,
+                       takeback=self.takeback and {"from": self.takeback["from"], "answers": self.takeback["answers"]})
             self._saved_at = time.time()
         except OSError as ex:  # a full disk must not stop the game
             print("could not save the game:", ex)
@@ -582,7 +616,7 @@ class WebGame(Table):
         s = self.s
         if version is not None and version != self.version:
             return
-        if s.phase == OVER or self.open or (self.offer and self.offer["bot"]):
+        if s.phase == OVER or self.open or self.takeback or (self.offer and self.offer["bot"]):
             return
         p = s.actor()
         if self.agents[p] is None:
@@ -616,12 +650,40 @@ class WebGame(Table):
                 continue
             if self.agents[q] is not None:
                 answers[q] = bool(s.can_afford(q, get) and self.agents[q].evaluate_offer(s, q, p, give, get)[0])
-            elif s.can_afford(q, get):
-                answers[q] = None  # a human answers for themselves; one who can't pay isn't asked
+            elif s.can_afford(q, get) and q not in self.muted:
+                answers[q] = None  # a human answers for themselves; one who can't pay, or who has muted bot offers, isn't asked
         self.offer = {"from": p, "give": tuple(give), "get": tuple(get), "answers": answers,
                       "counters": {}, "tries": {}, "notes": {}, "bot": True}
         if None not in answers.values():
             self._finish_offer()
+
+    def mute_offers(self, seat, on):
+        """A player's preference: bots stop asking them to trade (the offer on the table,
+        if a bot made it, is declined). They can still make offers of their own."""
+        if not on:
+            self.muted.discard(seat)
+            self.save()
+            return
+        self.muted.add(seat)
+        if not self.takeback:  # (a take-back freezes the table; it settles the offer when it ends)
+            self._drop_muted()
+        self.save()
+
+    def _drop_muted(self):
+        """A bot's offer stops waiting for players who have muted bot offers. That is not
+        a decision of theirs: no undo point, no review, no line in the log."""
+        o = self.offer
+        if not o or not o["bot"]:
+            return
+        gone = [q for q, a in o["answers"].items() if a is None and q in self.muted]
+        if not gone:
+            return
+        for q in gone:
+            del o["answers"][q]
+        if None not in o["answers"].values():
+            self._finish_offer()
+        self.bump()
+        self.save()
 
     def _finish_offer(self):
         """Everyone has answered a bot's offer: trade with a taker, or with the best counter."""
@@ -651,6 +713,7 @@ class WebGame(Table):
         """A human's answer to the offer on the table: yes, no, or a counter-offer
         ({"give": what the proposer gives, "get": what it gets}, like the offer itself)."""
         h = self.human if seat is None else seat
+        self._no_takeback()
         o = self.offer
         if not o or o["answers"].get(h, 0) is not None:
             raise IllegalAction("no offer to answer")
@@ -710,6 +773,7 @@ class WebGame(Table):
             raise IllegalAction("the game is over")
         if self.open:
             raise IllegalAction("waiting for players to join")
+        self._no_takeback()
         if s.actor() != h or (self.offer and self.offer["bot"]):
             raise IllegalAction("not your decision right now")
         a = to_action(raw)
@@ -749,6 +813,7 @@ class WebGame(Table):
     def make_offer(self, give, get, seat=None):
         s = self.s
         h = self.human if seat is None else seat
+        self._no_takeback()
         if s.phase != MAIN or s.actor() != h or self.open:
             raise IllegalAction("you can only offer trades after rolling, on your turn")
         give, get = cards(give), cards(get)
@@ -812,18 +877,67 @@ class WebGame(Table):
         """Mark a human decision: undo comes back to exactly here. Returns its id."""
         at = len(self.rec.entries)
         agents = [(a.rng.getstate(), a._proposed) if a else None for a in self.agents]
-        self.history.append({"state": self.s.clone(sim=False), "at": at, "seat": seat, "label": label,
+        self._serial = getattr(self, "_serial", 0) + 1
+        self.history.append({"state": self.s.clone(sim=False), "at": at, "id": self._serial, "seat": seat, "label": label,
                              "offer": _offer_copy(self.offer), "reasons": dict(self.reasons), "agents": agents})
         self.rec.mark(seat, label, _offer_out(self.offer))
         return at
 
+    def _no_takeback(self):
+        if self.takeback:
+            raise IllegalAction("a take-back is being decided first")
+
     def undo(self, seat=None):
-        """Step back one human decision; returns what that decision was."""
-        if len(self.humans) != 1:
-            raise IllegalAction("undo is for games with one human player")
+        """Step back one human decision; returns what that decision was. In a shared game
+        it is your own last decision, and online the other players have to allow it first:
+        then this only asks, and returns None."""
         if not self.history:
             raise IllegalAction("nothing to undo")
+        if len(self.humans) == 1:
+            return self._undo()
+        seat = self.human if seat is None else seat
+        self._no_takeback()
+        last = self.history[-1]
+        if self.s.phase == OVER:
+            raise IllegalAction("the game is over")
+        if last["seat"] != seat:
+            raise IllegalAction("you can only take back your own last decision, before anyone else decides")
+        others = [q for q in self.humans if q != seat]
+        if self.mode != "online" or not others:
+            return self._undo()  # one screen: the table agrees out loud
+        if last.get("asked"):  # one request per decision: a game can't be held up by asking again and again
+            raise IllegalAction("you already asked to take this one back")
+        last["asked"] = True
+        self.takeback = {"from": seat, "label": last["label"], "answers": {q: None for q in others}}
+        self.bump()
+        self.save()
+        return None
+
+    def answer_takeback(self, ok, seat=None):
+        """Allow or refuse the take-back on the table; its asker may withdraw it (ok=False)."""
+        t = self.takeback
+        seat = self.human if seat is None else seat
+        if not t or (seat != t["from"] and t["answers"].get(seat, True) is not None) or (seat == t["from"] and ok):
+            raise IllegalAction("there is no take-back for you to answer")
+        n = (self.takeback_result or {}).get("n", 0) + 1
+        if not ok:
+            self.takeback = None
+            self.takeback_result = {"n": n, "ok": False, "from": t["from"], "by": seat, "label": t["label"]}
+            self._drop_muted()
+            self.bump()
+            self.save()
+            return
+        t["answers"][seat] = True
+        if all(t["answers"].values()):
+            self.takeback = None
+            self.takeback_result = {"n": n, "ok": True, "from": t["from"], "by": seat, "label": t["label"]}
+            self._undo()
+        else:
+            self.bump()
+
+    def _undo(self):
         h = self.history.pop()
+        self.epoch += 1
         self.s = h["state"]
         if h["agents"]:
             for a, saved in zip(self.agents, h["agents"]):
@@ -834,17 +948,20 @@ class WebGame(Table):
         self.rec.truncate(h["at"])
         self.offer = h["offer"]
         self.reasons = h["reasons"]
+        self._drop_muted()  # the offer that comes back may ask someone who has muted bots since
         self.bump()
         self.save()
-        return self.you(h["label"])
+        return self.you(h["label"], h["seat"])
 
     # ================================================================ reviews
-    def _live(self, at):
-        return any(h["at"] == at for h in self.history)
+    def _live(self, uid):
+        """Is the decision this review was queued for still in the game? (An undone move
+        and the different move made in its place share a position, not an id.)"""
+        return any(h.get("id") == uid for h in self.history)
 
     def _queue(self, kind, payload, seat):
-        at = self.history[-1]["at"]
-        self._jobs.put((at, kind, self.s.clone(sim=False), payload, seat))
+        last = self.history[-1]
+        self._jobs.put((last["id"], (last["at"], kind, self.s.clone(sim=False), payload, seat)))
 
     def _review_worker(self):
         while True:
@@ -853,10 +970,11 @@ class WebGame(Table):
                 self._jobs.task_done()
                 return
             try:
-                rev = self._review(*job) if self._live(job[0]) else None
+                uid, job = job
+                rev = self._review(*job) if self._live(uid) else None
                 if rev:
                     with self.lock:
-                        if self._live(job[0]):
+                        if self._live(uid):
                             self.reviews.append(rev)
                             self.bump()
                             if self.s.phase == OVER:

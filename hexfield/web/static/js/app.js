@@ -12,7 +12,7 @@ import {
   newGameOptions, onTradeClick, openBotOffer, openDiscard, openNewGame, openPick, openTrade, renderTrade,
   showGameOver, showHelp, showStats, syncNewGame,
 } from "./dialogs.js";
-import { effects, handGains, recapTurn, toast } from "./effects.js";
+import { effects, handGains, modal, recapTurn, toast } from "./effects.js";
 import { leaveReplay, openJoin, openReplay, passDevice, renderLobby, renderReplay, wireGames } from "./games.js";
 import { decorateKeys, onKey, renderKeys } from "./keys.js";
 import {
@@ -93,6 +93,7 @@ export function enter(st) {
   G.prev = null;
   G.mode = null;
   G.reviewsSeen = st.reviews.length;
+  G.tbSeen = st.takeback_result?.n ?? 0;
   G.overShown = null;
   G.hintKey = null;
   G.lastRoller = null;
@@ -129,6 +130,7 @@ export function apply(st, initial = false) {
   G.prev = S;
   setS(st);
   G.evCount = st.ev_total;
+  G.epoch = st.epoch ?? null;
   appendLog(fresh);
   if (!initial) { effects(fresh); handGains(fresh); }
   recapTurn(fresh, initial);
@@ -140,6 +142,7 @@ export function apply(st, initial = false) {
   newReviews();
   renderLobby();
   renderReplay();
+  syncTakeback();
   if (S.phase === "game_over" && G.overShown !== S.gid && !session.replay) {
     G.overShown = S.gid;
     setTimeout(showGameOver, initial ? 0 : 900);
@@ -154,6 +157,10 @@ export async function pump() {
   if (G.pumping || !S || session.replay) return;
   G.pumping = true;
   try {
+    // this browser's "no bot offers" preference goes to the game before a bot can offer
+    if (S.mute_offers !== undefined && S.mute_offers !== prefs.mute && !S.lobby) {
+      try { apply(await api("settings", { mute_offers: prefs.mute })); } catch { /* the next round tries again */ }
+    }
     while (S && !session.replay && !G.stopPump && S.phase !== "game_over" && !$("#dlg-new").open) {
       const waiting = S.waiting_on || [];
       if (waiting.includes(S.human)) break;
@@ -243,7 +250,10 @@ export function render() {
   renderEcon();
   renderReviews();
   $("#seed").textContent = `seed ${S.seed}`;
-  $("#btn-undo").hidden = S.mode !== "solo" || !!session.replay;
+  // alone, undo is always there; in a shared game it appears while your last decision can still be taken back
+  const shared = S.mode !== "solo";
+  $("#btn-undo").hidden = !!session.replay || (shared && !S.can_undo);
+  $("#btn-undo").title = !shared ? "Undo your last decision (U)" : S.mode === "online" ? "Ask the others to let you take back your last decision (U)" : "Take back your last decision, if the table agrees (U)";
   document.body.classList.toggle("many", S.n > 4);
   document.body.classList.toggle("my-turn", !!myDecision() || !!S.pending_offer);
   $("#btn-undo").disabled = !S.can_undo;
@@ -269,6 +279,7 @@ export function wireUI() {
   $("#btn-answer").onclick = () => openBotOffer();
   for (const b of $$("[data-mode]")) b.onclick = () => toggleMode(b.dataset.mode);
   $("#btn-hint").onclick = showHint;
+  $("#btn-hint-tray").onclick = showHint;
   $("#btn-eval").onclick = showEval;
   $("#btn-review").onclick = showFullReview;
   $("#btn-undo").onclick = undo;
@@ -276,7 +287,15 @@ export function wireUI() {
   $("#btn-stats").onclick = showStats;
   $("#btn-help").onclick = showHelp;
   $("#btn-new").onclick = () => openNewGame(true);
-  $("#status").addEventListener("click", (e) => { if (e.target.closest("#show-over")) showGameOver(); });
+  $("#status").addEventListener("click", (e) => {
+    if (e.target.closest("#show-over")) showGameOver();
+    if (e.target.closest("#tb-withdraw")) answerTakeback(false);
+  });
+  $("#tb-yes").onclick = () => closeTakeback(true);
+  $("#tb-no").onclick = () => closeTakeback(false);
+  $("#dlg-takeback").addEventListener("cancel", (e) => e.preventDefault());
+  // however the confirmation goes away (the pass curtain closes every dialog), the undo that asked gets its answer
+  $("#dlg-takeback").addEventListener("close", () => { tbAnswer?.(false); tbAnswer = null; });
   $("#seed").onclick = () => {
     if (!S) return;
     navigator.clipboard?.writeText(String(S.seed)).then(() => toast("Seed copied", `Start a new game with seed ${S.seed} to replay this board and dice.`, "var(--muted)", 2600), () => {});
@@ -358,6 +377,16 @@ export function wireUI() {
   $("#autoroll").checked = prefs.autoroll;
   $("#autoroll").onchange = (e) => { prefs.autoroll = e.target.checked; save("autoroll", prefs.autoroll); maybeAutoRoll(); };
 
+  // no trade offers from bots: kept in this browser, and told to each game you play
+  $("#mute-offers").checked = prefs.mute;
+  $("#mute-offers").onchange = async (e) => {
+    prefs.mute = e.target.checked;
+    save("mute", prefs.mute);
+    if (!S || session.replay) return;
+    try { apply(await api("settings", { mute_offers: prefs.mute })); } catch (err) { toast(err.message, "", "var(--worst)"); }
+    pump();
+  };
+
   $("#dlg-trade").addEventListener("click", onTradeClick);
 
   // new game dialog
@@ -405,14 +434,64 @@ export function toggleMode(m) {
   render();
 }
 
+// ------------------------------------------------------------------ taking a move back in a shared game
+// Online the other players are asked and all have to allow it; around one screen the table
+// agrees out loud and this only confirms.
+let tbAnswer = null; // resolves the confirmation on a shared screen
+function askTakeback(kind, title, sub, yes, no) {
+  const dlg = $("#dlg-takeback");
+  dlg.dataset.kind = kind;
+  $("#tb-title").textContent = title;
+  $("#tb-sub").textContent = sub;
+  $("#tb-yes").firstChild.nodeValue = yes;
+  $("#tb-no").firstChild.nodeValue = no;
+  // Space confirms what you asked for yourself, never a request that arrives from someone else
+  $("#tb-yes").classList.toggle("obvious", kind !== "answer");
+  if (!dlg.open) modal(dlg);
+}
+function closeTakeback(ok) {
+  const dlg = $("#dlg-takeback");
+  dlg.close();
+  if (dlg.dataset.kind === "answer") answerTakeback(ok);
+  else { tbAnswer?.(ok); tbAnswer = null; }
+}
+let tbSending = false; // your answer is on its way: don't ask again meanwhile
+async function answerTakeback(ok) {
+  tbSending = true;
+  try { apply(await api("takeback", { ok })); } catch (e) { toast(e.message, "", "var(--worst)"); }
+  tbSending = false;
+  pump();
+}
+export function syncTakeback() {
+  const dlg = $("#dlg-takeback"), t = S.takeback, r = S.takeback_result;
+  const who = (p) => (p === S.human ? "You" : S.players[p].name);
+  if (r && r.n !== G.tbSeen) {
+    G.tbSeen = r.n;
+    if (r.ok) { G.mode = null; G.holdAutoRoll = true; } // the position stepped back: don't roll it forward again
+    if (r.ok) toast(`${who(r.from)} took a move back`, human(r.label), "var(--muted)", 3600);
+    else toast(r.by === r.from ? `${who(r.from)} withdrew the take-back` : `${who(r.by)} said no to the take-back`, "The move stands.", "var(--muted)", 3600);
+  }
+  if (t?.mine && !session.replay) {
+    if (!dlg.open && !tbSending) askTakeback("answer", `${S.players[t.from].name} asks to take a move back`, `The move: ${human(t.label)}. Everything since then is replayed from there. It only happens if every player allows it.`, "Allow", "Refuse");
+  } else if (dlg.open && dlg.dataset.kind === "answer") dlg.close();
+}
+
 export let undoing = false;
 export async function undo() {
-  if (!S?.can_undo || undoing) return;
+  if (!S?.can_undo || undoing || $("#dlg-pass").open) return; // (nobody's turn while the screen changes hands)
   undoing = true;
+  if (S.mode === "hotseat") {
+    askTakeback("confirm", "Take your last decision back?", "Only if everyone at the table agrees. The dice and the cards stay as they were.", "Take it back", "Keep it");
+    const ok = await new Promise((resolve) => { tbAnswer = resolve; });
+    if (!ok) { undoing = false; return; }
+  }
   // undo is always allowed: let the bots finish their current step and any request land first
-  G.stopPump = true;
-  while (G.busy || G.pumping) await sleep(40);
-  G.stopPump = false;
+  // (online the loop is waiting for other people, and the request goes out beside it)
+  if (S.mode !== "online") {
+    G.stopPump = true;
+    while (G.busy || G.pumping) await sleep(40);
+    G.stopPump = false;
+  }
   // forced dialogs (discard, a bot's offer) and the game-over screen give way to the undo
   for (const d of $$("dialog[open]")) if (d.id !== "dlg-new") d.close();
   G.busy = true;
@@ -423,7 +502,8 @@ export async function undo() {
     apply(st);
     G.reviewsSeen = S.reviews.length;
     G.overShown = null; // undoing out of a finished game: show the result again if it ends again
-    toast(`Undid: ${st.undone ? human(st.undone) : "your last decision"}`, "Same dice, different choices.", "var(--muted)", 2600);
+    if (S.takeback) toast("Asked the others", `They decide whether you may take back: ${human(S.takeback.label)}`, "var(--muted)", 3600);
+    else toast(`Undid: ${st.undone ? human(st.undone) : "your last decision"}`, "Same dice, different choices.", "var(--muted)", 2600);
   } catch (e) {
     toast(e.message, "", "var(--worst)");
   }

@@ -107,27 +107,64 @@ def _summary(gid, d):
     }
 
 
-def list_games(limit=60, owner=""):
-    """Newest first. Unreadable files are skipped, never fatal."""
+_versions = {}  # (path, mtime, size) -> the save format of that file, so a list doesn't parse every file every time
+
+
+def _files(owner):
+    """[(mtime, gid, path, size)] of the game files here, newest first."""
     d = games_dir(owner)
     files = []
     for name in os.listdir(d):
         if name.endswith(".json") and ID_RE.match(name[:-5]):
+            path = os.path.join(d, name)
             try:
-                files.append((os.path.getmtime(os.path.join(d, name)), name[:-5]))
+                st = os.stat(path)
             except OSError:
-                pass
+                continue
+            files.append((st.st_mtime, name[:-5], path, st.st_size))
     files.sort(reverse=True)
+    return files
+
+
+def _read(key):
+    """The parsed file (or None if unreadable); remembers which save format it is."""
+    try:
+        with open(key[0]) as f:
+            data = json.load(f)
+        version = data.get("version")
+    except (OSError, ValueError, AttributeError):
+        data, version = None, "unreadable"
+    if len(_versions) > 5000:
+        _versions.clear()
+    _versions[key] = version
+    return data
+
+
+def list_games(limit=60, owner=""):
+    """The newest `limit` games this version can open. Unreadable files are skipped, never fatal."""
     out = []
-    for _, gid in files[:limit]:
-        try:
-            with open(os.path.join(d, gid + ".json")) as f:
-                data = json.load(f)
-            if data.get("version") == VERSION:
-                out.append(_summary(gid, data))
-        except (OSError, ValueError):
-            continue
+    for mtime, gid, path, size in _files(owner):
+        if len(out) >= limit:
+            break
+        key = (path, mtime, size)
+        if _versions.get(key, VERSION) != VERSION:
+            continue  # known to be another format: no need to read it again
+        data = _read(key)
+        if data is not None and data.get("version") == VERSION:
+            out.append(_summary(gid, data))
     return out
+
+
+def other_versions(owner=""):
+    """How many saved games here were written in another save format: they are kept on
+    disk but left out of the list, and the player should hear about them."""
+    n = 0
+    for mtime, gid, path, size in _files(owner):
+        key = (path, mtime, size)
+        if key not in _versions:
+            _read(key)
+        n += isinstance(_versions[key], int) and _versions[key] != VERSION
+    return n
 
 
 def prune(keep=KEEP, owner=""):

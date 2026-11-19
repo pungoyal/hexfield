@@ -7,7 +7,7 @@ import { modal, toast } from "./effects.js";
 import { setObvious } from "./keys.js";
 import { windfallPicks } from "./logic.js";
 import { G, S, api, myDecision } from "./state.js";
-import { BUILD_NAMES, BUILD_ORDER, buildChanges, buildChips, covers, handPlus, human, plain, symbol } from "./text.js";
+import { ACCURACY_NOTE, BUILD_NAMES, BUILD_ORDER, FAME_LOST, buildChanges, buildChips, covers, handPlus, human, plain, symbol } from "./text.js";
 import { $, $$, COSTS, RES, delta, esc, icon, onThisComputer, pc, resIcon, save, sleep, store } from "./util.js";
 
 // ------------------------------------------------------------------ dialogs
@@ -193,7 +193,7 @@ export function renderTrade() {
   trade.give = trade.give.map((n, r) => Math.min(n, S.hand[r]));
   $("#trade-count").textContent = `· ${S.hand.reduce((a, b) => a + b, 0)} cards in hand`;
 
-  $("#bank-trade").innerHTML = `<div class="bt-row bt-head"><span>You give · rate</span><span class="bt-get">for 1 of <span class="muted">(→ how many you'd have)</span></span></div>` + RES.map((r, i) => {
+  $("#bank-trade").innerHTML = `<div class="bt-row bt-head"><span>You give</span><span class="bt-get">You get one <span class="muted">(→ how many you'd then hold)</span></span></div>` + RES.map((r, i) => {
     const ratio = S.ratios[i];
     const ok = live && S.hand[i] >= ratio;
     let cell = i * 4; // fixed letters per give/get pair, whatever is affordable
@@ -391,7 +391,7 @@ export function showHelp() {
     <p>With <b>5 or 6 players</b> the board is larger, and after every turn the other players may build (no trading, no ventures) in a special building phase: build, or pass.</p>
     <p>Every game is <b>saved as you play</b>. <b>Games</b> lists them: resume one, step through a <b>replay</b> with the coach's verdict on each of your decisions, play on from any point, or see your <b>progress</b> across games. A new game can also be <b>pass and play</b> on one screen or <b>online</b> with a device each.</p>
     <p>You only see your own cards, exactly like at a real table. Opponents show card <i>counts</i>; the bots get the same information and track your hand from public events.</p>
-    <p>The <b>coach</b> reviews every decision in fame-equivalents: ✓ best &lt; 0.05 ≤ ✓ good &lt; 0.2 ≤ ?! inaccuracy &lt; 0.5 ≤ ? mistake &lt; 1.0 ≤ ?? blunder.</p>
+    <p>The <b>coach</b> rates every decision by the fame it gives up against the engine's best line (1.00 is about one village): ✓ best &lt; 0.05 ≤ ✓ good &lt; 0.2 ≤ ?! inaccuracy &lt; 0.5 ≤ ? mistake &lt; 1.0 ≤ ?? blunder.</p>
     <details class="help-keys"><summary>Keyboard shortcuts</summary>
     <p class="muted">Every button with a key shows it in a small badge. A key means one thing on each screen.</p>
     <h3>Your turn</h3>
@@ -399,7 +399,7 @@ export function showHelp() {
       ${k(["R"], "Roll the dice")}${k(["1", "2", "3"], "Build a trail / village / town: then type the letter on the spot")}
       ${k(["D"], "Buy a venture")}${k(["4", "5", "6", "7"], "Play Ranger / Pathfinder / Hoard / Windfall")}
       ${k(["T"], "Trade with the bank, docks or players")}${k(["E"], "End your turn")}
-      ${k(["Space"], "The obvious move, everywhere: the green-ringed choice. On the board the best spot or the roll; in a dialog the recommended answer (the coach's verdict on an offer, the suggested discard, the trade that unlocks your best build, the richest player to rob). Keep pressing to follow a multi-step recommendation")}
+      ${k(["Space"], "The obvious move, everywhere: the green-ringed choice. On the board the best spot, the roll, or End turn once nothing else is left; in a dialog the recommended answer (the coach's verdict on an offer, the suggested discard, the trade that unlocks your best build, the richest player to rob). Keep pressing to follow a multi-step recommendation")}
       ${k(["A", "S", "F", "…"], "Pick a board spot (setup, build modes, bandit). Spots are ranked: A is always the best, then S, F, G… down the home row; weaker spots get two letters")}
       ${k(["⌫"], "Take back a typed letter")}${k(["1", "2", "3"], "Choose who to rob (when asked)")}
       ${k(["⇧D"], "Reopen the discard dialog")}${k(["⇧Y"], "Reopen a bot's trade offer")}${k(["Esc"], "Cancel: typed letters, then build mode, then the coach panel")}
@@ -408,7 +408,7 @@ export function showHelp() {
     <div class="help-grid">
       ${k(["H"], "Hint: the engine's top options")}${k(["⇧1–⇧5"], "Play hint option 1–5")}${k(["⇧V"], "Evaluate every player")}${k(["⇧A"], "All your moves, rated")}
       ${k(["U"], "Undo your last decision, on every screen and in every dialog (the dice stay the same)")}${k(["⇧S"], "Dice statistics")}${k(["⇧N"], "New game")}${k(["⇧G"], "Saved games, replays, progress")}${k(["?"], "This help")}
-      ${k(["⇧C"], "Colour-blind marks: a safer palette and seat numbers on the pieces")}${k(["Tab", "↵"], "Every board spot is a button: Tab to it, Enter to build")}
+      ${k(["⇧C"], "Colour-blind marks: a safer palette and seat numbers on the pieces")}${k(["⇧M"], "No bot offers: bots stop asking you to trade (you can still offer to them)")}${k(["Tab", "↵"], "Every board spot is a button: Tab to it, Enter to build")}
       ${k(["⇧R"], "Turn move reviews on/off")}${k(["⇧B"], "Show/hide bot reasoning")}${k(["⇧F"], "Bot speed")}${k(["⇧O"], "Auto-roll on/off")}
     </div>
     <h3>In a replay</h3>
@@ -443,9 +443,11 @@ export function showGameOver() {
   if (sm.accuracy !== null) {
     rev = `<h3 style="margin-top:18px">Your decisions</h3>
       <div class="vcounts">${Object.entries(sm.counts).map(([k, n]) => `<span class="vd vd-${k}">${symbol(k)} ${k} ${n}</span>`).join("")}</div>
-      <p>Accuracy <b>${Math.round(sm.accuracy)}%</b> · total value lost <b>${sm.lost.toFixed(2)}</b> fame-eq · ${sm.rounds} round${sm.rounds === 1 ? "" : "s"} · <button class="btn ghost" id="over-all" data-key="A" style="padding:2px 8px">every move…</button></p>
+      <p>Accuracy <b>${Math.round(sm.accuracy)}%</b> · <span class="term" title="${FAME_LOST}">fame given up</span> <b>${sm.lost.toFixed(2)}</b> · ${sm.rounds} round${sm.rounds === 1 ? "" : "s"} · <button class="btn ghost" id="over-all" data-key="A" style="padding:2px 8px">every move…</button></p>
+      <p class="fame-note muted">${ACCURACY_NOTE}</p>
       ${sm.worst.length ? `<h3>Biggest misses</h3><ul class="misses">${sm.worst.map((w) => `<li><span class="vd vd-${w.verdict}">−${w.delta.toFixed(2)}</span> ${w.turn ? `turn ${w.turn}` : "setup"}: ${esc(plain(w.label))}<br><span class="eng">better: ${esc(human(w.best))}</span></li>`).join("")}</ul>` : ""}`;
   }
+  $("#toasts").replaceChildren(); // news of the last moves would sit on the result
   $("#over-body").innerHTML = `<div class="table-x"><table class="info-table fame-table"><thead><tr><th>Player</th><th title="1 fame each">Villages</th><th title="2 fame each (count)">Towns</th><th title="2 fame">Great Trail</th><th title="2 fame">Great Patrol</th><th title="1 fame each">Landmarks</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table></div>${rev}`;
   modal($("#dlg-over"));
 }
@@ -468,6 +470,7 @@ export function openNewGame(cancellable = true) {
   f.elements.name.readOnly = !!account;
   f.elements.name.tabIndex = account ? -1 : 0; // nothing to type: Tab skips it
   f.elements.name.title = account ? "Your account's name" : "";
+  f.dataset.bots = last ? "chosen" : "";
   syncNewGame();
   f.elements.seed.value = "";
   dlg.returnValue = "";
@@ -475,11 +478,20 @@ export function openNewGame(cancellable = true) {
 }
 
 // keep the form consistent: 3 to 6 players in all, seats that exist, names for everyone
-export function syncNewGame() {
+export function syncNewGame(e) {
   const f = $("#form-new");
   const mode = f.elements.mode.value;
   const solo = mode === "solo";
   const humans = solo ? 1 : Number(f.elements.humans.value);
+  // a bot count you picked is kept; until then, changing who plays keeps the table at four
+  const changed = e?.target?.name;
+  if (changed === "opponents") f.dataset.bots = "chosen";
+  // (going between alone and with friends changes the table too much for it to carry over)
+  if (changed === "mode" && (f.dataset.mode === "solo") !== solo) delete f.dataset.bots;
+  f.dataset.mode = mode;
+  $("#new-intro").textContent = solo ? "You against machine opponents that search several moves ahead and track every card you play."
+    : mode === "hotseat" ? "Friends around one screen. Bots can fill the other seats."
+    : "Friends on their own devices. Bots can fill the other seats.";
   $("#new-multi").hidden = solo;
   $("#new-seat").hidden = !solo;
   $("#new-name-field").hidden = mode === "hotseat";
@@ -487,7 +499,8 @@ export function syncNewGame() {
     const n = Number(lab.querySelector("input").value) + humans;
     lab.hidden = n < 3 || n > 6;
   }
-  if (f.querySelector('[name="opponents"]:checked').closest("label").hidden) {
+  const auto = (changed === "mode" || changed === "humans") && f.dataset.bots !== "chosen";
+  if (auto || f.querySelector('[name="opponents"]:checked').closest("label").hidden) {
     const ok = $$("#form-new .opp").filter((l) => !l.hidden).map((l) => l.querySelector("input"));
     (ok.find((i) => Number(i.value) + humans === 4) || ok[0]).checked = true;
   }
@@ -521,12 +534,15 @@ export function newGameOptions() {
   const mode = f.elements.mode.value;
   const opts = { mode, opponents: Number(f.elements.opponents.value), level: f.elements.level.value, name: f.elements.name.value,
     seed: f.elements.seed.value, styles: f.elements.styles.value, dice: f.elements.dice.value, layout: f.elements.layout.value };
+  // on other people's screens "You" would be somebody else: the default name becomes "Host"
+  const typed = opts.name; // (what is remembered for next time is what you typed)
+  if (mode === "online" && /^you$/i.test(typed.trim())) opts.name = "Host";
   if (mode === "solo") opts.seat = f.elements.seat.value;
   else {
     opts.humans = Number(f.elements.humans.value);
     if (mode === "hotseat") opts.names = $$("#new-names input").map((i) => i.value);
   }
-  const name = G.me?.user ? store("newgame", {})?.name : opts.name; // remember the name you typed, not your account's
+  const name = G.me?.user ? store("newgame", {})?.name : typed; // remember the name you typed, not your account's
   save("newgame", { mode, opponents: opts.opponents, level: opts.level, seat: opts.seat ?? "", name, humans: opts.humans ?? 2,
     styles: opts.styles, dice: opts.dice, layout: opts.layout, names: opts.names ?? [] });
   return opts;

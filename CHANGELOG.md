@@ -1,6 +1,31 @@
 # Changelog
 
-## Unreleased
+## 3.0.0
+
+Games saved by 2.x no longer load (see the renaming below). They are kept on disk; the saved
+games list says how many there are, and opening one says which version wrote it.
+
+* Phones: the turn recap and the replay controls sit under the board instead of on it,
+  saved games are a list of cards with every action in reach, a hint button sits beside
+  End turn, the panels follow in the order you look things up (players, coach, income,
+  bank, log), and board spots are larger under a finger. The new game dialog and the bank
+  trades no longer run off the screen or lose their explanations.
+* Toasts keep clear of open dialogs and of the status line, and the result screen opens
+  without any on top of it. Its five actions wrap instead of sliding out of the dialog.
+* Take-backs in shared games: your own last decision, until someone else has decided.
+  Around one screen it asks first; online every other player has to allow it.
+* **No bot offers** (`Shift+M`): bots stop asking you to trade.
+* Number markers, docks and the bandit have a look of their own: dark flat-topped plaques
+  with a five-step gauge (the two busiest numbers lit in gold), and a bandit's camp.
+* Choosing Online or Pass and play keeps the table at four players unless you pick the bots
+  yourself, and the dialog says what that mode is. An online host called "You" is "Host".
+* Space ends the turn once nothing else is left to do.
+* The coach's numbers are said one way everywhere: accuracy is the share of decisions rated
+  best or good, and "fame given up" (1.00 is about one village) replaces "fame-eq".
+* Saved games show the bots' strength and the seed, and unfinished ones can be deleted
+  together.
+* Runs on Python 3.11 and newer (CI tests 3.11 and 3.15), and the Dockerfile builds for the
+  machine it is built on instead of arm64 only.
 
 * Accounts for a public server (`--accounts`). Anyone can sign up with a passkey, with no
   password or email, and join the games they're invited to under their own name. Joining
@@ -13,8 +38,8 @@
   players no longer share one allowance. hex.vaari.dev uses it.
 
 * Hexfield is open source under the MIT license.
-* Needs Python 3.15. CI uses Node 26 and the latest GitHub Actions, and runs on arm64.
-* The Docker image is built for linux/arm64, on `python:3.15-slim`.
+* CI uses Node 26 and the latest GitHub Actions, and runs on arm64.
+* The published Docker image is linux/arm64, on `python:3.15-slim`.
 * Deployment to hex.vaari.dev. Every push to `main` that passes CI publishes
   `ghcr.io/vaari-dev/hexfield`. With `DEPLOY_ENABLED` set, CI deploys it over SSH as its own
   Compose project behind the shared Caddy, writes the server's settings from GitHub, waits

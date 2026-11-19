@@ -21,11 +21,18 @@ export async function openGames(which = tab) {
   const body = $("#games-body");
   body.innerHTML = `<p class="coach-note">Loading…</p>`;
   try {
-    body.innerHTML = tab === "saved" ? savedHTML((await api("games")).games) : progressHTML(await api("stats"));
+    if (tab === "saved") {
+      const res = await api("games"), n = res.other_versions || 0;
+      body.innerHTML = savedHTML(res.games) + (n ? `<p class="coach-note">${n} saved game${n === 1 ? " was" : "s were"} written by another version of Hexfield and can't be opened by this one. ${n === 1 ? "It is" : "They are"} still on the server's disk.</p>` : "");
+    } else body.innerHTML = progressHTML(await api("stats"));
   } catch (e) {
     body.innerHTML = `<p class="coach-note">${esc(e.message)}</p>`;
   }
 }
+
+// what "delete the unfinished games" may touch: never the game on the table (during a replay
+// S is the replayed game, so ask the session), and never an online game others may be sitting in
+const isStale = (g) => !g.result && g.id !== (live?.gid ?? session.gid) && g.mode !== "online";
 
 function savedHTML(games) {
   if (!games.length) return `<p class="coach-note">No saved games yet. Every game you play is saved as you go, so you can close the window and pick it up later.</p>`;
@@ -36,9 +43,13 @@ function savedHTML(games) {
       : `<b>in play</b> · round ${g.round || 0}`;
     const acc = g.coach ? `${Math.round(g.coach.accuracy)}%` : "";
     const kind = { solo: "", hotseat: "pass and play", online: "online" }[g.mode] || "";
+    // what tells two games apart: how strong the bots were, the seed, the options
+    const level = g.players.find((p) => p.kind === "bot")?.level;
+    const meta = [level && `${level} bots`, g.seed != null && `seed ${g.seed}`, g.options?.dice === "balanced" && "balanced dice",
+      g.options?.layout === "beginner" && "beginner board"].filter(Boolean).join(" · ");
     return `<tr data-id="${g.id}">
       <td class="muted nowrap">${fmtWhen(g.updated)}</td>
-      <td>${who}${kind ? ` <span class="p-tag">${kind}</span>` : ""}${g.players.length > 4 ? ` <span class="p-tag">large board</span>` : ""}</td>
+      <td>${who}${kind ? ` <span class="p-tag">${kind}</span>` : ""}${g.players.length > 4 ? ` <span class="p-tag">large board</span>` : ""}${meta ? `<span class="g-meta">${esc(meta)}</span>` : ""}</td>
       <td>${state}</td><td class="num" title="Your accuracy in this game">${acc}</td>
       <td class="row-actions">
         ${res ? "" : `<button class="btn primary" data-do="resume">Resume</button>`}
@@ -47,7 +58,10 @@ function savedHTML(games) {
         <button class="btn ghost danger" data-do="delete" aria-label="Delete this game">Delete</button>
       </td></tr>`;
   }).join("");
-  return `<div class="table-scroll"><table class="info-table games-table"><thead><tr><th>Last played</th><th>Players</th><th>State</th><th>Accuracy</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  // games left unfinished pile up: one button clears them (never the one on the table now)
+  const stale = games.filter(isStale).length;
+  const tools = stale > 1 ? `<div class="games-tools"><button class="btn ghost danger" data-do="clear" data-n="${stale}">Delete ${stale} unfinished games</button></div>` : "";
+  return `<div class="table-scroll"><table class="info-table games-table"><thead><tr><th>Last played</th><th>Players</th><th>State</th><th>Accuracy</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>${tools}`;
 }
 
 // accuracy game by game, and where the points go
@@ -75,12 +89,12 @@ function progressHTML(st) {
       <div><b>${games.length}</b><span>finished game${games.length === 1 ? "" : "s"}</span></div>
       <div><b>${Math.round((100 * st.won) / games.length)}%</b><span>won (${st.won})</span></div>
       <div><b>${rated.length ? Math.round(mean(rated.map((g) => g.accuracy))) + "%" : "–"}</b><span>average accuracy</span></div>
-      <div><b>${rated.length ? mean(rated.map((g) => g.lost)).toFixed(1) : "–"}</b><span>fame-eq lost per game</span></div>
+      <div><b>${rated.length ? mean(rated.map((g) => g.lost)).toFixed(1) : "–"}</b><span>fame given up per game</span></div>
       ${trend === null ? "" : `<div><b class="${trend >= 0 ? "up" : "down"}">${trend >= 0 ? "+" : "−"}${Math.abs(trend).toFixed(0)}</b><span>last 5 games against the 5 before</span></div>`}
     </div>${chart}
     ${rows ? `<h3>Where the points go</h3>
     <div class="table-scroll"><table class="info-table"><thead><tr><th>Kind of decision</th><th>Decisions</th><th>Accuracy</th><th>Lost each</th><th>Lost in all</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="muted">Lost = fame-equivalents given up against the engine's best line, summed over your finished solo games. The top row is where practice pays most.</p>` : ""}`;
+    <p class="muted">Lost = the fame your choices gave up against the engine's best line (1.00 is about one village), summed over your finished solo games. The top row is where practice pays most.</p>` : ""}`;
 }
 
 async function onGamesClick(e) {
@@ -88,8 +102,14 @@ async function onGamesClick(e) {
   if (t) return openGames(t.id.replace("tab-", ""));
   const b = e.target.closest("[data-do]");
   if (!b) return;
-  const id = b.closest("tr").dataset.id;
+  const id = b.closest("tr")?.dataset.id;
   try {
+    if (b.dataset.do === "clear") {
+      if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = `Really delete ${b.dataset.n} games?`; return; }
+      b.disabled = true;
+      for (const g of (await api("games")).games) if (isStale(g)) await api("delete", { id: g.id });
+      return openGames("saved");
+    }
     if (b.dataset.do === "resume") {
       leaveReplay();
       const st = await api("resume", { id });

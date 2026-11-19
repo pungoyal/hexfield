@@ -119,6 +119,7 @@
           <option value="fast">fast</option><option value="normal">normal</option><option value="slow">slow</option></select></label>
         <label class="switch" data-key="⇧O" title="Roll automatically unless you can play a ranger first (Shift+O)"><input type="checkbox" id="autoroll">Auto-roll</label>
         <label class="switch" data-key="⇧C" title="Colour-blind friendly: a safer palette and each player's seat number on their pieces (Shift+C)"><input type="checkbox" id="marks">Marks</label>
+        <label class="switch" data-key="⇧M" title="Bots stop offering you trades. You can still make offers to them (Shift+M)"><input type="checkbox" id="mute-offers">No bot offers</label>
       </div>
       <ol class="log" id="log" role="log" aria-label="Game log" tabindex="0"></ol>
     </section>
@@ -145,6 +146,7 @@
       <button class="btn big primary pulse" id="btn-discard" data-key="⇧D" title="Choose the cards to discard (Shift+D)" hidden>Discard…</button>
       <button class="btn big primary pulse" id="btn-answer" data-key="⇧Y" title="Answer the trade offer (Shift+Y)" hidden>Answer offer…</button>
       <button class="btn big primary" id="btn-end" data-key="E" title="End your turn (E)">End turn</button>
+      <button class="btn tool tray-hint" id="btn-hint-tray" title="Ask the coach for a hint" aria-label="Hint"><svg><use href="#i-bulb"/></svg></button>
     </div>
   </footer>
 </div>
@@ -153,7 +155,7 @@
 <dialog id="dlg-new" aria-labelledby="new-title" closedby="none">
   <form method="dialog" id="form-new">
     <h2 id="new-title">New game</h2>
-    <p class="muted">You against machine opponents that search several moves ahead and track every card you play.</p>
+    <p class="muted" id="new-intro"></p>
     <fieldset class="seg"><legend>Who plays</legend>
       <label><input type="radio" name="mode" value="solo" checked>Just me</label>
       <label title="Several people share this device and pass it around"><input type="radio" name="mode" value="hotseat">Pass and play</label>
@@ -348,6 +350,15 @@
     <form method="dialog"><button class="btn ghost icon-only" id="account-close" aria-label="Close" data-key="Esc">✕</button></form>
   </div>
   <div id="account-body"></div>
+</dialog>
+
+<dialog id="dlg-takeback" aria-labelledby="tb-title" closedby="none">
+  <h2 id="tb-title"></h2>
+  <p class="muted" id="tb-sub"></p>
+  <div class="dlg-actions">
+    <button class="btn ghost" id="tb-no" data-key="N">Refuse</button>
+    <button class="btn primary obvious" id="tb-yes" data-key="Y">Allow</button>
+  </div>
 </dialog>
 
 <dialog id="dlg-pass" class="curtain" aria-labelledby="pass-title" closedby="none">

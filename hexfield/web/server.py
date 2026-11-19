@@ -653,9 +653,12 @@ class Handler(BaseHTTPRequestHandler):
                 elif route == "offer" and post:
                     g.make_offer(body.get("give", []), body.get("get", []), seat)
                 elif route == "undo" and post:
-                    extra["undone"] = g.undo(seat)
-                    since = 0
-                    extra["reset_log"] = True
+                    extra["undone"] = g.undo(seat)  # None: the others are being asked
+                    if extra["undone"] is not None:
+                        since = 0
+                        extra["reset_log"] = True
+                elif route == "takeback" and post:
+                    g.answer_takeback(bool(body.get("ok")), seat)
                 elif route == "start" and post:
                     if seat != g.humans[0]:
                         raise Forbidden("only the host can start the game")
@@ -667,8 +670,14 @@ class Handler(BaseHTTPRequestHandler):
                 elif route == "settings" and post:
                     if "review" in body:
                         g.review_on[seat] = bool(body["review"])
+                    if "mute_offers" in body:
+                        g.mute_offers(seat, bool(body["mute_offers"]))
                 else:
                     return self._send(404, {"error": "unknown route"})
+                # after an undo the log a browser holds is stale: send it whole
+                if q("ep") is not None and q("ep") != str(g.epoch):
+                    since = 0
+                    extra["reset_log"] = True
                 # serialise under the lock: view() holds live lists the bots/reviewer mutate
                 if APP.lan:
                     extra["lan"] = APP.lan
@@ -699,7 +708,7 @@ class Handler(BaseHTTPRequestHandler):
             games = store.list_games(owner=owner)
             for x in games:
                 x["live"] = x["id"] in live
-            return self._send(200, {"games": games})
+            return self._send(200, {"games": games, "other_versions": store.other_versions(owner)})
         if route == "stats":
             return self._send(200, store.stats(owner=owner))
         try:

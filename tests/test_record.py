@@ -102,6 +102,23 @@ class StoreTests(unittest.TestCase):
         self.assertNotIn(gid, [g["id"] for g in store.list_games()])
         store.delete(gid)
 
+    def test_a_game_from_another_version_is_counted_and_says_why(self):
+        gid = store.new_id()
+        old = {"version": 1, "seed": 3, "seats": bot_seats(3), "entries": []}
+        with open(os.path.join(store.games_dir(), gid + ".json"), "w") as f:
+            json.dump(old, f)
+        before = store.other_versions()
+        self.assertGreaterEqual(before, 1)
+        self.assertNotIn(gid, [g["id"] for g in store.list_games()])
+        with self.assertRaisesRegex(ValueError, "older version of Hexfield.*format 1.*format 2"):
+            store.load(gid)
+        with self.assertRaisesRegex(ValueError, "newer version"):
+            Record.from_dict({**old, "version": 99})
+        with self.assertRaisesRegex(ValueError, "not a Hexfield game file"):
+            Record.from_dict({"anything": "else"})
+        store.delete(gid)
+        self.assertEqual(store.other_versions(), before - 1)
+
     def test_statistics(self):
         revs = [
             {"seat": 0, "phase": "setup_village", "delta": 0.0, "verdict": "best"},

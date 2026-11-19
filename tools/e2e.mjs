@@ -126,7 +126,14 @@ try {
     await wait(100);
   }
   check(seats.size === 2, "both players got the screen");
-  await page.waitFor(`document.querySelector("#btn-undo").hidden`, 8000, "no undo in a shared game");
+  // around one screen you may take back your own last decision: it asks first
+  await page.waitFor(`!document.querySelector("#btn-undo").hidden && !document.querySelector("#btn-undo").disabled`, 8000, "a take-back is offered after your own decision");
+  const placed = await page.eval(`(async () => (await import("/js/state.js")).S.ev_total)()`);
+  await page.key("u");
+  await page.waitFor(`document.querySelector("#dlg-takeback").open`, 6000, "the take-back asks the table first");
+  if (SHOTS) await page.screenshot(`${SHOTS}/takeback.png`);
+  await page.eval(`document.querySelector("#tb-yes").click()`);
+  await until(page, `S.ev_total < ${placed} && !document.querySelector("#dlg-takeback").open`, "the decision is taken back");
 
   step = "online";
   await newGame(page, { mode: "online", humans: "2", opponents: "1", seed: "6" });
@@ -148,7 +155,35 @@ try {
   }
   const [a, b] = [await state(page), await state(guest)];
   check(a.human !== b.human && a.gid === b.gid, "two seats in one game");
+  // online, a take-back needs the other player: whoever decided last asks, the other allows
+  const [asker, other] = (await page.eval(`(async () => (await import("/js/state.js")).S.can_undo)()`)) ? [page, guest] : [guest, page];
+  await asker.waitFor(`!document.querySelector("#btn-undo").hidden`, 8000, "the last to decide may ask to take it back");
+  const evs = await asker.eval(`(async () => (await import("/js/state.js")).S.ev_total)()`);
+  await asker.key("u");
+  await other.waitFor(`document.querySelector("#dlg-takeback").open`, 12000, "the other player is asked");
+  if (SHOTS) await other.screenshot(`${SHOTS}/takeback-online.png`);
+  // the asker can always call it off: the Withdraw button is really there to press, at any width
+  await asker.waitFor(`!!document.querySelector("#tb-withdraw")`, 6000, "the asker gets a way to withdraw");
+  check(await asker.eval(`(() => { const r = document.querySelector("#tb-withdraw").getBoundingClientRect();
+    return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.id === "tb-withdraw"; })()`), "Withdraw is covered or clipped away");
+  if (SHOTS) await asker.screenshot(`${SHOTS}/takeback-asker.png`);
+  // Space is "the obvious move" everywhere else; it must not allow a request that just popped up
+  await other.key(" ");
+  await wait(400);
+  check(await other.eval(`(async () => !!(await import("/js/state.js")).S.takeback)()`) && await other.eval(`document.querySelector("#dlg-takeback").open`), "Space allowed someone else's take-back");
+  check(await page.eval(`(async () => (await import("/js/util.js")).store("newgame", {}).name)()`) !== "Host", "the host's name for online games replaced the name they typed");
+  await other.eval(`document.querySelector("#tb-yes").click()`);
+  await until(asker, `!S.takeback && S.ev_total < ${evs}`, "allowed: the move is taken back", 12000);
+  await until(other, `!S.takeback && S.ev_total < ${evs}`, "and on the other screen too", 12000);
+  check(await other.eval(`document.querySelectorAll("#log li").length > 0`), "the other screen has its log redrawn");
   check(guest.errors.length === 0, "guest page errors: " + guest.errors.join(" | "));
+
+  step = "no bot offers";
+  await page.eval(`document.querySelector("#mute-offers").click()`);
+  await newGame(page, { mode: "solo", opponents: "3", level: "easy", seed: "8" });
+  await until(page, `S.mute_offers === true`, "the preference reaches the new game");
+  await playUntil(page, (s) => { check(!s.dlg.includes("dlg-botoffer"), "a bot offered a trade although offers are muted"); return s.turn >= 12; });
+  await page.eval(`document.querySelector("#mute-offers").click()`);
 
   step = "six players";
   await newGame(page, { mode: "solo", opponents: "5", level: "easy", seed: "7" });
@@ -160,7 +195,7 @@ try {
 
   step = "page errors";
   check(page.errors.length === 0, page.errors.join(" | "));
-  console.log("ok: solo, hint, reload, saved games, replay, pass and play, online, six players");
+  console.log("ok: solo, hint, reload, saved games, replay, pass and play, take-backs, online, no bot offers, six players");
 } catch (e) {
   console.error("FAILED " + e.message);
   if (page.errors.length) console.error("page errors: " + page.errors.join(" | "));

@@ -196,8 +196,8 @@ h2 .h-sub { text-transform: none; letter-spacing: 0; font-weight: 500; color: va
 .ec-n { text-align: right; font-weight: 700; }
 .ec-row.none .ec-n { color: var(--faint); font-weight: 500; }
 .ec-nums { display: flex; gap: 3px; min-width: 0; font-size: 11.5px; }
-.ec-num { display: inline-grid; place-items: center; min-width: 19px; height: 19px; padding: 0 3px; border-radius: 10px; background: #efe3c4; color: #1b1405; font-weight: 800; font-size: 11px; }
-.ec-num.hot { color: #c02d2d; }
+.ec-num { display: inline-grid; place-items: center; min-width: 19px; height: 19px; padding: 0 3px; border-radius: 10px; background: #2a3649; color: #f3f6fb; font-weight: 800; font-size: 11px; }
+.ec-num.hot { color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .ec-num sup { font-size: 8px; margin-left: 1px; }
 .ec-ratio { text-align: right; color: var(--faint); font-size: 11.5px; }
 .ec-ratio.dock { color: var(--accent); font-weight: 700; }
@@ -250,15 +250,17 @@ svg.ri { fill: var(--rc); }
 .tile-shade polygon { stroke: #2b1d08; stroke-width: 3; stroke-linejoin: round; }
 
 .tokens { pointer-events: none; }
-.token .t-shadow { fill: #1a1206; opacity: .42; }
-.token circle.disc { fill: url(#g-token); stroke: #8f7a4c; stroke-width: 1.4; }
-.token .t-ring { fill: none; stroke: #b7a273; stroke-width: .8; opacity: .8; }
-.token text { font: 700 18px Georgia, "Iowan Old Style", "Times New Roman", serif; text-anchor: middle; dominant-baseline: central; fill: #2b2417; }
-.token.hot text { fill: #c22a2a; font-size: 20px; }
-.token .pip { fill: #2b2417; }
-.token.hot .pip { fill: #c22a2a; }
+.token .t-shadow { fill: #05080d; opacity: .45; }
+.token .disc { fill: #18212f; stroke: #070b11; stroke-width: 1.5; stroke-linejoin: round; }
+.token .t-ring { fill: none; stroke: #5b6a82; stroke-width: .9; stroke-linejoin: round; opacity: .8; }
+.token text { font: 800 17.5px var(--font); text-anchor: middle; dominant-baseline: central; fill: #f3f6fb; }
+.token .pip { fill: #f3f6fb; opacity: .16; }
+.token .pip.on { opacity: .95; }
+.token.hot text { fill: var(--accent); font-size: 19px; }
+.token.hot .t-ring { stroke: var(--accent); stroke-width: 1.3; opacity: 1; }
+.token.hot .pip.on { fill: var(--accent); }
 .token.blocked { opacity: .45; }
-.token.produce circle.disc { animation: tokenpop 1.1s ease-out; }
+.token.produce .disc { animation: tokenpop 1.1s ease-out; }
 @keyframes tokenpop { 30% { stroke: var(--accent); stroke-width: 4.5; } }
 
 /* the coast, from open water in to dry sand; each band is one merged outline */
@@ -277,11 +279,11 @@ svg.ri { fill: var(--rc); }
 .jetty-planks { stroke: #c79a62; stroke-width: 4.6; stroke-dasharray: 3.4 1.5; }
 .dock-badge .pb-shadow { fill: #06223a; opacity: .4; }
 .dock-badge .pb-wood { fill: url(#g-wood-ring); stroke: #3f2812; stroke-width: 1.3; }
-.dock-badge .pb-face { fill: url(#g-token); stroke: #8f7a4c; stroke-width: .8; }
-.dock-badge text { text-anchor: middle; fill: #2b2417; }
+.dock-badge .pb-face { fill: #18212f; stroke: #070b11; stroke-width: .8; }
+.dock-badge text { text-anchor: middle; fill: #f3f6fb; }
 .dock-badge .rate { font: 800 9.5px var(--font); }
-.dock-badge .rate.big { font: 700 14px Georgia, "Times New Roman", serif; }
-.dock-badge .any { font: 700 6.5px var(--font); letter-spacing: .08em; text-transform: uppercase; fill: #7d6a44; }
+.dock-badge .rate.big { font: 800 12.5px var(--font); }
+.dock-badge .any { font: 700 6.5px var(--font); letter-spacing: .08em; text-transform: uppercase; fill: #9fb0c8; }
 
 /* pieces: painted timber in the owner's colour, darker on the sides away from the light */
 .trail line { stroke-linecap: round; }
@@ -683,7 +685,7 @@ kbd { font: 700 11.5px var(--mono); background: #0e141d; border: 1px solid var(-
   .app { height: auto; min-height: 100dvh; grid-template-columns: 1fr; grid-template-rows: auto; grid-template-areas: "top" "board" "tray" "left" "right"; }
   .board-wrap { height: min(92vw, calc(100dvh - 250px)); min-height: 300px; }
   .left { overflow: visible; }
-  .players { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .players { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
   .right { min-height: 0; }
   .coach { max-height: none; }
   .log-card { max-height: 420px; }
@@ -1002,7 +1004,8 @@ dialog:focus { outline: none; }
 #dlg-over .dlg-actions { flex-wrap: nowrap; }
 @media (max-width: 560px) { #dlg-over .dlg-actions { flex-wrap: wrap; } }
 #over-all { white-space: nowrap; }
-.pill-link { font: inherit; font-size: 13px; font-weight: 700; color: var(--accent); background: rgb(240 180 41 / .12); border: 1px solid rgb(240 180 41 / .4); border-radius: 999px; padding: 2px 10px; margin-left: 4px; cursor: pointer; }
+.pill > span:not(.dot):not(.spinner) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pill-link { flex: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--accent); background: rgb(240 180 41 / .12); border: 1px solid rgb(240 180 41 / .4); border-radius: 999px; padding: 2px 10px; margin-left: 4px; cursor: pointer; }
 .pill-link:hover { background: rgb(240 180 41 / .22); }
 .pill-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -1209,3 +1212,83 @@ dialog .dlg-actions .btn, dialog .offer-bar .btn { transition: scale .25s cubic-
 .targets.quick .v-target circle.ring.scored { scale: .85; }
 .targets.quick .v-target .v-pips { scale: .85; }
 .targets.quick .v-target:hover circle.ring.scored { scale: 1.2; }
+
+/* ============ small screens: nothing sits on top of what you are reading ============ */
+.row2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.field input { min-width: 0; width: 100%; }
+.tray-hint { display: none; }
+.v-target.t-lo { opacity: .8; }
+.g-meta { display: block; font-size: 11.5px; color: var(--faint); margin-top: 2px; }
+.games-tools { display: flex; justify-content: flex-end; margin-top: 10px; }
+.games-tools .btn { font-size: 12.5px; padding: 4px 10px; }
+.term { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+.fame-note { font-size: 12px; margin: 6px 0 14px; }
+/* the result's five actions wrap instead of sliding out of the dialog */
+#dlg-over { width: min(900px, calc(100vw - 32px)); }
+#dlg-over .dlg-actions { flex-wrap: wrap; }
+/* a table cell again, so its bottom rule lines up with the rest of the row */
+.games-table td.row-actions { display: table-cell; text-align: right; white-space: nowrap; }
+.games-table .row-actions .btn { margin-left: 4px; }
+@media (max-width: 899px) {
+  /* one column, in the order you look things up: board, your hand, the others, the coach */
+  .app { grid-template-areas: "top" "board" "tray" "players" "coach" "econ" "bank" "log"; }
+  .left, .right { display: contents; }
+  .players { grid-area: players; }
+  .coach { grid-area: coach; }
+  .econ { grid-area: econ; }
+  .bank { grid-area: bank; }
+  .log-card { grid-area: log; }
+  /* the board keeps its own height; the recap and the replay controls get a strip below it */
+  :root { --bh: max(300px, min(92vw, calc(100dvh - 250px))); }
+  .board-wrap { height: auto; min-height: 0; display: flex; flex-direction: column; }
+  .board, body.replaying .board { position: relative; inset: auto; flex: none; height: var(--bh); }
+  .dice, body.replaying .dice { bottom: auto; top: calc(var(--bh) - 6px); translate: 0 -100%; }
+  .recap { position: static; max-width: none; margin: 0 8px 8px; translate: none; transition: none; flex-flow: row wrap; gap: 4px 12px; align-items: center; }
+  .recap:not(.show) { display: none; }
+  .recap .rc-head { flex-basis: 100%; }
+  .replay-bar { position: static; margin: 0 8px 8px; }
+  .replay-bar .btn { min-height: 38px; min-width: 38px; }
+  .replay-bar { gap: 6px 4px; padding: 8px; }
+  .replay-bar .btn:not(.primary) { padding: 6px 4px; } /* the seven step buttons stay on one row */
+  /* toasts cover the title row, never the status line or the board */
+  .toasts { inset: 6px auto auto 50%; translate: -50% 0; }
+  .toast:nth-child(n+2) { display: none; } /* one at a time: the newest */
+  /* a hint is one tap away from the board; the answer scrolls into view */
+  .tray-hint { display: inline-flex; align-self: stretch; justify-content: center; }
+}
+@media (max-width: 699px) {
+  .actions { grid-template-columns: 1fr 56px; }
+  .actions .btn.big { grid-column: 1; }
+  .actions .tray-hint { grid-column: 2; grid-row: 2; min-width: 0; }
+  .actions .tray-hint svg { width: 24px; height: 24px; }
+}
+@media (max-width: 480px) {
+  .fame-table { font-size: 12px; }
+  .fame-table th, .fame-table td { padding: 6px 1px; }
+  .fame-table th { font-size: 9.5px; }
+  body.replaying .tray { position: static; } /* nothing to press there: it must not cover the replay controls */
+}
+@media (max-width: 700px) {
+  /* saved games: one card per game instead of a table wider than the screen */
+  .games-table thead { display: none; }
+  .games-table, .games-table tbody { display: block; }
+  .games-table tr { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "who who" "state acc" "when when" "acts acts"; gap: 3px 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .games-table td { border: 0; padding: 0; }
+  .games-table td:nth-child(1) { grid-area: when; font-size: 12px; }
+  .games-table td:nth-child(2) { grid-area: who; }
+  .games-table td:nth-child(3) { grid-area: state; white-space: normal; }
+  .games-table td:nth-child(4) { grid-area: acc; }
+  .games-table td.row-actions { grid-area: acts; display: flex; flex-wrap: wrap; gap: 4px; flex-wrap: nowrap; justify-content: flex-start; white-space: nowrap; margin-top: 6px; }
+  .games-table .row-actions .btn { margin: 0; }
+  .games-table .row-actions .btn { flex: 1 1 auto; padding: 7px 6px; font-size: 12.5px; text-align: center; justify-content: center; } /* all four on one row at 360px */
+}
+@media (max-width: 480px) {
+  /* a rate you can't pay still says what is missing */
+  .bt-row.off .bt-need { display: block; }
+}
+@media (hover: none) and (pointer: coarse) {
+  /* fingers: bigger spots to hit, bigger numbers to read */
+  .v-target circle.hit { r: 27px; }
+  .v-target circle.ring.scored { r: 15px; }
+  .v-target .v-pips { font-size: 15px; }
+}

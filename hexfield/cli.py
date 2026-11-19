@@ -1064,6 +1064,10 @@ def pick_game(which, unfinished=False):
 
 def list_games():
     games = store.list_games()
+    old = store.other_versions()
+    if old:
+        print(f"  {old} saved game{'' if old == 1 else 's'} in {store.games_dir()} "
+              f"{'was' if old == 1 else 'were'} written by another version of Hexfield and can't be opened by this one.")
     if not games:
         return print("  No saved games yet.")
     print(f"  {'id':<22} {'when':<17} {'players':<34} state")
