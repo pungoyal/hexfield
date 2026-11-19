@@ -1,10 +1,10 @@
 """Board geometry and generation.
 
-Hexes are pointy-top, laid out in rows of 3-4-5-4-3 (3-4-5-6-5-4-3 on the large board).  Every hex centre gets an
-integer *screen* coordinate (column, row) on the character grid used by the
-renderer; corners and edges are derived from those coordinates, so vertex
-identity is simply "same screen cell".  That keeps geometry and rendering in
-perfect agreement.
+Hexes are pointy-top, laid out in rows of 3-4-5-4-3 (3-4-5-6-5-4-3 on the large
+board).  Every hex centre gets an integer *screen* coordinate (column, row) on the
+character grid used by the renderer; corners and edges are derived from those
+coordinates, so vertex identity is simply "same screen cell".  That keeps geometry
+and rendering in perfect agreement.
 """
 
 import math
