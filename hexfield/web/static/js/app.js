@@ -20,7 +20,7 @@ import {
 } from "./panels.js";
 import { B, G, S, api, building, can, els, localSeats, myDecision, prefs, session, setB, setS, setSession } from "./state.js";
 import { human } from "./text.js";
-import { $, $$, DEVS, SPEEDS, save, sleep } from "./util.js";
+import { $, $$, VENTURES, SPEEDS, save, sleep } from "./util.js";
 
 export let pollTimer = null;
 export async function act(action) {
@@ -185,8 +185,8 @@ export function pollReviews() {
 export function maybeAutoRoll() {
   if (G.holdAutoRoll || !prefs.autoroll || !myDecision() || S.phase !== "pre_roll") return;
   const kinds = S.legal.kinds || [];
-  // only a knight is worth playing before the roll; other dev cards can wait until after it
-  if (kinds.includes("roll") && !kinds.includes("play_knight")) {
+  // only a ranger is worth playing before the roll; other ventures can wait until after it
+  if (kinds.includes("roll") && !kinds.includes("play_ranger")) {
     const turn = S.turn;
     setTimeout(() => { if (S.turn === turn && S.phase === "pre_roll" && myDecision()) act(["roll"]); }, 350);
   }
@@ -242,7 +242,7 @@ export function wireUI() {
   $("#btn-roll").onclick = () => act(["roll"]);
   $("#btn-end").onclick = () => { G.mode = null; act(["end"]); };
   decorateKeys();
-  $("#btn-dev").onclick = () => act(["buy_dev"]);
+  $("#btn-venture").onclick = () => act(["buy_venture"]);
   $("#btn-trade").onclick = () => openTrade();
   $("#btn-discard").onclick = () => openDiscard();
   $("#btn-answer").onclick = () => openBotOffer();
@@ -261,13 +261,13 @@ export function wireUI() {
     navigator.clipboard?.writeText(String(S.seed)).then(() => toast("Seed copied", `Start a new game with seed ${S.seed} to replay this board and dice.`, "var(--muted)", 2600), () => {});
   };
 
-  $("#devhand").addEventListener("click", (e) => {
+  $("#venturehand").addEventListener("click", (e) => {
     const c = e.target.closest(".dcard.playable");
     if (!c || G.busy) return;
-    const k = Number(c.dataset.dev);
-    if (k === 3) openPick("mono");
-    else if (k === 4) openPick("yop");
-    else act([DEVS[k].play]);
+    const k = Number(c.dataset.venture);
+    if (k === 3) openPick("hoard");
+    else if (k === 4) openPick("windfall");
+    else act([VENTURES[k].play]);
   });
 
   const co = $("#coach-out");
@@ -289,8 +289,8 @@ export function wireUI() {
     const li = e.target.closest("li");
     if (!li) return clearGlow();
     if (li.dataset.v) glowFor(["settle", Number(li.dataset.v)]);
-    else if (li.dataset.e) glowFor(["road", Number(li.dataset.e)]);
-    else if (li.dataset.h) glowFor(["robber", Number(li.dataset.h)]);
+    else if (li.dataset.e) glowFor(["trail", Number(li.dataset.e)]);
+    else if (li.dataset.h) glowFor(["bandit", Number(li.dataset.h)]);
     else clearGlow();
   });
   $("#log").addEventListener("pointerleave", clearGlow);

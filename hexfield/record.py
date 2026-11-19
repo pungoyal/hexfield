@@ -20,7 +20,7 @@ import time
 
 from .game import DICE_MODES, LAYOUTS, GameState
 
-VERSION = 1
+VERSION = 2  # 2: the renamed actions (bandit, ranger, hoard, windfall)
 
 
 def to_action(raw):
@@ -116,7 +116,7 @@ class Record:
     @classmethod
     def from_dict(cls, d):
         if not isinstance(d, dict) or d.get("version") != VERSION:
-            raise ValueError("not a Hexfield game file (or made by a newer version)")
+            raise ValueError("not a Hexfield game file (or made by another version)")
         seats = d["seats"]
         if not isinstance(seats, list) or not 2 <= len(seats) <= 6:
             raise ValueError("bad seat list")

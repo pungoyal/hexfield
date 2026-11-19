@@ -9,32 +9,32 @@ import unittest
 from hexfield import cli
 from hexfield.ai import AIPlayer
 from hexfield.constants import RES_NAMES
-from hexfield.game import DISCARD, MAIN, OVER, ROAD_BUILD, ROBBER, SETUP_ROAD, SETUP_SETTLE, IllegalAction
+from hexfield.game import DISCARD, MAIN, OVER, FREE_TRAILS, BANDIT, SETUP_TRAIL, SETUP_SETTLE, IllegalAction
 
 
 def to_command(game, a):
     s = game.s
     k = a[0]
-    bare = s.phase in (SETUP_SETTLE, SETUP_ROAD, ROAD_BUILD)
+    bare = s.phase in (SETUP_SETTLE, SETUP_TRAIL, FREE_TRAILS)
     if k == "macro":
         a, k = a[1][0], "bank"
     if k == "settle":
-        return str(a[1]) if bare else f"s {a[1]}"
-    if k == "road":
-        return str(a[1]) if bare else f"rd {a[1]}"
-    simple = {"city": f"c {a[1] if len(a) > 1 else ''}", "buy_dev": "d", "play_knight": "k",
-              "play_road": "rb", "roll": "r", "end": "e", "end_road_building": "e"}
+        return str(a[1]) if bare else f"v {a[1]}"
+    if k == "trail":
+        return str(a[1]) if bare else f"tr {a[1]}"
+    simple = {"town": f"tn {a[1] if len(a) > 1 else ''}", "buy_venture": "vn", "play_ranger": "rg",
+              "play_pathfinder": "pf", "roll": "r", "end": "e", "end_free_trails": "e"}
     if k in simple:
         return simple[k]
-    if k == "play_mono":
-        return f"mono {RES_NAMES[a[1]]}"
-    if k == "play_yop":
-        return f"yop {RES_NAMES[a[1]]} {RES_NAMES[a[2]]}"
+    if k == "play_hoard":
+        return f"hoard {RES_NAMES[a[1]]}"
+    if k == "play_windfall":
+        return f"windfall {RES_NAMES[a[1]]} {RES_NAMES[a[2]]}"
     if k == "bank":
         return f"t {RES_NAMES[a[1]]} {RES_NAMES[a[2]]}"
     if k == "discard":
         return " ".join(f"{c} {RES_NAMES[r]}" for r, c in enumerate(a[1]) if c)
-    if k == "robber":
+    if k == "bandit":
         return s.board.hex_label(a[1]) + (f" {s.names[a[2]]}" if a[2] != -1 else "")
     raise ValueError(a)
 
@@ -66,7 +66,7 @@ def scripted_game(seed, opponents=2, color=False):
         if x < 0.05:
             return "stats"
         if x < 0.06 and game.s.phase == MAIN:
-            return "offer 1 wood for 1 ore"
+            return "offer 1 timber for 1 stone"
         if x < 0.065:
             return "nonsense"
         a, _ = pilot.decide(game.s)
@@ -128,19 +128,19 @@ def run_quiet(fn, *args):
 
 
 class CLIInputTests(unittest.TestCase):
-    def test_out_of_range_road_is_rejected(self):
+    def test_out_of_range_trail_is_rejected(self):
         game = make_game()
         to_my_main(game)
         s = game.s
         s.hands[game.human] = [5, 5, 0, 0, 0]
-        before = (list(s.roads[game.human]), s.hands[game.human][:])
-        scripted(game, ["rd 999", "s abc", "e"])
+        before = (list(s.trails[game.human]), s.hands[game.human][:])
+        scripted(game, ["tr 999", "v abc", "e"])
         text = run_quiet(game.human_turn_step)  # warns twice, then ends the turn
         self.assertIn("no edge 999", text)
         self.assertIn("isn't a vertex id", text)
-        self.assertEqual((s.roads[game.human], s.hands[game.human]), before)
+        self.assertEqual((s.trails[game.human], s.hands[game.human]), before)
         with self.assertRaises(IllegalAction):  # the engine checks too
-            s.clone(sim=False).apply(("road", 999))
+            s.clone(sim=False).apply(("trail", 999))
 
     def test_repeated_trade_is_all_or_nothing_and_one_undo_step(self):
         game = make_game()
@@ -149,9 +149,9 @@ class CLIInputTests(unittest.TestCase):
         ratio = s.trade_ratio(me, 0)
         s.hands[me] = [2 * ratio + 1, 0, 0, 0, 0]
         start = s.hands[me][:]
-        scripted(game, ["t wood ore 3", "t wood ore 2"])
+        scripted(game, ["t timber stone 3", "t timber stone 2"])
         text = run_quiet(game.human_turn_step) + run_quiet(game.flush_events)
-        self.assertIn(f"3 trades need {3 * ratio} wood", text)
+        self.assertIn(f"3 trades need {3 * ratio} timber", text)
         self.assertEqual(s.hands[me], [1, 0, 0, 0, 2])  # both trades, after nothing for 3
         self.assertEqual(len(game.reviews), 1)
         self.assertEqual(text.count("◆"), 1)
@@ -166,12 +166,12 @@ class CLIInputTests(unittest.TestCase):
         s, me = game.s, game.human
         s.hands[me] = [3, 2, 1, 1, 1]
         s.phase, s.discards = DISCARD, {me: 3}
-        scripted(game, ["b w w"])
+        scripted(game, ["c t t"])
         text = run_quiet(game.human_turn_step)
         self.assertEqual(s.hands[me], [1, 1, 1, 1, 1])
-        self.assertNotIn("ROBBER", text)  # no board redraw
+        self.assertNotIn("BANDIT", text)  # no board redraw
 
-    def robber_game(self):
+    def bandit_game(self):
         game = make_game()
         s = game.s
         game.show = lambda *a, **k: None
@@ -179,14 +179,14 @@ class CLIInputTests(unittest.TestCase):
         vs = s.board.hex_vertices[h]
         for q, v in ((0, vs[0]), (1, vs[3])):
             s.v_owner[v], s.v_level[v] = q, 1
-            s.settlements[q].append(v)
+            s.villages[q].append(v)
             s.hands[q] = [1, 1, 0, 0, 0]
-        s.phase, s.current = ROBBER, game.human
-        s.robber_return = MAIN
+        s.phase, s.current = BANDIT, game.human
+        s.bandit_return = MAIN
         return game, s
 
     def test_steal_prompt_needs_a_name(self):
-        game, s = self.robber_game()
+        game, s = self.bandit_game()
         second = s.names[1]
         left = scripted(game, ["U", "", "zz", "hint", second.lower()])
         text = run_quiet(game.human_turn_step)
@@ -195,14 +195,14 @@ class CLIInputTests(unittest.TestCase):
         self.assertIn(f"steals a card from {second}", s.events[-2][3])
 
     def test_steal_prompt_accepts_undo(self):
-        game, s = self.robber_game()
+        game, s = self.bandit_game()
         scripted(game, ["U", "undo"])
         with self.assertRaises(cli.Undo):
-            run_quiet(game.human_robber)
+            run_quiet(game.human_bandit)
 
 
     def bot_offer_game(self):
-        """You end your turn; the next bot offers you 1 wood for your 1 brick."""
+        """You end your turn; the next bot offers you 1 timber for your 1 clay."""
         game = make_game()
         to_my_main(game)
         s, me = game.s, game.human
@@ -215,7 +215,7 @@ class CLIInputTests(unittest.TestCase):
         s.phase = MAIN  # the bot has rolled
         s.hands = [[0] * 5 for _ in range(s.n)]
         s.hands[me], s.hands[bot] = [0, 1, 0, 0, 0], [1, 0, 0, 0, 0]
-        game.agents[bot].decide = lambda st: (("propose", (1, 0, 0, 0, 0), (0, 1, 0, 0, 0)), "needs brick")
+        game.agents[bot].decide = lambda st: (("propose", (1, 0, 0, 0, 0), (0, 1, 0, 0, 0)), "needs clay")
         return game, me, bot
 
     def test_undo_while_answering_a_bot_offer(self):
@@ -238,7 +238,7 @@ class CLIInputTests(unittest.TestCase):
         left = scripted(game, ["n"])
         text = run_quiet(game.step)
         self.assertFalse(left)
-        self.assertIn("offers 1 wood for 1 brick", text)
+        self.assertIn("offers 1 timber for 1 clay", text)
         self.assertEqual(game.s.hands[me], [0, 1, 0, 0, 0])
 
     def test_undo_while_discarding(self):
@@ -262,22 +262,22 @@ class CLIInputTests(unittest.TestCase):
         scripted(game, ["e"])
         run_quiet(game.step)
         to_my_main(game)
-        scripted(game, ["s", "undo"])  # undo at "settlement at (vertex id, blank to cancel)"
+        scripted(game, ["v", "undo"])  # undo at "village at (vertex id, blank to cancel)"
         with self.assertRaises(cli.Undo):
             run_quiet(game.human_main)
 
-    def test_autoroll_waits_only_for_a_knight(self):
-        from hexfield.constants import KNIGHT, MONOPOLY
+    def test_autoroll_waits_only_for_a_ranger(self):
+        from hexfield.constants import RANGER, HOARD
         from hexfield.game import PRE_ROLL
-        for card, waits in ((MONOPOLY, False), (KNIGHT, True)):
+        for card, waits in ((HOARD, False), (RANGER, True)):
             game = make_game()
             to_my_main(game)
             game.show = lambda *a, **k: None
             s, me = game.s, game.human
-            s.phase, s.dev_played = PRE_ROLL, False
-            s.devs[me] = [0] * len(s.devs[me])
-            s.new_devs[me] = [0] * len(s.new_devs[me])
-            s.devs[me][card] = 1
+            s.phase, s.venture_played = PRE_ROLL, False
+            s.ventures[me] = [0] * len(s.ventures[me])
+            s.new_ventures[me] = [0] * len(s.new_ventures[me])
+            s.ventures[me][card] = 1
             left = scripted(game, ["r"])
             run_quiet(game.human_main)
             self.assertEqual(bool(left), not waits, card)

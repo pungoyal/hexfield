@@ -1,10 +1,10 @@
-// Dialogs: discard, offers, trading, development cards, help, game over, new game.
+// Dialogs: discard, offers, trading, ventures, help, game over, new game.
 
 import { act, apply, pump, render } from "./app.js";
 import { askCoachOffer } from "./coach.js";
 import { modal, toast } from "./effects.js";
 import { setObvious } from "./keys.js";
-import { plentyPicks } from "./logic.js";
+import { windfallPicks } from "./logic.js";
 import { G, S, api, myDecision } from "./state.js";
 import { BUILD_NAMES, BUILD_ORDER, buildChanges, buildChips, covers, handPlus, human, plain, symbol } from "./text.js";
 import { $, $$, COSTS, RES, delta, esc, icon, pc, resIcon, save, sleep, store } from "./util.js";
@@ -164,7 +164,7 @@ function renderCounter() {
 // 20 bank cells, row by row; J K L are the reply buttons, digits the offer tiles
 export const BANK_KEYS = "ABCDEFGHIMNOPQRSTUVW";
 
-// Trade dialog: bank/ports and player offers side by side at a fixed size.
+// Trade dialog: bank/docks and player offers side by side at a fixed size.
 // Give/want tiles add one card per click; the small minus takes one back.
 export const trade = { give: [0, 0, 0, 0, 0], want: [0, 0, 0, 0, 0], replies: null, note: "", sent: null };
 
@@ -195,7 +195,7 @@ export function renderTrade() {
     let cell = i * 4; // fixed letters per give/get pair, whatever is affordable
     if (!ok) {
       // can't pay this rate: one compact line instead of a row of dead buttons
-      return `<div class="bt-row off"><div class="bt-give">${resIcon(i)}<b class="bt-have">${S.hand[i]}</b><span class="bt-rate ${ratio < 4 ? "port" : ""}">${ratio}:1</span></div><span class="bt-need">${live ? `need ${ratio - S.hand[i]} more ${r} to trade at ${ratio}:1` : "trade after you roll, on your turn"}</span></div>`;
+      return `<div class="bt-row off"><div class="bt-give">${resIcon(i)}<b class="bt-have">${S.hand[i]}</b><span class="bt-rate ${ratio < 4 ? "dock" : ""}">${ratio}:1</span></div><span class="bt-need">${live ? `need ${ratio - S.hand[i]} more ${r} to trade at ${ratio}:1` : "trade after you roll, on your turn"}</span></div>`;
     }
     const unlocks = (j) => {
       const after = S.hand.map((n, k) => n + (k === j) - (k === i ? ratio : 0));
@@ -204,7 +204,7 @@ export function renderTrade() {
     };
     const gets = RES.map((g, j) => j === i ? `<span class="bt-self" aria-hidden="true">·</span>` :
       `<button class="btn res-btn" data-give="${i}" data-get="${j}" data-key="${BANK_KEYS[cell++]}" ${S.bank[j] > 0 ? "" : "disabled"} title="Give ${ratio} ${r} (${S.hand[i]} → ${S.hand[i] - ratio}), get 1 ${g} (${S.hand[j]} → ${S.hand[j] + 1})${S.bank[j] ? "" : " — bank is out"}" aria-label="Give ${ratio} ${r} for 1 ${g}">${resIcon(j)}<span class="bt-cnt">${S.bank[j] ? `→ ${S.hand[j] + 1}` : "out"}</span>${unlocks(j)}</button>`).join("");
-    return `<div class="bt-row"><div class="bt-give">${resIcon(i)}<b class="bt-have">${S.hand[i]}</b><span class="bt-rate ${ratio < 4 ? "port" : ""}">${ratio}:1</span><small class="bt-after">→ ${S.hand[i] - ratio}</small></div>${gets}</div>`;
+    return `<div class="bt-row"><div class="bt-give">${resIcon(i)}<b class="bt-have">${S.hand[i]}</b><span class="bt-rate ${ratio < 4 ? "dock" : ""}">${ratio}:1</span><small class="bt-after">→ ${S.hand[i] - ratio}</small></div>${gets}</div>`;
   }).join("");
 
   const tile = (side, r) => {
@@ -306,34 +306,34 @@ export async function onTradeClick(e) {
 
 export function openPick(kind) {
   const dlg = $("#dlg-pick");
-  const yop = kind === "yop";
-  $("#pick-title").textContent = yop ? "Year of Plenty" : "Monopoly";
-  $("#pick-sub").textContent = yop ? "Take any two resources from the bank (the same one twice is fine)." : "Every opponent hands you all their cards of one resource. ≈ is what your card tracker reckons they hold between them.";
+  const windfall = kind === "windfall";
+  $("#pick-title").textContent = windfall ? "Windfall" : "Hoard";
+  $("#pick-sub").textContent = windfall ? "Take any two resources from the bank (the same one twice is fine)." : "Every opponent hands you all their cards of one resource. ≈ is what your card tracker reckons they hold between them.";
   const haul = (r) => Math.round(S.tracker?.[r] ?? 0);
   const picks = [];
   const box = $("#pick-res");
-  const rec = yop ? plentyPicks(S.hand, S.bank, COSTS, BUILD_ORDER) : [RES.map((_, i) => i).sort((a, b) => (S.tracker?.[b] ?? 0) - (S.tracker?.[a] ?? 0))[0]];
+  const rec = windfall ? windfallPicks(S.hand, S.bank, COSTS, BUILD_ORDER) : [RES.map((_, i) => i).sort((a, b) => (S.tracker?.[b] ?? 0) - (S.tracker?.[a] ?? 0))[0]];
   const draw = () => {
     box.innerHTML = RES.map((r, i) => {
       const n = picks.filter((x) => x === i).length;
-      const off = yop && S.bank[i] < 1;
-      const est = yop || !S.tracker ? "" : `<span class="haul" title="Your tracker: opponents hold about ${S.tracker[i]} ${r}">≈${haul(i)}</span>`;
+      const off = windfall && S.bank[i] < 1;
+      const est = windfall || !S.tracker ? "" : `<span class="haul" title="Your tracker: opponents hold about ${S.tracker[i]} ${r}">≈${haul(i)}</span>`;
       return `<button data-r="${i}" data-key="${i + 1}" aria-pressed="${n > 0}" ${off ? "disabled" : ""} title="${r} (${i + 1})"><div class="rcard r-${r}">${icon("a-" + r)}<span class="lbl">${r}</span>${n ? `<span class="n">${n}</span>` : ""}</div>${est}</button>`;
     }).join("");
-    $("#pick-ok").disabled = picks.length !== (yop ? 2 : 1);
-    if (yop) handStrip($("#pick-hand"), RES.map((_, r) => picks.filter((x) => x === r).length), picks.length ? "After" : "Your hand");
+    $("#pick-ok").disabled = picks.length !== (windfall ? 2 : 1);
+    if (windfall) handStrip($("#pick-hand"), RES.map((_, r) => picks.filter((x) => x === r).length), picks.length ? "After" : "Your hand");
     else handStrip($("#pick-hand"), RES.map((_, r) => (picks[0] === r ? haul(r) : 0)), picks.length ? "About" : "Your hand");
     // the next recommended card, then Play
     const left = rec.slice();
     for (const x of picks) { const i = left.indexOf(x); if (i >= 0) left.splice(i, 1); }
-    const done = picks.length === (yop ? 2 : 1);
+    const done = picks.length === (windfall ? 2 : 1);
     setObvious(dlg, done ? $("#pick-ok") : box.querySelector(`[data-r="${left[0] ?? rec[0]}"]`));
   };
   box.onclick = (e) => {
     const b = e.target.closest("[data-r]");
     if (!b) return;
     const r = Number(b.dataset.r);
-    if (yop) {
+    if (windfall) {
       if (picks.filter((x) => x === r).length >= Math.min(2, S.bank[r])) return;
       if (picks.length === 2) picks.shift();
       picks.push(r);
@@ -344,8 +344,8 @@ export function openPick(kind) {
   };
   $("#pick-ok").onclick = () => {
     dlg.close();
-    if (yop) act(["play_yop", Math.min(...picks), Math.max(...picks)]);
-    else act(["play_mono", picks[0]]);
+    if (windfall) act(["play_windfall", Math.min(...picks), Math.max(...picks)]);
+    else act(["play_hoard", picks[0]]);
   };
   draw();
   modal(dlg);
@@ -376,27 +376,27 @@ export function showHelp() {
   const k = (keys, what) => `<span>${keys.map((x) => `<kbd>${x}</kbd>`).join(" ")}</span><span>${what}</span>`;
   const cost = (c) => c.flatMap((n, r) => Array.from({ length: n }, () => resIcon(r))).join("");
   openInfo("How to play", `<div class="help">
-    <p>First to <b>10 VP</b> on their own turn wins. Settlements are worth 1, cities 2, Longest Road (5+ roads) and Largest Army (3+ knights) 2 each, and hidden victory-point cards 1.</p>
-    <p>Each roll pays every settlement next to a hex with that number 1 card (a city 2), unless the robber sits on it. On a 7 everyone holding more than 7 cards discards half, then the robber moves and steals a card. You can play one development card per turn, never on the turn you bought it — knights may be played before rolling.</p>
+    <p>First to <b>10 fame</b> on their own turn wins. Villages are worth 1, towns 2, Great Trail (5+ trails) and Great Patrol (3+ rangers) 2 each, and hidden landmark 1.</p>
+    <p>Each roll pays every village next to a hex with that number 1 card (a town 2), unless the bandit sits on it. On a 7 everyone holding more than 7 cards discards half, then the bandit moves and steals a card. You can play one venture per turn, never on the turn you bought it — rangers may be played before rolling.</p>
     <h3>Build costs</h3>
     <div class="help-costs">
-      <span>Road</span><span>${cost(COSTS.road)}</span><span>Settlement <span class="muted">1 VP</span></span><span>${cost(COSTS.settle)}</span>
-      <span>City <span class="muted">2 VP, pays double</span></span><span>${cost(COSTS.city)}</span><span>Development card</span><span>${cost(COSTS.dev)}</span>
+      <span>Trail</span><span>${cost(COSTS.trail)}</span><span>Village <span class="muted">1 fame</span></span><span>${cost(COSTS.settle)}</span>
+      <span>Town <span class="muted">2 fame, pays double</span></span><span>${cost(COSTS.town)}</span><span>Venture</span><span>${cost(COSTS.venture)}</span>
     </div>
-    <p>Trade 4 of a kind with the bank for any card — 3 with a 3:1 port, 2 of that resource with a 2:1 port — or offer cards to the other players. A player who says no may name a price, and you can answer any offer with a <b>counter-offer</b> of your own.</p>
-    <p>With <b>5 or 6 players</b> the board is larger, and after every turn the other players may build (no trading, no development cards) in a special building phase: build, or pass.</p>
+    <p>Trade 4 of a kind with the bank for any card — 3 with a 3:1 dock, 2 of that resource with a 2:1 dock — or offer cards to the other players. A player who says no may name a price, and you can answer any offer with a <b>counter-offer</b> of your own.</p>
+    <p>With <b>5 or 6 players</b> the board is larger, and after every turn the other players may build (no trading, no ventures) in a special building phase: build, or pass.</p>
     <p>Every game is <b>saved as you play</b>. <b>Games</b> lists them: resume one, step through a <b>replay</b> with the coach's verdict on each of your decisions, play on from any point, or see your <b>progress</b> across games. A new game can also be <b>pass and play</b> on one screen or <b>online</b> with a device each.</p>
     <p>You only see your own cards, exactly like at a real table. Opponents show card <i>counts</i>; the bots get the same information and track your hand from public events.</p>
-    <p>The <b>coach</b> reviews every decision in VP-equivalents: ✓ best &lt; 0.05 ≤ ✓ good &lt; 0.2 ≤ ?! inaccuracy &lt; 0.5 ≤ ? mistake &lt; 1.0 ≤ ?? blunder.</p>
+    <p>The <b>coach</b> reviews every decision in fame-equivalents: ✓ best &lt; 0.05 ≤ ✓ good &lt; 0.2 ≤ ?! inaccuracy &lt; 0.5 ≤ ? mistake &lt; 1.0 ≤ ?? blunder.</p>
     <details class="help-keys"><summary>Keyboard shortcuts</summary>
     <p class="muted">Every button with a key shows it in a small badge. A key means one thing on each screen.</p>
     <h3>Your turn</h3>
     <div class="help-grid">
-      ${k(["R"], "Roll the dice")}${k(["1", "2", "3"], "Build a road / settlement / city: then type the letter on the spot")}
-      ${k(["D"], "Buy a development card")}${k(["4", "5", "6", "7"], "Play Knight / Road Building / Monopoly / Year of Plenty")}
-      ${k(["T"], "Trade with the bank, ports or players")}${k(["E"], "End your turn")}
+      ${k(["R"], "Roll the dice")}${k(["1", "2", "3"], "Build a trail / village / town: then type the letter on the spot")}
+      ${k(["D"], "Buy a venture")}${k(["4", "5", "6", "7"], "Play Ranger / Pathfinder / Hoard / Windfall")}
+      ${k(["T"], "Trade with the bank, docks or players")}${k(["E"], "End your turn")}
       ${k(["Space"], "The obvious move, everywhere: the green-ringed choice. On the board the best spot or the roll; in a dialog the recommended answer (the coach's verdict on an offer, the suggested discard, the trade that unlocks your best build, the richest player to rob). Keep pressing to follow a multi-step recommendation")}
-      ${k(["A", "S", "F", "…"], "Pick a board spot (setup, build modes, robber). Spots are ranked: A is always the best, then S, F, G… down the home row; weaker spots get two letters")}
+      ${k(["A", "S", "F", "…"], "Pick a board spot (setup, build modes, bandit). Spots are ranked: A is always the best, then S, F, G… down the home row; weaker spots get two letters")}
       ${k(["⌫"], "Take back a typed letter")}${k(["1", "2", "3"], "Choose who to rob (when asked)")}
       ${k(["⇧D"], "Reopen the discard dialog")}${k(["⇧Y"], "Reopen a bot's trade offer")}${k(["Esc"], "Cancel: typed letters, then build mode, then the coach panel")}
     </div>
@@ -414,9 +414,9 @@ export function showHelp() {
     </div>
     <h3>In dialogs</h3>
     <div class="help-grid">
-      ${k(["1", "…", "5"], "Wood, brick, sheep, wheat, ore: add one (discard, offer you give, Year of Plenty, Monopoly)")}
+      ${k(["1", "…", "5"], "Timber, clay, wool, grain, stone: add one (discard, offer you give, Windfall, Hoard)")}
       ${k(["⇧1", "…", "⇧5"], "Discard: remove one · Offer: add one to what you want")}${k(["⌥1", "…"], "Offer: take one back (⌥⇧ for the want side)")}
-      ${k(["A", "…", "W"], "Trade: the bank or port trade with that letter")}${k(["J", "K", "L"], "Trade: accept a bot's answer")}
+      ${k(["A", "…", "W"], "Trade: the bank or dock trade with that letter")}${k(["J", "K", "L"], "Trade: accept a bot's answer")}
       ${k(["Y", "N"], "An offer to you: accept, decline (Space follows the coach)")}${k(["C"], "An offer to you: make a counter-offer")}${k(["S"], "Discard: suggest")}${k(["↵"], "Confirm (discard, play, send offer, start game)")}${k(["⌫"], "Clear the offer")}${k(["Esc"], "Close")}
     </div>
     </details>
@@ -429,19 +429,19 @@ export function showGameOver() {
   const won = S.winner === S.human;
   $("#over-title").innerHTML = `<div class="over-banner ${won ? "win" : ""}">${won ? "♛ You win!" : `${esc(S.players[S.winner].name)} wins`}</div>`;
   // where every point came from
-  const pts = (vp, note) => (vp ? `${vp}${note ? `<small class="muted"> ${note}</small>` : ""}` : `<span class="muted">–</span>`);
+  const pts = (fame, note) => (fame ? `${fame}${note ? `<small class="muted"> ${note}</small>` : ""}` : `<span class="muted">–</span>`);
   const rows = sm.rows.map((r) => `<tr><td><span style="color:${pc(r.p)};font-weight:700">${esc(S.players[r.p].name)}</span></td>
-    <td class="num">${pts(r.settlements, "")}</td><td class="num">${pts(2 * r.cities, r.cities ? `(${r.cities})` : "")}</td>
-    <td class="num">${pts(r.longest ? 2 : 0)}</td><td class="num">${pts(r.army ? 2 : 0)}</td><td class="num">${pts(r.vp_cards)}</td>
-    <td class="num"><b>${r.vp}</b></td></tr>`).join("");
+    <td class="num">${pts(r.villages, "")}</td><td class="num">${pts(2 * r.towns, r.towns ? `(${r.towns})` : "")}</td>
+    <td class="num">${pts(r.longest ? 2 : 0)}</td><td class="num">${pts(r.patrol ? 2 : 0)}</td><td class="num">${pts(r.landmarks)}</td>
+    <td class="num"><b>${r.fame}</b></td></tr>`).join("");
   let rev = "";
   if (sm.accuracy !== null) {
     rev = `<h3 style="margin-top:18px">Your decisions</h3>
       <div class="vcounts">${Object.entries(sm.counts).map(([k, n]) => `<span class="vd vd-${k}">${symbol(k)} ${k} ${n}</span>`).join("")}</div>
-      <p>Accuracy <b>${Math.round(sm.accuracy)}%</b> · total value lost <b>${sm.lost.toFixed(2)}</b> VP-eq · ${sm.rounds} round${sm.rounds === 1 ? "" : "s"} · <button class="btn ghost" id="over-all" data-key="A" style="padding:2px 8px">every move…</button></p>
+      <p>Accuracy <b>${Math.round(sm.accuracy)}%</b> · total value lost <b>${sm.lost.toFixed(2)}</b> fame-eq · ${sm.rounds} round${sm.rounds === 1 ? "" : "s"} · <button class="btn ghost" id="over-all" data-key="A" style="padding:2px 8px">every move…</button></p>
       ${sm.worst.length ? `<h3>Biggest misses</h3><ul class="misses">${sm.worst.map((w) => `<li><span class="vd vd-${w.verdict}">−${w.delta.toFixed(2)}</span> ${w.turn ? `turn ${w.turn}` : "setup"}: ${esc(plain(w.label))}<br><span class="eng">better: ${esc(human(w.best))}</span></li>`).join("")}</ul>` : ""}`;
   }
-  $("#over-body").innerHTML = `<div class="table-x"><table class="info-table vp-table"><thead><tr><th>Player</th><th title="1 VP each">Settlements</th><th title="2 VP each (count)">Cities</th><th title="2 VP">Longest road</th><th title="2 VP">Largest army</th><th title="1 VP each">VP cards</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table></div>${rev}`;
+  $("#over-body").innerHTML = `<div class="table-x"><table class="info-table fame-table"><thead><tr><th>Player</th><th title="1 fame each">Villages</th><th title="2 fame each (count)">Towns</th><th title="2 fame">Great Trail</th><th title="2 fame">Great Patrol</th><th title="1 fame each">Landmarks</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table></div>${rev}`;
   modal($("#dlg-over"));
 }
 

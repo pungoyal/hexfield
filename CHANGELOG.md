@@ -5,6 +5,13 @@
 * Hexfield is open source under the MIT license.
 * Needs Python 3.15. CI uses Node 26 and the latest GitHub Actions, and runs on arm64.
 * The Docker image is built for linux/arm64, on `python:3.15-slim`.
+* Hexfield has its own names. Resources: timber, clay, wool, grain and stone. Pieces:
+  village, town and trail. Ports are docks, the desert is the badlands and the robber is
+  the bandit. Development cards are ventures (ranger, pathfinder, hoard, windfall and
+  landmark), victory points are fame, and the awards are Great Trail and Great Patrol.
+  Terminal shortcuts follow the new names: `t c w g s` for resources, `v`, `tn`, `tr` and
+  `vn` to build, `rg` and `pf` for the cards. Games saved by earlier versions no longer
+  load.
 
 ## 2.1.0
 

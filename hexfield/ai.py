@@ -2,21 +2,21 @@
 
 The engine is an *expert evaluation function* plus *search*:
 
-* `Evaluator.values()` scores every player's position in "victory-point
-  equivalents": real VP, expected production (robber-aware, with diminishing
-  returns, port conversion and resource diversity), expansion potential
+* `Evaluator.values()` scores every player's position in "fame
+  equivalents": real fame, expected production (bandit-aware, with diminishing
+  returns, dock conversion and resource diversity), expansion potential
   (reachable open spots, contested-spot discount), hand quality (cards that
-  complete builds, 7-roll exposure), development cards and the race for
-  Longest Road / Largest Army.
+  complete builds, 7-roll exposure), ventures and the race for
+  Great Trail / Great Patrol.
 * `score()` turns that into a decision score: my value minus a weighted share
   of opponents' values, with weights that grow for the leader and anyone close
   to winning (so the bots gang up on whoever is ahead - including you).
-* `plan_turn()` runs a beam search over sequences of builds, bank/port trades
-  and development-card plays inside the current turn.
+* `plan_turn()` runs a beam search over sequences of builds, bank/dock trades
+  and venture plays inside the current turn.
 * Opening placement uses a snake-draft lookahead: for every candidate first
-  settlement it simulates the opponents' greedy picks until the bot's second
+  village it simulates the opponents' greedy picks until the bot's second
   pick, then takes the best pairing.
-* Robber, discards, knights-before-roll and player trades are all decided by
+* Bandit, discards, rangers-before-roll and player trades are all decided by
   the same evaluation, so the bots never accept a trade that helps you more
   than it helps them.
 
@@ -24,40 +24,40 @@ Hidden information: every decision is made on a *view* of the game in which
 opponents' resource hands are replaced by what the deciding player can know
 from public events (see GameState.belief) - production, builds, trades and
 discards are exact, steals between other players are tracked in expectation.
-Other players' development cards and the deck order are never visible.
+Other players' ventures and the deck order are never visible.
 """
 
 import math
 import random
 from collections import deque
 
-from .constants import (COSTS, DESERT, KNIGHT, MAX_CITIES, MAX_SETTLEMENTS, MONOPOLY,
-                        RES_NAMES, ROAD_BUILDING, UNKNOWN_DEV, VP_CARD, WIN_VP,
-                        YEAR_OF_PLENTY)
-from .game import (DISCARD, MAIN, PRE_ROLL, ROAD_BUILD, ROBBER, SETUP_ROAD,
+from .constants import (COSTS, BADLANDS, RANGER, MAX_TOWNS, MAX_VILLAGES, HOARD,
+                        RES_NAMES, PATHFINDER, UNKNOWN_VENTURE, LANDMARK, WIN_FAME,
+                        WINDFALL)
+from .game import (DISCARD, MAIN, PRE_ROLL, FREE_TRAILS, BANDIT, SETUP_TRAIL,
                    SETUP_SETTLE, SPECIAL, fmt_cards)
 
 SETUP_W = (1.10, 1.10, 0.80, 1.00, 0.87)
 DIST_DISC = (0.55, 0.38, 0.22)
-ROAD_SETTLE = (2, 2, 1, 1, 0)
+TRAIL_SETTLE = (2, 2, 1, 1, 0)
 
 # Every weight of the evaluation, in one place: tools/tune.py searches over these and the
-# play styles below are small changes to them. Values are VP-equivalents unless noted.
+# play styles below are small changes to them. Values are fame-equivalents unless noted.
 PARAMS = {
     "pip_value": 0.105,          # one pip of production (a card per 36 rolls)
-    "w_wood_early": 1.15, "w_brick_early": 1.15, "w_sheep_early": 0.80, "w_wheat_early": 1.00, "w_ore_early": 0.80,
-    "w_wood_late": 0.70, "w_brick_late": 0.70, "w_sheep_late": 0.70, "w_wheat_late": 1.15, "w_ore_late": 1.25,
+    "w_timber_early": 1.15, "w_clay_early": 1.15, "w_wool_early": 0.80, "w_grain_early": 1.00, "w_stone_early": 0.80,
+    "w_timber_late": 0.70, "w_clay_late": 0.70, "w_wool_late": 0.70, "w_grain_late": 1.15, "w_stone_late": 1.25,
     "missing_res": 3.2,          # pips docked for a resource you don't produce
     "expansion": 1.0,            # scale of the open-spots term
-    "port_any": 1.2,             # a 3:1 harbour on an open spot (pips)
+    "dock_any": 1.2,             # a 3:1 dock on an open spot (pips)
     "hand_card": 0.09,           # a loose card, divided by its trade ratio
     "hand_build": 0.40,          # scale of the "close to a build" bonus
-    "util_settlement": 1.5, "util_road_settle": 1.25, "util_city": 1.45, "util_dev": 0.5, "util_road": 0.3,
+    "util_village": 1.5, "util_trail_settle": 1.25, "util_town": 1.45, "util_venture": 0.5, "util_trail": 0.3,
     "seven_risk": 0.13,          # per card a 7 would cost, times the chance of a 7
-    "dev_knight": 0.33, "dev_road": 0.42, "dev_mono": 0.45, "dev_yop": 0.55,
-    "dev_hidden": 0.30,          # an opponent's face-down card
-    "army_knight": 0.1, "army_reach": 0.55, "army_near": 0.2, "award_threat": 0.3,
-    "road_race": 0.75,
+    "venture_ranger": 0.33, "venture_trail": 0.42, "venture_hoard": 0.45, "venture_windfall": 0.55,
+    "venture_hidden": 0.30,          # an opponent's face-down card
+    "patrol_ranger": 0.1, "patrol_reach": 0.55, "patrol_near": 0.2, "award_threat": 0.3,
+    "trail_race": 0.75,
     "opp_base": 0.28, "opp_lead": 0.25, "opp_8": 0.35, "opp_9": 0.4,   # how much rivals' values count against you
     "trade_margin": 0.05,        # a trade must gain the responder this much
     "propose_gain": 0.25,        # a trade must gain the proposer this much to be offered
@@ -66,24 +66,24 @@ PARAMS = {
 # Play styles: the same engine with different tastes. Factors multiply PARAMS.
 STYLES = {
     "balanced": {},
-    "builder": {    # roads and settlements, the Longest Road
-        "w_wood_early": 1.12, "w_brick_early": 1.12, "w_wood_late": 1.2, "w_brick_late": 1.2,
-        "expansion": 1.35, "road_race": 1.6, "util_settlement": 1.15, "util_road": 1.6},
-    "citizen": {    # wheat and ore: cities first
-        "w_wheat_early": 1.15, "w_ore_early": 1.25, "w_wheat_late": 1.08, "w_ore_late": 1.08,
-        "util_city": 1.25, "expansion": 0.85},
-    "general": {    # development cards and the Largest Army
-        "w_sheep_early": 1.15, "w_sheep_late": 1.25, "util_dev": 2.0, "dev_knight": 1.3, "dev_mono": 1.2,
-        "dev_yop": 1.2, "army_knight": 1.6, "army_reach": 1.5, "army_near": 1.5},
-    "trader": {     # harbours and deals
-        "port_any": 2.2, "hand_card": 1.25, "trade_margin": 0.4, "propose_gain": 0.5, "missing_res": 0.8},
+    "builder": {    # trails and villages, the Great Trail
+        "w_timber_early": 1.12, "w_clay_early": 1.12, "w_timber_late": 1.2, "w_clay_late": 1.2,
+        "expansion": 1.35, "trail_race": 1.6, "util_village": 1.15, "util_trail": 1.6},
+    "citizen": {    # grain and stone: towns first
+        "w_grain_early": 1.15, "w_stone_early": 1.25, "w_grain_late": 1.08, "w_stone_late": 1.08,
+        "util_town": 1.25, "expansion": 0.85},
+    "general": {    # ventures and the Great Patrol
+        "w_wool_early": 1.15, "w_wool_late": 1.25, "util_venture": 2.0, "venture_ranger": 1.3, "venture_hoard": 1.2,
+        "venture_windfall": 1.2, "patrol_ranger": 1.6, "patrol_reach": 1.5, "patrol_near": 1.5},
+    "trader": {     # docks and deals
+        "dock_any": 2.2, "hand_card": 1.25, "trade_margin": 0.4, "propose_gain": 0.5, "missing_res": 0.8},
 }
 STYLE_NOTES = {
     "balanced": "plays the position",
-    "builder": "expands fast and races for the Longest Road",
-    "citizen": "wants wheat and ore, and builds cities early",
-    "general": "buys development cards and goes for the Largest Army",
-    "trader": "settles on harbours and trades often",
+    "builder": "expands fast and races for the Great Trail",
+    "citizen": "wants grain and stone, and builds towns early",
+    "general": "buys ventures and goes for the Great Patrol",
+    "trader": "settles on docks and trades often",
 }
 
 
@@ -99,7 +99,7 @@ def make_params(style="balanced", overrides=None):
     return P
 
 
-BUILD_ACTION = {"city": "city", "settlement": "settle", "road": "road", "dev": "buy_dev"}
+BUILD_ACTION = {"town": "town", "village": "settle", "trail": "trail", "venture": "buy_venture"}
 
 LEVELS = {
     # beam width, depth, score noise, setup lookahead
@@ -119,27 +119,27 @@ class Evaluator:
         self.P = P = params or PARAMS
         self.w_early = tuple(P[f"w_{r}_early"] for r in RES_NAMES)
         self.w_late = tuple(P[f"w_{r}_late"] for r in RES_NAMES)
-        self.dev_value = {KNIGHT: P["dev_knight"], ROAD_BUILDING: P["dev_road"],
-                          MONOPOLY: P["dev_mono"], YEAR_OF_PLENTY: P["dev_yop"]}
+        self.venture_value = {RANGER: P["venture_ranger"], PATHFINDER: P["venture_trail"],
+                          HOARD: P["venture_hoard"], WINDFALL: P["venture_windfall"]}
 
     # ------------------------------------------------------------- helpers
     def production(self, s, q):
         b = self.b
         prod = [0.0] * 5
-        for lvl, verts in ((1, s.settlements[q]), (2, s.cities[q])):
+        for lvl, verts in ((1, s.villages[q]), (2, s.towns[q])):
             for v in verts:
                 for h in b.vertex_hexes[v]:
-                    if h == s.robber:
+                    if h == s.bandit:
                         continue
                     r = b.hex_resource[h]
-                    if r != DESERT:
+                    if r != BADLANDS:
                         prod[r] += b.hex_pips[h] * lvl
         return prod
 
     def blocked_pips(self, s, q):
-        h = s.robber
+        h = s.bandit
         b = self.b
-        if b.hex_resource[h] == DESERT:
+        if b.hex_resource[h] == BADLANDS:
             return 0
         tot = 0
         for v in b.hex_vertices[h]:
@@ -148,16 +148,16 @@ class Evaluator:
         return tot
 
     def reach(self, s, q):
-        """dist[v] = roads needed to reach v from q's network (0..2), else 9."""
+        """dist[v] = trails needed to reach v from q's network (0..2), else 9."""
         b = self.b
         dist = [9] * b.V
         dq = deque()
-        for e in s.roads[q]:
+        for e in s.trails[q]:
             for v in b.edge_vertices[e]:
                 if dist[v]:
                     dist[v] = 0
                     dq.append(v)
-        for v in s.settlements[q] + s.cities[q]:
+        for v in s.villages[q] + s.towns[q]:
             if dist[v]:
                 dist[v] = 0
                 dq.append(v)
@@ -184,20 +184,20 @@ class Evaluator:
         b = self.b
         val = 0.0
         for h in b.vertex_hexes[v]:
-            if h == s.robber:
+            if h == s.bandit:
                 continue
             r = b.hex_resource[h]
-            if r == DESERT:
+            if r == BADLANDS:
                 continue
             pip = b.hex_pips[h]
             val += weights[r] * b.scarcity[r] * pip
             if prod[r] == 0:
                 val += 1.8
-        port = b.vertex_port[v]
-        if port == "any":
-            val += self.P["port_any"]
-        elif port is not None and prod[port] >= 5:
-            val += 0.35 * prod[port]
+        dock = b.vertex_dock[v]
+        if dock == "any":
+            val += self.P["dock_any"]
+        elif dock is not None and prod[dock] >= 5:
+            val += 0.35 * prod[dock]
         return val
 
     # -------------------------------------------------------------- values
@@ -206,31 +206,31 @@ class Evaluator:
         n = s.n
         b = self.b
         P = self.P
-        W_EARLY, W_LATE, DEV_VALUE = self.w_early, self.w_late, self.dev_value
+        W_EARLY, W_LATE, VENTURE_VALUE = self.w_early, self.w_late, self.venture_value
         PIP_VALUE = P["pip_value"]
-        counts = s.dev_counts
-        left = sum(counts) - counts[VP_CARD]
-        # an unseen card: a victory point or, in proportion, a knight or a progress card
-        unknown_dev = (counts[VP_CARD] * 1.0 + counts[KNIGHT] * DEV_VALUE[KNIGHT]
-                       + counts[ROAD_BUILDING] * DEV_VALUE[ROAD_BUILDING] + counts[MONOPOLY] * DEV_VALUE[MONOPOLY]
-                       + counts[YEAR_OF_PLENTY] * DEV_VALUE[YEAR_OF_PLENTY]) / sum(counts)
-        p_knight = counts[KNIGHT] / float(left + counts[VP_CARD])
+        counts = s.venture_counts
+        left = sum(counts) - counts[LANDMARK]
+        # an unseen card: a landmark or, in proportion, a ranger or a progress card
+        unknown_venture = (counts[LANDMARK] * 1.0 + counts[RANGER] * VENTURE_VALUE[RANGER]
+                       + counts[PATHFINDER] * VENTURE_VALUE[PATHFINDER] + counts[HOARD] * VENTURE_VALUE[HOARD]
+                       + counts[WINDFALL] * VENTURE_VALUE[WINDFALL]) / sum(counts)
+        p_ranger = counts[RANGER] / float(left + counts[LANDMARK])
         if s.winner != -1:
             return [1000.0 if q == s.winner else 0.0 for q in range(n)]
         # hidden-information estimates
-        own_vp_cards = s.vp_cards(viewer)
-        unknown = s.deck_size() + sum(s.dev_count(q) for q in range(n) if q != viewer)
-        p_vp = (counts[VP_CARD] - own_vp_cards) / unknown if unknown else 0.0
-        p_vp = clamp(p_vp, 0.0, 1.0)
+        own_landmarks = s.landmarks(viewer)
+        unknown = s.deck_size() + sum(s.venture_count(q) for q in range(n) if q != viewer)
+        p_fame = (counts[LANDMARK] - own_landmarks) / unknown if unknown else 0.0
+        p_fame = clamp(p_fame, 0.0, 1.0)
 
-        est_vp = []
+        est_fame = []
         for q in range(n):
             if q == viewer:
-                est_vp.append(s.vp(q))
+                est_fame.append(s.fame(q))
             else:
-                est_vp.append(s.public_vp(q) + p_vp * s.dev_count(q))
-        top = max(est_vp)
-        horizon = clamp((WIN_VP - top) / 8.0, 0.2, 1.0)
+                est_fame.append(s.public_fame(q) + p_fame * s.venture_count(q))
+        top = max(est_fame)
+        horizon = clamp((WIN_FAME - top) / 8.0, 0.2, 1.0)
 
         free = [s.vertex_free(v) for v in range(b.V)]
         reaches = [self.reach(s, q) for q in range(n)]
@@ -238,10 +238,10 @@ class Evaluator:
 
         out = []
         for q in range(n):
-            t = clamp((s.public_vp(q) - 2) / 6.0, 0.0, 1.0)
+            t = clamp((s.public_fame(q) - 2) / 6.0, 0.0, 1.0)
             w = [W_EARLY[r] * (1 - t) + W_LATE[r] * t for r in range(5)]
-            sett_left = MAX_SETTLEMENTS - len(s.settlements[q])
-            city_left = MAX_CITIES - len(s.cities[q])
+            sett_left = MAX_VILLAGES - len(s.villages[q])
+            town_left = MAX_TOWNS - len(s.towns[q])
             prod = self.production(s, q)
             ratios = s.ratios(q)
 
@@ -282,7 +282,7 @@ class Evaluator:
                 if prod[r] == 0:
                     pv -= P["missing_res"] * w[r] * (0.5 if 2 in ratios else 1.0)
             prod_val = PIP_VALUE * horizon * pv
-            if city_left == 0 and sett_left == 0:
+            if town_left == 0 and sett_left == 0:
                 prod_val *= 0.6
 
             # --- hand: raw card value + bonus for being close to a build
@@ -293,15 +293,15 @@ class Evaluator:
                 hv += h[r] * max(0.03, P["hand_card"] / ratios[r])
             targets = []
             if sett_left > 0 and has_spot0:
-                targets.append((COSTS["settlement"], P["util_settlement"]))
+                targets.append((COSTS["village"], P["util_village"]))
             elif sett_left > 0 and has_spot:
-                targets.append((ROAD_SETTLE, P["util_road_settle"]))
-            if city_left > 0 and s.settlements[q]:
-                targets.append((COSTS["city"], P["util_city"]))
+                targets.append((TRAIL_SETTLE, P["util_trail_settle"]))
+            if town_left > 0 and s.villages[q]:
+                targets.append((COSTS["town"], P["util_town"]))
             if s.deck_size() > 0:
-                targets.append((COSTS["dev"], P["util_dev"]))
+                targets.append((COSTS["venture"], P["util_venture"]))
             if has_spot and not has_spot0:
-                targets.append((COSTS["road"], P["util_road"]))
+                targets.append((COSTS["trail"], P["util_trail"]))
             bonuses = []
             for cost, util in targets:
                 have = 0
@@ -324,51 +324,51 @@ class Evaluator:
             if hs > 7:
                 hv -= p7 * (hs // 2) * P["seven_risk"]
 
-            # --- development cards
+            # --- ventures
             dv = 0.0
             if q == viewer:
-                for card, val in DEV_VALUE.items():
-                    c = s.devs[q][card] + s.new_devs[q][card]
+                for card, val in VENTURE_VALUE.items():
+                    c = s.ventures[q][card] + s.new_ventures[q][card]
                     if c:
-                        if card == ROAD_BUILDING and not has_spot:
+                        if card == PATHFINDER and not has_spot:
                             val *= 0.5
-                        if card == KNIGHT:
+                        if card == RANGER:
                             val += 0.012 * self.blocked_pips(s, q)
                         dv += c * val
-                unk = s.new_devs[q][UNKNOWN_DEV] + s.devs[q][UNKNOWN_DEV]
-                dv += unk * unknown_dev
-                knights_in_hand = s.devs[q][KNIGHT] + s.new_devs[q][KNIGHT] + p_knight * unk
+                unk = s.new_ventures[q][UNKNOWN_VENTURE] + s.ventures[q][UNKNOWN_VENTURE]
+                dv += unk * unknown_venture
+                rangers_in_hand = s.ventures[q][RANGER] + s.new_ventures[q][RANGER] + p_ranger * unk
             else:
-                hidden = s.dev_count(q)
-                dv += hidden * P["dev_hidden"]
-                knights_in_hand = hidden * p_knight
+                hidden = s.venture_count(q)
+                dv += hidden * P["venture_hidden"]
+                rangers_in_hand = hidden * p_ranger
 
-            # --- largest army race
+            # --- great patrol race
             av = 0.0
-            best_other = max((s.knights[o] for o in range(n) if o != q), default=0)
-            if s.army != q:
-                k = s.knights[q]
+            best_other = max((s.rangers[o] for o in range(n) if o != q), default=0)
+            if s.patrol != q:
+                k = s.rangers[q]
                 needk = max(3, best_other + 1)
-                av += P["army_knight"] * k
-                if k + knights_in_hand >= needk:
-                    av += P["army_reach"]
-                elif k + knights_in_hand + 1 >= needk:
-                    av += P["army_near"]
-            elif best_other >= s.knights[q] - 1:
+                av += P["patrol_ranger"] * k
+                if k + rangers_in_hand >= needk:
+                    av += P["patrol_reach"]
+                elif k + rangers_in_hand + 1 >= needk:
+                    av += P["patrol_near"]
+            elif best_other >= s.rangers[q] - 1:
                 av -= P["award_threat"]
 
-            # --- longest road race
+            # --- great trail race
             rv = 0.0
-            L = s.road_len[q]
+            L = s.trail_len[q]
             if s.longest != q:
-                holder_len = s.road_len[s.longest] if s.longest != -1 else 4
+                holder_len = s.trail_len[s.longest] if s.longest != -1 else 4
                 target = max(5, holder_len + 1)
                 if L >= 3:
-                    rv += P["road_race"] * (min(L, target) / target) ** 3
-            elif max((s.road_len[o] for o in range(n) if o != q), default=0) >= L - 1:
+                    rv += P["trail_race"] * (min(L, target) / target) ** 3
+            elif max((s.trail_len[o] for o in range(n) if o != q), default=0) >= L - 1:
                 rv -= P["award_threat"]
 
-            out.append(est_vp[q] + prod_val + exp_val + hv + dv + av + rv)
+            out.append(est_fame[q] + prod_val + exp_val + hv + dv + av + rv)
         return out
 
     def score(self, s, p):
@@ -385,7 +385,7 @@ class Evaluator:
             wgt = P["opp_base"] * k
             if q == lead:
                 wgt += P["opp_lead"]
-            pv = s.public_vp(q)
+            pv = s.public_fame(q)
             if pv >= 8:
                 wgt += P["opp_8"]
             if pv >= 9:
@@ -405,7 +405,7 @@ class AIPlayer:
         self.rng = random.Random(seed)
         self._proposed = None
         self._no_win = None  # ((turn, player), sigs from which a full win search failed)
-        self._robber_plan = None  # robber move chosen together with a pre-roll knight
+        self._bandit_plan = None  # bandit move chosen together with a pre-roll ranger
 
     # ---------------------------------------------------------- scoring
     def score(self, s, p):
@@ -423,17 +423,17 @@ class AIPlayer:
     @staticmethod
     def view(s, viewer):
         """Simulation copy of `s` as `viewer` sees it: opponents' hands are beliefs and
-        their development cards are face down (only the count is known)."""
+        their ventures are face down (only the count is known)."""
         t = s.clone()
         for q in range(s.n):
             if q == viewer:
                 continue
             if s.belief is not None:
                 t.hands[q] = s.belief[viewer][q][:]
-            for devs in (t.devs, t.new_devs):
-                n = sum(devs[q])
-                devs[q] = [0] * len(devs[q])
-                devs[q][UNKNOWN_DEV] = n
+            for ventures in (t.ventures, t.new_ventures):
+                n = sum(ventures[q])
+                ventures[q] = [0] * len(ventures[q])
+                ventures[q][UNKNOWN_VENTURE] = n
         return t
 
     # ---------------------------------------------------------- dispatch
@@ -445,7 +445,7 @@ class AIPlayer:
         if ph == DISCARD:
             counts = self.choose_discard(s, p)
             return ("discard", tuple(counts)), "keeps the cards closest to completing a build"
-        if ph in (PRE_ROLL, MAIN, ROAD_BUILD) and real.vp(p) >= WIN_VP - 3:
+        if ph in (PRE_ROLL, MAIN, FREE_TRAILS) and real.fame(p) >= WIN_FAME - 3:
             line = self.win_line(s, p)
             if line:
                 return line[0], self.win_reason(s, line)
@@ -459,25 +459,25 @@ class AIPlayer:
                 first = first[1][0]
             return first, why
         ranked = self._rank(s, p)
-        if ph == ROBBER:
-            plan, self._robber_plan = self._robber_plan, None
+        if ph == BANDIT:
+            plan, self._bandit_plan = self._bandit_plan, None
             # beliefs may think an empty-handed player still holds a card
             legal = set(real.legal_actions())
             if plan is not None and plan[0] == (real.turn, p) and plan[1] in legal:
                 return plan[1], plan[2]
             ranked = [x for x in ranked if x[1] in legal]
-        if ph in (SETUP_SETTLE, SETUP_ROAD):
+        if ph in (SETUP_SETTLE, SETUP_TRAIL):
             ranked = self._noisy(ranked, self._setup_scale(s) / 0.1)
-        elif ph == ROBBER:
+        elif ph == BANDIT:
             ranked = self._noisy(ranked)
-        if ph == PRE_ROLL and ranked[0][1][0] == "play_knight":
-            # pick the robber now so the stated reason is the move that follows
+        if ph == PRE_ROLL and ranked[0][1][0] == "play_ranger":
+            # pick the bandit now so the stated reason is the move that follows
             t = s.clone()
-            t.apply(("play_knight",))
-            rr = self._noisy(self.rank_robber(t, p))
+            t.apply(("play_ranger",))
+            rr = self._noisy(self.rank_bandit(t, p))
             if rr:
-                self._robber_plan = ((real.turn, p), rr[0][1], rr[0][2])
-                return ranked[0][1], "knight before rolling: " + rr[0][2]
+                self._bandit_plan = ((real.turn, p), rr[0][1], rr[0][2])
+                return ranked[0][1], "ranger before rolling: " + rr[0][2]
         return ranked[0][1:]
 
     def win_reason(self, s, line):
@@ -487,14 +487,14 @@ class AIPlayer:
         """Ranked (score, action, why) options in the single-choice phases."""
         ph = s.phase
         if ph == SETUP_SETTLE:
-            return self.rank_setup_settlements(s, p)
-        if ph == SETUP_ROAD:
-            return self.rank_setup_roads(s, p)
-        if ph == ROBBER:
-            return self.rank_robber(s, p)
+            return self.rank_setup_villages(s, p)
+        if ph == SETUP_TRAIL:
+            return self.rank_setup_trails(s, p)
+        if ph == BANDIT:
+            return self.rank_bandit(s, p)
         if ph == PRE_ROLL:
             return self.rank_preroll(s, p)
-        if ph == ROAD_BUILD:
+        if ph == FREE_TRAILS:
             return self.rank_simple(s, p, s.legal_actions())
         return []
 
@@ -510,14 +510,14 @@ class AIPlayer:
 
     # =================================================== opening placement
     def pair_value(self, s, verts):
-        """Opening quality of a set of settlement spots (pip units)."""
+        """Opening quality of a set of village spots (pip units)."""
         b = self.b
         prod = [0] * 5
         numbers = []
         for v in verts:
             for h in b.vertex_hexes[v]:
                 r = b.hex_resource[h]
-                if r == DESERT:
+                if r == BADLANDS:
                     continue
                 prod[r] += b.hex_pips[h]
                 numbers.append(b.hex_number[h])
@@ -538,15 +538,15 @@ class AIPlayer:
         # variance: duplicate numbers concentrate risk
         val -= 0.4 * (len(numbers) - len(set(numbers)))
         for v in verts:
-            port = b.vertex_port[v]
-            if port == "any":
+            dock = b.vertex_dock[v]
+            if dock == "any":
                 val += 1.3
-            elif port is not None:
-                val += max(0.0, 0.55 * (prod[port] - 3))
+            elif dock is not None:
+                val += max(0.0, 0.55 * (prod[dock] - 3))
         return val, prod
 
     def expansion_room(self, s, v, p):
-        """Best open spot two roads away from v (where the next settlement goes)."""
+        """Best open spot two trails away from v (where the next village goes)."""
         b = self.b
         best = 0.0
         for w in b.vertex_neighbors[v]:
@@ -566,29 +566,29 @@ class AIPlayer:
         base, _ = self.pair_value(s, existing) if existing else (0.0, None)
         return val - base + 0.22 * self.expansion_room(s, v, p)
 
-    # Opening scores are computed in pip units and scaled to VP-equivalents so the review
+    # Opening scores are computed in pip units and scaled to fame-equivalents so the review
     # verdicts mean the same as later in the game. The factors are fitted to how much
     # Evaluator.score changes after the placement (tools: regress score deltas on raw deltas).
-    SETTLE_SCALE = 0.1     # second settlement
-    SETTLE_SCALE_1 = 0.066  # first settlement (the lookahead total also counts the pairing)
-    ROAD_SCALE = 0.03
+    SETTLE_SCALE = 0.1     # second village
+    SETTLE_SCALE_1 = 0.066  # first village (the lookahead total also counts the pairing)
+    TRAIL_SCALE = 0.03
 
     def _setup_scale(self, s):
-        if s.phase == SETUP_ROAD:
-            return self.ROAD_SCALE
+        if s.phase == SETUP_TRAIL:
+            return self.TRAIL_SCALE
         return self.SETTLE_SCALE if s.setup_idx >= s.n else self.SETTLE_SCALE_1
 
-    def rank_setup_settlements(self, s, p, extra=None):
-        legal = s.legal_settlements(p, setup=True)
+    def rank_setup_villages(self, s, p, extra=None):
+        legal = s.legal_villages(p, setup=True)
         k = self._setup_scale(s)
-        mine = list(s.settlements[p])
+        mine = list(s.villages[p])
         b = self.b
         ranked = []
         if s.setup_idx >= s.n:  # second round
             for v in legal:
                 val = self._spot_value(s, p, v, mine)
-                # starting hand: wood+brick lets you road immediately
-                res = [b.hex_resource[h] for h in b.vertex_hexes[v] if b.hex_resource[h] != DESERT]
+                # starting hand: timber+clay lets you trail immediately
+                res = [b.hex_resource[h] for h in b.vertex_hexes[v] if b.hex_resource[h] != BADLANDS]
                 val += 0.35 * len(res)
                 if 0 in res and 1 in res:
                     val += 0.6
@@ -620,7 +620,7 @@ class AIPlayer:
         def place(q, x):
             t.v_owner[x] = q
             t.v_level[x] = 1
-            t.settlements[q].append(x)
+            t.villages[q].append(x)
 
         t = s.clone()
         place(p, v)
@@ -628,12 +628,12 @@ class AIPlayer:
         i = t.setup_idx + 1
         while i < len(order) and order[i] != p:
             q = order[i]
-            legal = t.legal_settlements(q, setup=True)
+            legal = t.legal_villages(q, setup=True)
             if not legal:
                 break
-            place(q, max(legal, key=lambda x: self._spot_value(t, q, x, t.settlements[q])))
+            place(q, max(legal, key=lambda x: self._spot_value(t, q, x, t.villages[q])))
             i += 1
-        legal = t.legal_settlements(p, setup=True)
+        legal = t.legal_villages(p, setup=True)
         if not legal:
             return self._spot_value(s, p, v, []), None
         best2 = max(legal, key=lambda x: self._spot_value(t, p, x, [v]))
@@ -656,24 +656,24 @@ class AIPlayer:
                 txt += f", still lacks {'/'.join(missing)}"
         return txt
 
-    def rank_setup_roads(self, s, p):
+    def rank_setup_trails(self, s, p):
         b = self.b
-        v = s.last_settlement
+        v = s.last_village
         ranked = []
-        for e in s.legal_setup_roads(p):
+        for e in s.legal_setup_trails(p):
             a, c = b.edge_vertices[e]
             w = c if a == v else a
             best, target = 0.0, None
             for x in b.vertex_neighbors[w]:
                 if x == v or not s.vertex_free(x):
                     continue
-                q = self._spot_value(s, p, x, list(s.settlements[p]))
+                q = self._spot_value(s, p, x, list(s.villages[p]))
                 contested = sum(1 for y in b.vertex_neighbors[x] for z in b.vertex_neighbors[y]
                                 if s.v_owner[z] not in (-1, p))
                 q *= 1.0 / (1 + 0.25 * contested)
                 if q > best:
                     best, target = q, x
-            # second-ring options keep the road flexible
+            # second-ring options keep the trail flexible
             ring = 0.0
             for x in b.vertex_neighbors[w]:
                 if x == v:
@@ -684,14 +684,14 @@ class AIPlayer:
             if target is None:
                 val, why = best + 0.15 * ring, "no open spot that way"
             else:
-                val = best + 0.15 * ring + (0.5 if b.vertex_port[target] is not None else 0.0)
+                val = best + 0.15 * ring + (0.5 if b.vertex_dock[target] is not None else 0.0)
                 why = f"points toward vertex {target} ({b.describe_vertex(target)})"
-            ranked.append((val * self.ROAD_SCALE, ("road", e), why))
+            ranked.append((val * self.TRAIL_SCALE, ("trail", e), why))
         ranked.sort(key=lambda x: -x[0])
         return ranked
 
-    # ======================================================== robber/discard
-    def rank_robber(self, s, p):
+    # ======================================================== bandit/discard
+    def rank_bandit(self, s, p):
         ranked = []
         for a in s.legal_actions():
             _, h, victim = a
@@ -702,31 +702,31 @@ class AIPlayer:
             sc = 0.0
             for prob, r in outcomes:
                 u = s.clone()
-                u.robber = h
-                u.phase = s.robber_return
+                u.bandit = h
+                u.phase = s.bandit_return
                 if r is not None:
                     take = min(1.0, u.hands[victim][r])
                     u.hands[victim][r] -= take
                     u.hands[p][r] += take
                 sc += prob * self.ev.score(u, p)
-            ranked.append((sc, a, self._robber_reason(s, p, h, victim)))
+            ranked.append((sc, a, self._bandit_reason(s, p, h, victim)))
         ranked.sort(key=lambda x: -x[0])
         return ranked
 
-    def _robber_reason(self, s, p, h, victim):
+    def _bandit_reason(self, s, p, h, victim):
         b = self.b
         r = b.hex_resource[h]
         label = b.hex_label(h)
-        if r == DESERT:
-            what = f"{label} (desert)"
+        if r == BADLANDS:
+            what = f"{label} (badlands)"
         else:
             what = f"{label} ({b.hex_number[h]} {RES_NAMES[r]})"
         hit = sorted({s.names[o] for o in (s.v_owner[v] for v in b.hex_vertices[h]) if o not in (-1, p)})
-        txt = f"robber on {what}"
+        txt = f"bandit on {what}"
         if hit:
             txt += f" blocks {', '.join(hit)}"
         if victim != -1:
-            txt += f"; steals from {s.names[victim]} ({round(s.hand_size(victim))} cards, {s.public_vp(victim)} VP)"
+            txt += f"; steals from {s.names[victim]} ({round(s.hand_size(victim))} cards, {s.public_fame(victim)} fame)"
         return txt
 
     def choose_discard(self, s, p):
@@ -759,25 +759,25 @@ class AIPlayer:
         return out
 
     # ================================================================ turns
-    CARD_VALUE = 0.2   # VP-eq of one resource card, for this-roll production estimates
-    SEVEN_RISK = 0.02  # small edge lost by waiting with a knight until after the roll
+    CARD_VALUE = 0.2   # fame-eq of one resource card, for this-roll production estimates
+    SEVEN_RISK = 0.02  # small edge lost by waiting with a ranger until after the roll
 
     def rank_preroll(self, s, p):
         base = self.ev.score(s, p)
         ranked = [None]  # roll goes first so it wins ties
-        if s.playable(p, KNIGHT):
-            sc, why = self._knight_value(s, p)
+        if s.playable(p, RANGER):
+            sc, why = self._ranger_value(s, p)
             blocked = self.ev.blocked_pips(s, p)
-            # a knight played now also protects this roll's production
+            # a ranger played now also protects this roll's production
             sc += 0.03 * blocked
             t = s.clone()
-            t.apply(("play_knight",))
-            if t.army == p and t.vp(p) >= WIN_VP:
+            t.apply(("play_ranger",))
+            if t.patrol == p and t.fame(p) >= WIN_FAME:
                 sc = max(sc, base + self.WIN_BONUS)
-                why = "takes Largest Army and wins"
-            ranked.append((sc, ("play_knight",), "knight before rolling: " + why))
-            # rolling first keeps the knight for after the roll: it only loses what the
-            # robber blocks on this roll and a small edge
+                why = "takes Great Patrol and wins"
+            ranked.append((sc, ("play_ranger",), "ranger before rolling: " + why))
+            # rolling first keeps the ranger for after the roll: it only loses what the
+            # bandit blocks on this roll and a small edge
             roll = max(base, sc - blocked / 36.0 * self.CARD_VALUE - self.SEVEN_RISK)
         else:
             roll = base
@@ -785,12 +785,12 @@ class AIPlayer:
         ranked.sort(key=lambda x: -x[0])
         return ranked
 
-    def _knight_value(self, s, p):
+    def _ranger_value(self, s, p):
         t = s.clone()
-        t.apply(("play_knight",))
-        rr = self.rank_robber(t, p)
+        t.apply(("play_ranger",))
+        rr = self.rank_bandit(t, p)
         if not rr:
-            return self.ev.score(t, p), "knight"
+            return self.ev.score(t, p), "ranger"
         return rr[0][0], rr[0][2]
 
     def rank_simple(self, s, p, actions):
@@ -809,19 +809,19 @@ class AIPlayer:
         return out
 
     def _macros(self, s, p):
-        """Bank/port trades that complete a build, bundled with the build so the
-        search sees 'trade, trade, city' as one step."""
+        """Bank/dock trades that complete a build, bundled with the build so the
+        search sees 'trade, trade, town' as one step."""
         h = s.hands[p]
         ratios = s.ratios(p)
         out = []
-        for kind in ("city", "settlement", "dev", "road"):
-            if kind == "city" and not s.legal_cities(p):
+        for kind in ("town", "village", "venture", "trail"):
+            if kind == "town" and not s.legal_towns(p):
                 continue
-            if kind == "settlement" and not s.legal_settlements(p):
+            if kind == "village" and not s.legal_villages(p):
                 continue
-            if kind == "road" and not s.legal_roads(p):
+            if kind == "trail" and not s.legal_trails(p):
                 continue
-            if kind == "dev" and s.deck_size() == 0:
+            if kind == "venture" and s.deck_size() == 0:
                 continue
             cost = COSTS[kind]
             deficit = [max(0, math.ceil(cost[r] - h[r])) for r in range(5)]
@@ -851,79 +851,79 @@ class AIPlayer:
             s.apply(max(builds, key=lambda b: self._score_after(s, b, p)))
             return
         s.apply(a)
-        # knight -> robber, road building -> free roads: resolve greedily
+        # ranger -> bandit, pathfinder -> free trails: resolve greedily
         for _ in range(4):
-            if s.winner != -1 or s.phase not in (ROBBER, ROAD_BUILD) or s.actor() != p:
+            if s.winner != -1 or s.phase not in (BANDIT, FREE_TRAILS) or s.actor() != p:
                 break
             s.apply(max(s.legal_actions(), key=lambda b: self._score_after(s, b, p)))
 
     def _sig(self, s, p):
-        return (tuple(s.hands[p]), tuple(sorted(s.roads[p])), tuple(sorted(s.settlements[p])),
-                tuple(sorted(s.cities[p])), tuple(s.devs[p]), tuple(s.new_devs[p]), s.robber,
-                s.dev_played, tuple(s.knights))
+        return (tuple(s.hands[p]), tuple(sorted(s.trails[p])), tuple(sorted(s.villages[p])),
+                tuple(sorted(s.towns[p])), tuple(s.ventures[p]), tuple(s.new_ventures[p]), s.bandit,
+                s.venture_played, tuple(s.rangers))
 
     # ======================================================== win-now search
-    def _winning_devs(self, s, p):
-        """(army_possible, wildcard_cards, free_roads) for each way to use this turn's dev play."""
-        free = s.free_roads if s.phase == ROAD_BUILD else 0
+    def _winning_ventures(self, s, p):
+        """(patrol_possible, wildcard_cards, free_trails) for each way to use this turn's venture play."""
+        free = s.free_trails if s.phase == FREE_TRAILS else 0
         opts = [(False, 0, free)]
-        if s.dev_played or s.phase == ROAD_BUILD:
+        if s.venture_played or s.phase == FREE_TRAILS:
             return opts
-        d = s.devs[p]
-        if d[KNIGHT] and s.army != p:
-            k = s.knights[p] + 1
-            if k >= 3 and (s.army == -1 or k > s.knights[s.army]):
+        d = s.ventures[p]
+        if d[RANGER] and s.patrol != p:
+            k = s.rangers[p] + 1
+            if k >= 3 and (s.patrol == -1 or k > s.rangers[s.patrol]):
                 opts.append((True, 0, 0))
-        if d[YEAR_OF_PLENTY]:
+        if d[WINDFALL]:
             opts.append((False, 2, 0))
-        if d[MONOPOLY]:
+        if d[HOARD]:
             opts.append((False, max(sum(int(s.hands[q][r]) for q in range(s.n) if q != p)
                                     for r in range(5)), 0))
-        if d[ROAD_BUILDING]:
+        if d[PATHFINDER]:
             opts.append((False, 0, 2))
         return opts
 
     def _win_possible(self, s, p):
-        """Optimistic bound: could p still reach WIN_VP this turn from s? (False = certainly not)."""
-        need = WIN_VP - s.vp(p)
+        """Optimistic bound: could p still reach WIN_FAME this turn from s? (False = certainly not)."""
+        need = WIN_FAME - s.fame(p)
         if need <= 0:
             return True
         b = self.b
         h = s.hands[p]
         ratios = s.ratios(p)
-        sett_left = MAX_SETTLEMENTS - len(s.settlements[p])
-        city_left = MAX_CITIES - len(s.cities[p])
-        road_left = 15 - len(s.roads[p])
-        # open spots by the number of roads needed to reach them
+        sett_left = MAX_VILLAGES - len(s.villages[p])
+        town_left = MAX_TOWNS - len(s.towns[p])
+        trail_left = 15 - len(s.trails[p])
+        # open spots by the number of trails needed to reach them
         spots = []
         if sett_left:
             dist = self.ev.reach(s, p)
             open_spots = [v for v in range(b.V) if dist[v] <= 2 and s.vertex_free(v)]
             spots = sorted(dist[v] for v in open_spots)
-            for v in open_spots:  # a new port settlement would improve the trade ratios
-                port = b.vertex_port[v]
-                if port == "any":
+            for v in open_spots:  # a new dock village would improve the trade ratios
+                dock = b.vertex_dock[v]
+                if dock == "any":
                     ratios = [min(x, 3) for x in ratios]
-                elif port is not None:
-                    ratios[port] = min(ratios[port], 2)
-        lr_roads = None
+                elif dock is not None:
+                    ratios[dock] = min(ratios[dock], 2)
+        lr_trails = None
         if s.longest != p:
-            target = max(5, max(s.road_len[o] for o in range(s.n) if o != p) + 1)
-            # a road can join two branches, so only the total road count bounds the length
-            k = max(1, target - len(s.roads[p]))
-            if k <= road_left:
-                lr_roads = k
-        for army, wild, free in self._winning_devs(s, p):
-            for lr in ((0, 1) if lr_roads is not None else (0,)):
+            target = max(5, max(s.trail_len[o] for o in range(s.n) if o != p) + 1)
+            # a trail can join two branches, so only the total trail count bounds the length
+            k = max(1, target - len(s.trails[p]))
+            if k <= trail_left:
+                lr_trails = k
+        for patrol, wild, free in self._winning_ventures(s, p):
+            for lr in ((0, 1) if lr_trails is not None else (0,)):
                 for ns in range(min(sett_left, len(spots), need) + 1):
-                    for nc in range(min(city_left, len(s.settlements[p]) + ns) + 1):
-                        if ns + nc + 2 * (army + lr) < need:
+                    for nc in range(min(town_left, len(s.villages[p]) + ns) + 1):
+                        if ns + nc + 2 * (patrol + lr) < need:
                             continue
-                        roads = max(lr * (lr_roads or 0), sum(spots[:ns]))
-                        if roads > road_left:
+                        trails = max(lr * (lr_trails or 0), sum(spots[:ns]))
+                        if trails > trail_left:
                             continue
-                        paid = max(0, roads - free)
-                        cost = [ns * COSTS["settlement"][r] + nc * COSTS["city"][r] + paid * COSTS["road"][r]
+                        paid = max(0, trails - free)
+                        cost = [ns * COSTS["village"][r] + nc * COSTS["town"][r] + paid * COSTS["trail"][r]
                                 for r in range(5)]
                         short = sum(max(0, cost[r] - h[r]) for r in range(5))
                         spare = sum(int(max(0, h[r] - cost[r]) // ratios[r]) for r in range(5))
@@ -934,39 +934,39 @@ class AIPlayer:
     def _win_moves(self, s, p):
         """Goal-directed move list for the win search (dead ends are cut by _win_possible)."""
         if s.phase == PRE_ROLL:
-            return [("play_knight",)] if any(x[0] for x in self._winning_devs(s, p)) else []
-        if s.phase == ROAD_BUILD:
+            return [("play_ranger",)] if any(x[0] for x in self._winning_ventures(s, p)) else []
+        if s.phase == FREE_TRAILS:
             return s.legal_actions()
-        trades, roads, devs, builds = [], [], [], []
+        trades, trails, ventures, builds = [], [], [], []
         lr_open = s.longest != p
-        army = any(x[0] for x in self._winning_devs(s, p))
+        patrol = any(x[0] for x in self._winning_ventures(s, p))
         for a in s.legal_actions(include_trades=True):
             k = a[0]
-            if k in ("end", "buy_dev"):
+            if k in ("end", "buy_venture"):
                 continue
             if k == "bank":
                 trades.append(a)
-            elif k == "road":
-                roads.append(a)
-            elif k == "play_knight":
-                if army:
-                    devs.append(a)
+            elif k == "trail":
+                trails.append(a)
+            elif k == "play_ranger":
+                if patrol:
+                    ventures.append(a)
             elif k.startswith("play_"):
-                devs.append(a)
+                ventures.append(a)
             else:
                 builds.append(a)
-        if not lr_open and s.legal_settlements(p):
-            roads = []  # a road can't win by itself and a spot is already open
-        return builds + devs + roads + trades
+        if not lr_open and s.legal_villages(p):
+            trails = []  # a trail can't win by itself and a spot is already open
+        return builds + ventures + trails + trades
 
     def find_win(self, s, p, cap=4000, depth=10):
-        """Breadth-first (so the shortest line is found) search for a sequence of builds, bank/port trades and dev-card plays
+        """Breadth-first (so the shortest line is found) search for a sequence of builds, bank/dock trades and venture plays
         that wins *this turn*, on the view `s` (own cards exact, opponents' hands as tracked).
-        Only certain gains count: stolen cards are ignored and Monopoly counts whole cards only.
+        Only certain gains count: stolen cards are ignored and Hoard counts whole cards only.
         Returns the action list or None."""
         if s.winner == p:
             return []
-        if s.current != p or s.phase not in (PRE_ROLL, MAIN, ROAD_BUILD) or s.vp(p) < WIN_VP - 3:
+        if s.current != p or s.phase not in (PRE_ROLL, MAIN, FREE_TRAILS) or s.fame(p) < WIN_FAME - 3:
             return None
         key = (s.turn, p)
         root_sig = self._sig(s, p)
@@ -995,7 +995,7 @@ class AIPlayer:
                 u = st.clone()
                 try:
                     u.apply(a)
-                    if u.phase == ROBBER and u.winner == -1:
+                    if u.phase == BANDIT and u.winner == -1:
                         keep = u.hands[p][:]
                         legal = u.legal_actions()
                         u.apply(next((x for x in legal if x[2] == -1), legal[0]))
@@ -1004,7 +1004,7 @@ class AIPlayer:
                     continue
                 if u.winner == p:
                     return path + [a]
-                if u.phase not in (MAIN, ROAD_BUILD):
+                if u.phase not in (MAIN, FREE_TRAILS):
                     continue
                 sig = self._sig(u, p)
                 if sig in seen:
@@ -1067,11 +1067,11 @@ class AIPlayer:
         return "plan: " + " -> ".join(steps) + f"  (eval +{gain:.2f})"
 
     # ========================================================= main analysis
-    WIN_BONUS = 3.0  # coach scale: winning now, in VP-eq over the current position
+    WIN_BONUS = 3.0  # coach scale: winning now, in fame-eq over the current position
 
     def _coach_win(self, s, p):
         """(value, line) if p can force a win this turn from view s, else None."""
-        if s.phase not in (MAIN, ROAD_BUILD) or s.vp(p) < WIN_VP - 3:
+        if s.phase not in (MAIN, FREE_TRAILS) or s.fame(p) < WIN_FAME - 3:
             return None
         line = self.win_line(s, p)
         if not line:
@@ -1092,7 +1092,7 @@ class AIPlayer:
 
     def _rescale_win(self, ranked, s, p, win):
         """Coach rankings: a win is worth WIN_BONUS over the position (not the internal
-        1000), and every non-winning option ranks at least 1 VP-eq below it."""
+        1000), and every non-winning option ranks at least 1 fame-eq below it."""
         W = self.ev.score(s, p) + self.WIN_BONUS if win is None else win[0]
         out = []
         for sc, a, why in ranked:
@@ -1117,7 +1117,7 @@ class AIPlayer:
         if s.phase in (MAIN, SPECIAL):
             return self.rank_main(s, p, top)
         ranked = self._rank(s, p)
-        if s.phase == ROAD_BUILD:
+        if s.phase == FREE_TRAILS:
             ranked = self._rescale_win(ranked, s, p, self._coach_win(s, p))
         return ranked[:top]
 
@@ -1149,7 +1149,7 @@ class AIPlayer:
         ph = s.phase
         s = self.view(s, p)
         sc = self._value_of_action(s, p, ph, a)
-        if ph in (MAIN, ROAD_BUILD):
+        if ph in (MAIN, FREE_TRAILS):
             win = self._coach_win(s, p)
             if win is not None:
                 return win[0] if a == win[1][0] or self._wins_after(s, a, p) else min(sc, win[0] - 1.0)
@@ -1158,16 +1158,16 @@ class AIPlayer:
         return sc
 
     def _value_of_action(self, s, p, ph, a):
-        if ph in (SETUP_SETTLE, SETUP_ROAD):
-            ranked = self.rank_setup_settlements(s, p, extra=a[1]) if ph == SETUP_SETTLE else self.rank_setup_roads(s, p)
+        if ph in (SETUP_SETTLE, SETUP_TRAIL):
+            ranked = self.rank_setup_villages(s, p, extra=a[1]) if ph == SETUP_SETTLE else self.rank_setup_trails(s, p)
             for sc, b, _ in ranked:
                 if b == a:
                     return sc
             if ph == SETUP_SETTLE:
-                return (self._spot_value(s, p, a[1], list(s.settlements[p])) - 10.0) * self._setup_scale(s)
+                return (self._spot_value(s, p, a[1], list(s.villages[p])) - 10.0) * self._setup_scale(s)
             return ranked[-1][0] if ranked else 0.0
-        if ph == ROBBER:
-            for sc, b, _ in self.rank_robber(s, p):
+        if ph == BANDIT:
+            for sc, b, _ in self.rank_bandit(s, p):
                 if b == a:
                     return sc
         if ph == PRE_ROLL:
@@ -1227,7 +1227,7 @@ class AIPlayer:
             without, with_ = s, t
         gain = self.ev.score(with_, responder) - self.ev.score(without, responder)
         margin = self.P["trade_margin"]
-        if s.public_vp(proposer) >= 8:
+        if s.public_fame(proposer) >= 8:
             margin += 0.5  # never feed someone about to win
         return gain > margin, gain
 
@@ -1239,7 +1239,7 @@ class AIPlayer:
         gives one card fewer. Returns (give, get, gain) from the proposer's side, or None.
         The smallest change that works is preferred, so the answer is a real offer and
         not an opening bid."""
-        if real.public_vp(proposer) >= 8 or not real.can_afford(responder, get):
+        if real.public_fame(proposer) >= 8 or not real.can_afford(responder, get):
             return None
         _, base = self.evaluate_offer(real, responder, proposer, give, get)
         if base < -0.8:
@@ -1314,7 +1314,7 @@ class AIPlayer:
         h = s.hands[p]
         base_sc, _, _ = self.plan_turn(s, p, beam=2, depth=2)
         offers = {}  # ordered set of (give, get)
-        for cost_name in ("city", "settlement", "dev", "road"):
+        for cost_name in ("town", "village", "venture", "trail"):
             cost = COSTS[cost_name]
             deficit = [max(0, cost[r] - h[r]) for r in range(5)]
             if sum(deficit) != 1:
@@ -1347,21 +1347,21 @@ def describe(s, a):
     b = s.board
     k = a[0]
     if k == "settle":
-        return f"settlement at {a[1]} [{b.describe_vertex(a[1])}]"
-    if k == "city":
-        return f"city at {a[1]} [{b.describe_vertex(a[1])}]"
-    if k == "road":
-        return f"road {a[1]}"
-    if k == "buy_dev":
-        return "buy development card"
-    if k == "play_knight":
-        return "play Knight"
-    if k == "play_road":
-        return "play Road Building"
-    if k == "play_mono":
-        return f"play Monopoly ({RES_NAMES[a[1]]})"
-    if k == "play_yop":
-        return f"play Year of Plenty ({RES_NAMES[a[1]]}+{RES_NAMES[a[2]]})"
+        return f"village at {a[1]} [{b.describe_vertex(a[1])}]"
+    if k == "town":
+        return f"town at {a[1]} [{b.describe_vertex(a[1])}]"
+    if k == "trail":
+        return f"trail {a[1]}"
+    if k == "buy_venture":
+        return "buy venture"
+    if k == "play_ranger":
+        return "play Ranger"
+    if k == "play_pathfinder":
+        return "play Pathfinder"
+    if k == "play_hoard":
+        return f"play Hoard ({RES_NAMES[a[1]]})"
+    if k == "play_windfall":
+        return f"play Windfall ({RES_NAMES[a[1]]}+{RES_NAMES[a[2]]})"
     if k == "bank":
         return f"trade {s.trade_ratio(s.actor(), a[1])} {RES_NAMES[a[1]]} -> {RES_NAMES[a[2]]}"
     if k == "macro":
@@ -1369,8 +1369,8 @@ def describe(s, a):
         return f"bank-trade ({trades}) and build {a[2]}"
     if k == "trade":
         return f"trade {fmt_cards(a[2])} for {fmt_cards(a[3])} with {s.names[a[1]]}"
-    if k == "robber":
-        txt = f"robber to {b.hex_label(a[1])}"
+    if k == "bandit":
+        txt = f"bandit to {b.hex_label(a[1])}"
         if a[2] != -1:
             txt += f", rob {s.names[a[2]]}"
         return txt
