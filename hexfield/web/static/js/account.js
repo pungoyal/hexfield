@@ -9,16 +9,21 @@ import { $, esc } from "./util.js";
 const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 const bytes = (s) => Uint8Array.from(atob(s.replaceAll("-", "+").replaceAll("_", "/")), (c) => c.charCodeAt(0));
 
-// who this browser is: { accounts, admin, host, user: { name, host } | null }
+// who this browser is: { accounts, admin, host, lan, user: { name, host } | null }. If the
+// server can't be asked, the first time assumes a plain local server; later it throws.
 export async function loadMe() {
-  try { G.me = await api("me"); } catch { G.me = { accounts: false, admin: false, host: true, user: null }; }
+  try { G.me = await api("me"); } catch (e) {
+    if (G.me) throw e;
+    G.me = { accounts: false, admin: false, host: true, user: null, lan: null };
+  }
   const me = G.me;
   const btn = $("#btn-account");
   btn.hidden = !me.accounts;
   btn.querySelector("span").textContent = me.user ? me.user.name : me.admin ? "Admin" : "Sign in";
   // the new game dialog can't be closed before there is a game: the account is reachable from it too
   $("#new-account").hidden = !me.accounts || !(me.user || me.admin);
-  $("#new-account").textContent = me.admin ? "Accounts…" : `${me.user?.name ?? ""}…`;
+  $("#new-account").textContent = me.admin ? "Accounts…" : "Account…";
+  $("#new-account").title = me.user ? `Signed in as ${me.user.name}` : "Approve who may host";
   // what only a host can use (the server refuses the rest anyway)
   for (const id of ["#btn-new", "#btn-games", "#over-replay"]) $(id).hidden = !me.host;
   return me;
@@ -54,11 +59,11 @@ const signUp = (name) => passkey(async () => {
 
 // approved yet? then on to the new game dialog, without a reload
 async function checkAgain() {
-  const me = await loadMe();
+  let me;
+  try { me = await loadMe(); } catch (e) { return toast("Couldn't check", e.message, "var(--worst)"); }
   if (!me.host) return toast("Not yet", `The admin hasn't let ${me.user?.name ?? "you"} host yet.`, "var(--muted)", 2600);
   $("#dlg-account").close();
-  toast("You can host now", "", "var(--good)", 2200);
-  if (!S) openNewGame(false);
+  if (!S) openNewGame(false); // the new game dialog is the news: no toast on top of it
 }
 
 async function signOut() {

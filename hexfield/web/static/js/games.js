@@ -8,7 +8,7 @@ import { modal, toast } from "./effects.js";
 import { fmtWhen, replayStep, sparkPoints } from "./logic.js";
 import { G, S, api, els, session, setSession } from "./state.js";
 import { human, plain, short, symbol } from "./text.js";
-import { $, $$, esc, pc, setHTML, sleep } from "./util.js";
+import { $, $$, esc, onThisComputer, pc, setHTML, sleep } from "./util.js";
 
 // ------------------------------------------------------------------ saved games
 let tab = "saved";
@@ -336,9 +336,9 @@ export function renderLobby() {
   box.hidden = !on;
   if (!on) return;
   const host = S.human === S.players.findIndex((p) => !p.bot);
-  const origin = S.lan && ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname) ? `http://${S.lan}:${location.port}` : location.origin;
+  const origin = S.lan && onThisComputer() ? `http://${S.lan}:${location.port}` : location.origin;
   const link = `${origin}/?g=${S.gid}`;
-  const reach = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname) && !S.lan;
+  const reach = onThisComputer() && !S.lan;
   setHTML(box, `<h2>Waiting for players</h2>
     <ul class="seat-list">${S.players.map((p, i) => `<li><span class="dot" style="background:${pc(i)}"></span>${p.open ? `<i class="muted">open seat…</i>` : esc(p.name)}${p.bot ? ` <span class="p-tag">bot</span>` : i === S.human ? ` <span class="p-tag">you</span>` : ""}</li>`).join("")}</ul>
     <p class="muted">Send the others this link:</p>

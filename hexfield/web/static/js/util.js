@@ -30,6 +30,8 @@ export const SVGNS = "http://www.w3.org/2000/svg";
 
 export const $ = (s, el = document) => el.querySelector(s);
 export const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+// is the page served from this very computer (where others can't reach it unless --lan)?
+export const onThisComputer = () => ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 export const pc = (p) => `var(--p${p})`;

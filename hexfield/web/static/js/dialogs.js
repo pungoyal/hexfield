@@ -8,7 +8,7 @@ import { setObvious } from "./keys.js";
 import { windfallPicks } from "./logic.js";
 import { G, S, api, myDecision } from "./state.js";
 import { BUILD_NAMES, BUILD_ORDER, buildChanges, buildChips, covers, handPlus, human, plain, symbol } from "./text.js";
-import { $, $$, COSTS, RES, delta, esc, icon, pc, resIcon, save, sleep, store } from "./util.js";
+import { $, $$, COSTS, RES, delta, esc, icon, onThisComputer, pc, resIcon, save, sleep, store } from "./util.js";
 
 // ------------------------------------------------------------------ dialogs
 export function stepperRow(r, max, onChange) {
@@ -466,6 +466,7 @@ export function openNewGame(cancellable = true) {
   const account = G.me?.user?.name;
   if (account) f.elements.name.value = account;
   f.elements.name.readOnly = !!account;
+  f.elements.name.tabIndex = account ? -1 : 0; // nothing to type: Tab skips it
   f.elements.name.title = account ? "Your account's name" : "";
   syncNewGame();
   f.elements.seed.value = "";
@@ -502,15 +503,16 @@ export function syncNewGame() {
     const box = $("#new-names");
     const have = $$("input", box).map((i) => i.value);
     const first = G.me?.user?.name; // the account holder sits first
-    box.innerHTML = Array.from({ length: humans }, (_, i) => `<label class="field">Player ${i + 1}<input name="pname${i}" maxlength="14" value="${esc(have[i] ?? (i === 0 ? first : undefined) ?? saved[i] ?? `Player ${i + 1}`)}" required></label>`).join("");
+    box.innerHTML = Array.from({ length: humans }, (_, i) => i === 0 && first
+      ? `<label class="field">Player 1<input name="pname0" maxlength="14" value="${esc(first)}" readonly tabindex="-1" title="Your account's name"></label>`
+      : `<label class="field">Player ${i + 1}<input name="pname${i}" maxlength="14" value="${esc(have[i] ?? saved[i] ?? `Player ${i + 1}`)}" required></label>`).join("");
   } else {
     $("#new-names").replaceChildren();
   }
-  const here = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname); // a server on this computer
   $("#new-multi-note").textContent = mode === "hotseat" ? "One screen for everyone: it goes dark between players, so nobody sees another hand."
     : mode !== "online" ? ""
-    : here ? "You get a link to send the others. They need to reach this computer: start the server with --lan on a shared network."
     : G.me?.accounts ? "You get a link to send the others. They sign in with a passkey to take their seat."
+    : onThisComputer() && !G.me?.lan ? "You get a link to send the others. They need to reach this computer: start the server with --lan on a shared network."
     : "You get a link to send the others.";
 }
 

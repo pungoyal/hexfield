@@ -444,7 +444,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _me(self):
         u = self.account()
-        return {"accounts": APP.accounts is not None, "admin": APP.accounts is not None and self.local(),
+        return {"accounts": APP.accounts is not None, "admin": APP.accounts is not None and self.local(), "lan": APP.lan,
                 "host": self.owner() is not None, "user": u and {"name": u["name"], "host": u["host"]}}
 
     def _auth(self, route, body):
@@ -596,8 +596,11 @@ class Handler(BaseHTTPRequestHandler):
             new = route == "new" and post
             if new:
                 u = self.account()
-                if u and not self.local():  # an account plays under its own name
+                if u and not self.local():  # an account plays under its own name, in the first human seat
+                    names = body.get("names")
                     body = {**body, "name": u["name"]}
+                    if isinstance(names, list) and names:
+                        body["names"] = [u["name"], *names[1:]]
                 g = APP.new(body, owner)
             else:
                 # "the newest game" is the host's shortcut; anyone else must name the game,

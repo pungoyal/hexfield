@@ -529,7 +529,6 @@ fieldset.seg legend { font-size: 12px; color: var(--muted); font-weight: 600; ma
 .field input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
 .field input:user-invalid { border-color: var(--worst); }
 .field input[readonly] { color: var(--muted); background: transparent; border-style: dashed; cursor: default; }
-.field input[readonly]:focus { outline: none; }
 .acct-as { margin-right: auto; align-self: center; font-size: 13px; }
 .acct-new { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-2); }
 
