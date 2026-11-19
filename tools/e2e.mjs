@@ -75,6 +75,16 @@ try {
   await page.key("h");
   await page.waitFor(`document.querySelectorAll("#coach-out .opt").length > 0`, 15000, "hint options");
   await page.key("Escape");
+
+  // U undoes on every screen, the trade dialog included (it has its own Undo button too)
+  step = "undo in the trade dialog";
+  await page.key("t");
+  await page.waitFor(`document.querySelector("#dlg-trade").open`, 6000, "the trade dialog");
+  check(await page.eval(`!!document.querySelector("#dlg-trade .dlg-undo:not([hidden])")`), "the trade dialog has no Undo button");
+  const evs0 = await page.eval(`(async () => (await import("/js/state.js")).S.ev_total)()`);
+  await page.key("u");
+  await until(page, `S.ev_total < ${evs0}`, "U in the trade dialog takes the last decision back");
+  await page.waitFor(`!document.querySelector("#dlg-trade").open`, 6000, "back before the roll, the trade dialog closes");
   await playUntil(page, (s) => s.turn >= 6);
   await until(page, `S.reviews.length > 0`, "decisions are reviewed", 30000);   // the coach works in the background
   if (SHOTS) await page.screenshot(`${SHOTS}/solo.png`);

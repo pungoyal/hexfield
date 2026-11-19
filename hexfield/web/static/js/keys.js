@@ -197,6 +197,8 @@ export function onKey(e) {
     }
     const el = keyTarget(scope, label);
     if (el) { e.preventDefault(); press(el); }
+    // U undoes in every dialog you can simply close, with or without an Undo button of its own
+    else if (label === "U" && dlg?.getAttribute("closedby") === "any" && !session.replay) { e.preventDefault(); undo(); }
     return;
   }
   if (k === "backspace" && keyBuf) { e.preventDefault(); keyBuf = keyBuf.slice(0, -1); renderKeys(); return; }
