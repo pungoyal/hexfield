@@ -30,6 +30,7 @@ create table if not exists passkeys (
   created real not null,
   used real
 );
+create unique index if not exists users_name on users (name collate nocase);
 create table if not exists sessions (
   token_hash blob primary key,  -- sha256 of the cookie, so the file holds no live session
   user_id text not null references users(id) on delete cascade,
@@ -59,6 +60,14 @@ class Accounts:
     def _q(self, sql, *args):
         with self.lock:
             return self.db.execute(sql, args).fetchall()
+
+    def named(self, name):
+        return bool(self._q("select 1 from users where name = ? collate nocase", name))
+
+    def delete(self, user_id):
+        """Remove an account with its passkeys and sessions. False when there is none."""
+        with self.lock:
+            return self.db.execute("delete from users where id = ?", (str(user_id),)).rowcount == 1
 
     def count(self):
         return self._q("select count(*) from users")[0][0]

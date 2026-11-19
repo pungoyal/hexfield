@@ -254,6 +254,48 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(Browser(self.port).sign_up("One more", Authenticator())["status"], 429)
         self.assertEqual(len(self.admin.call("accounts")["users"]), server.SIGNUP_BURST)
 
+    def test_names_are_unique(self):
+        self.account("Ada")
+        self.assertEqual(Browser(self.port).call("signup-options", {"name": "ADA"})["status"], 400)
+
+    def test_open_prompts_are_limited_per_address(self):
+        b = Browser(self.port)
+        for _ in range(server.MAX_CHALLENGES_EACH):
+            self.assertEqual(b.call("signin-options", {})["status"], 200)
+        self.assertEqual(b.call("signin-options", {})["status"], 403)
+        server.APP.challenge("signin", "198.51.100.1")   # others still can
+
+    def test_a_failed_sign_up_costs_no_allowance(self):
+        b, a = Browser(self.port), Authenticator()
+        for _ in range(int(server.SIGNUP_BURST) + 2):
+            self.assertEqual(b.call("signup", a.create(b.call("signup-options", {"name": "Ada"}), "https://evil.example"))["status"], 400)
+        self.assertEqual(b.sign_up("Ada", a)["status"], 200)
+
+    def test_the_admin_can_delete_an_account(self):
+        ada, a = self.account("Ada", host=True)
+        gid = ada.call("new", {"mode": "online", "humans": 2, "opponents": 1, "seed": 9})["gid"]
+        uid = self.admin.call("accounts")["users"][0]["id"]
+        self.assertEqual(self.admin.call("accounts", {"id": uid, "delete": True})["users"], [])
+        self.assertNotIn(gid, server.APP.games)
+        self.assertFalse(os.path.exists(os.path.join(os.environ["HEXFIELD_HOME"], "games", "users", uid)))
+        self.assertIsNone(ada.call("me")["user"])                    # its session went too
+        self.assertEqual(ada.sign_in(a)["status"], 403)               # and its passkey
+        self.assertEqual(self.admin.call("accounts", {"id": uid, "delete": True})["status"], 400)
+
+    def test_one_host_cant_push_the_others_games_out(self):
+        ada, _ = self.account("Ada", host=True)
+        bob, _ = self.account("Bob", host=True)
+        mine = bob.call("new", {"opponents": 2, "seed": 1})
+        self.assertTrue(mine["own"])
+        made = [ada.call("new", {"opponents": 2, "seed": i})["gid"] for i in range(server.MAX_LIVE_EACH + 3)]
+        try:
+            self.assertIn(mine["gid"], server.APP.games)
+            self.assertEqual(sum(g.owner != "" and g.gid in made for g in server.APP.games.values()), server.MAX_LIVE_EACH)
+            self.assertFalse(bob.call(f"state?g={made[-1]}").get("own"))
+        finally:
+            for gid in made + [mine["gid"]]:
+                (ada if gid in made else bob).call("delete", {"id": gid})
+
     def test_accounts_need_a_host_key(self):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             server.main(["--accounts", "--no-browser", "--port", "0"])
@@ -275,6 +317,9 @@ class ProxyTests(unittest.TestCase):
             self.assertEqual(self.remote("172.18.0.2", **fwd), "198.51.100.4")
             self.assertEqual(self.remote("172.18.0.2", X_Forwarded_For="6.6.6.6, 198.51.100.4"), "198.51.100.4")
             self.assertEqual(self.remote("172.18.0.2"), "172.18.0.2")
+            h = server.Handler.__new__(server.Handler)
+            h.client_address, h.headers = ("172.18.0.2", 4000), {"X-Forwarded-For": "2001:db8:1:2:3:4:5:6"}
+            self.assertEqual(h.client(), "2001:db8:1:2::/64")   # one network, however many addresses
         finally:
             server.APP.behind_proxy = False
 

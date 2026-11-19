@@ -55,6 +55,7 @@ from .session import MODES, Replay, WebGame
 MAX_BODY = 64 * 1024
 MAX_IMPORT = 4 * 1024 * 1024
 MAX_LIVE = 24           # live games kept in memory; the rest wait on disk
+MAX_LIVE_EACH = 4       # of them, an account's own: one host can't push everyone else's out
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 LOCAL = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 MAX_CONN = 200          # requests in flight; more are turned away instead of piling up threads
@@ -67,6 +68,7 @@ MAX_USERS = 5000
 SIGNUP_RATE, SIGNUP_BURST = 5 / 3600, 5.0   # new accounts one remote address may make: 5 an hour
 CHALLENGE_TTL = 300     # seconds a passkey prompt stays good for
 MAX_CHALLENGES = 10000
+MAX_CHALLENGES_EACH = 20  # open passkey prompts one remote address may hold
 PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP")
 # the client is plain files from this server: nothing else may run, frame it or be sent a
 # Referer (game ids travel in the query string)
@@ -105,7 +107,7 @@ class App:
         self.buckets = {}   # remote address -> [allowance, last seen]
         self.behind_proxy = False  # every request comes through a reverse proxy: trust its X-Forwarded-For
         self.accounts = None       # Accounts, on a server with --accounts
-        self.challenges = {}       # passkey challenge -> (what for, expiry, details)
+        self.challenges = {}       # passkey challenge -> (what for, expiry, details, remote address)
         atexit.register(self.close)
 
     @property
@@ -131,16 +133,16 @@ class App:
                 return False
             return True
 
-    def challenge(self, kind, **details):
+    def challenge(self, kind, addr, **details):
         """A fresh passkey challenge, good for one answer."""
         now = time.monotonic()
         with self.lock:
-            if len(self.challenges) >= MAX_CHALLENGES:
-                self.challenges = {c: v for c, v in self.challenges.items() if v[1] > now}
-                if len(self.challenges) >= MAX_CHALLENGES:
-                    raise Forbidden("too many sign-ins at once, try again in a minute")
+            self.challenges = {c: v for c, v in self.challenges.items() if v[1] > now}
+            if len(self.challenges) >= MAX_CHALLENGES or \
+                    sum(v[3] == addr for v in self.challenges.values()) >= MAX_CHALLENGES_EACH:
+                raise Forbidden("too many sign-ins at once, try again in a few minutes")
             c = passkey.b64u(secrets.token_bytes(32))
-            self.challenges[c] = (kind, now + CHALLENGE_TTL, details)
+            self.challenges[c] = (kind, now + CHALLENGE_TTL, details, addr)
         return c
 
     def answer(self, kind, challenge):
@@ -160,7 +162,10 @@ class App:
             self.games[game.gid] = game
             self.latest[game.owner] = game
             idle = sorted(self.games.values(), key=lambda g: g.touched)
-            drop = idle[:max(0, len(idle) - MAX_LIVE)]
+            mine = [g for g in idle if g.owner == game.owner] if game.owner else []
+            drop = mine[:max(0, len(mine) - MAX_LIVE_EACH)]
+            idle = [g for g in idle if g not in drop]
+            drop += idle[:max(0, len(idle) - MAX_LIVE)]
             for g in drop:
                 del self.games[g.gid]
                 if self.latest.get(g.owner) is g:
@@ -182,6 +187,19 @@ class App:
                 return None
             self.add(g)
         return g
+
+    def forget(self, owner):
+        """A deleted account: its live games and its saved ones go."""
+        with self.lock:
+            gone = [g for g in self.games.values() if g.owner == owner]
+            for g in gone:
+                del self.games[g.gid]
+            self.latest.pop(owner, None)
+            self.replays = {k: r for k, r in self.replays.items() if k[0] != owner}
+        for g in gone:
+            g.persist = False
+            g.close()
+        store.delete_owner(owner)
 
     def own(self, gid, owner):
         """One of this owner's games, or None."""
@@ -330,6 +348,16 @@ class Handler(BaseHTTPRequestHandler):
             return fwd.split(",")[-1].strip()[:64] or peer
         return peer
 
+    def client(self):
+        """remote(), with an IPv6 address cut to its /64: one network, which is what one
+        person can have many addresses in."""
+        addr = self.remote()
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            return addr
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False)) if ip.version == 6 else addr
+
     def seat_key(self):
         """The seat key from `Authorization: Bearer <key>`, or None. A header, not the query
         string, so it never reaches an access log or a browser's history."""
@@ -432,8 +460,14 @@ class Handler(BaseHTTPRequestHandler):
             if route == "accounts":
                 if not self.local():
                     raise Forbidden("only the admin can do that")
-                if self.command == "POST" and not acc.set_host(body.get("id"), body.get("host")):
-                    raise IllegalAction("no such account")
+                if self.command == "POST":
+                    uid = body.get("id")
+                    if body.get("delete"):
+                        if not acc.delete(uid):
+                            raise IllegalAction("no such account")
+                        APP.forget(uid)
+                    elif not acc.set_host(uid, body.get("host")):
+                        raise IllegalAction("no such account")
                 return self._send(200, {"users": acc.users()})
             if self.command != "POST":
                 return self._send(405, {"error": "use POST"}, headers=[("Allow", "POST")])
@@ -441,18 +475,20 @@ class Handler(BaseHTTPRequestHandler):
                 name = " ".join(str(body.get("name") or "").split())[:14]  # a player's name: see clean_name
                 if not name:
                     raise IllegalAction("choose a name")
+                if acc.named(name):
+                    raise IllegalAction(f"someone is already called {name}")
                 if acc.count() >= MAX_USERS:
                     raise Forbidden("this server isn't taking new accounts")
                 handle = secrets.token_bytes(16)
                 return self._send(200, {
-                    "challenge": APP.challenge("signup", name=name, id=handle.hex()),
+                    "challenge": APP.challenge("signup", self.client(), name=name, id=handle.hex()),
                     "rp": {"id": rp, "name": "Hexfield"},
                     "user": {"id": passkey.b64u(handle), "name": name, "displayName": name},
                     "pubKeyCredParams": [{"type": "public-key", "alg": passkey.ES256}],
                     "authenticatorSelection": {"residentKey": "required", "userVerification": "preferred"},
                     "attestation": "none", "timeout": CHALLENGE_TTL * 1000})
             if route == "signin-options":
-                return self._send(200, {"challenge": APP.challenge("signin"), "rpId": rp,
+                return self._send(200, {"challenge": APP.challenge("signin", self.client()), "rpId": rp,
                                         "userVerification": "preferred", "timeout": CHALLENGE_TTL * 1000})
             if route == "signout":
                 token = self.cookie(SESSION)
@@ -462,15 +498,16 @@ class Handler(BaseHTTPRequestHandler):
             client_data = passkey.unb64u(body.get("clientData", ""))
             auth_data = passkey.unb64u(body.get("authData", ""))
             if route == "signup":
-                if not APP.allow(("signup", self.remote()), rate=SIGNUP_RATE, burst=SIGNUP_BURST):
-                    return self._send(429, {"error": "too many new accounts from your address, try again later"})
                 challenge, cred, key, count = passkey.registration(
                     client_data, auth_data, passkey.unb64u(body.get("publicKey", "")), body.get("alg"), rp, origin)
                 want = APP.answer("signup", challenge)
+                # spent only by a sign-up that would succeed, so a failed prompt costs nothing
+                if not APP.allow(("signup", self.client()), rate=SIGNUP_RATE, burst=SIGNUP_BURST):
+                    return self._send(429, {"error": "too many new accounts from your address, try again later"})
                 try:
                     acc.create(want["id"], want["name"], cred, key, count)
                 except sqlite3.IntegrityError:
-                    raise IllegalAction("that passkey already has an account: sign in with it")
+                    raise IllegalAction("that name or passkey already has an account")
                 uid = want["id"]
             elif route == "signin":
                 cred = passkey.unb64u(body.get("id", ""))
@@ -629,6 +666,7 @@ class Handler(BaseHTTPRequestHandler):
                 # serialise under the lock: view() holds live lists the bots/reviewer mutate
                 if APP.lan:
                     extra["lan"] = APP.lan
+                extra["own"] = owner is not None and owner == g.owner  # its replay is theirs to watch
                 data = to_json({**g.view(seat, since), **extra})
             return self._send(200, data)
         except IllegalAction as ex:
@@ -780,8 +818,8 @@ def main(argv=None):
                     help="a public server: anyone can make an account with a passkey and join games; the "
                          "admin (whoever holds the host key) chooses who may host. Needs --host-key and HTTPS")
     ap.add_argument("--behind-proxy", action="store_true",
-                    help="every request comes through a reverse proxy (it can't be reached any other way): "
-                         "rate limits go by the client address in its X-Forwarded-For")
+                    help="every request comes through a reverse proxy, and nothing else can reach the server "
+                         "(any peer's X-Forwarded-For is believed): rate limits go by the client address in it")
     ap.add_argument("--allow-host", action="append", default=[], metavar="NAME",
                     help="a domain name this server is reached by (repeatable); addresses, localhost "
                          "and .local names always work")

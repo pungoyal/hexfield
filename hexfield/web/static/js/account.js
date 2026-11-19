@@ -16,7 +16,7 @@ export async function loadMe() {
   btn.hidden = !me.accounts;
   btn.querySelector("span").textContent = me.user ? me.user.name : me.admin ? "Admin" : "Sign in";
   // what only a host can use (the server refuses the rest anyway)
-  for (const id of ["#btn-new", "#btn-games", "#over-replay", "#over-watch"]) $(id).hidden = !me.host;
+  for (const id of ["#btn-new", "#btn-games", "#over-replay"]) $(id).hidden = !me.host;
   return me;
 }
 
@@ -86,9 +86,10 @@ export function openAccount() {
 async function loadUsers(data) {
   try {
     const { users } = data || await api("accounts");
-    $("#acct-users").innerHTML = users.length ? `<table class="info-table"><thead><tr><th>Name</th><th>Joined</th><th>Last sign-in</th><th>May host</th></tr></thead><tbody>${
+    $("#acct-users").innerHTML = users.length ? `<table class="info-table"><thead><tr><th>Name</th><th>Joined</th><th>Last sign-in</th><th>May host</th><th></th></tr></thead><tbody>${
       users.map((u) => `<tr><td>${esc(u.name)}</td><td>${new Date(u.created * 1000).toLocaleDateString()}</td><td>${u.seen ? new Date(u.seen * 1000).toLocaleDateString() : "—"}</td>
-        <td><input type="checkbox" data-user="${esc(u.id)}" ${u.host ? "checked" : ""} aria-label="${esc(u.name)} may host"></td></tr>`).join("")}</tbody></table>`
+        <td><input type="checkbox" data-user="${esc(u.id)}" ${u.host ? "checked" : ""} aria-label="${esc(u.name)} may host"></td>
+        <td><button class="btn ghost" data-delete="${esc(u.id)}" data-name="${esc(u.name)}">Delete</button></td></tr>`).join("")}</tbody></table>`
       : `<p class="muted">No accounts yet.</p>`;
   } catch (e) {
     $("#acct-users").innerHTML = `<p class="muted">Couldn't load the accounts: ${esc(e.message)}</p>`;
@@ -101,6 +102,9 @@ export function wireAccount() {
   body.addEventListener("click", (e) => {
     if (e.target.id === "acct-signin") signIn();
     else if (e.target.id === "acct-signout") signOut();
+    else if (e.target.dataset.delete && confirm(`Delete ${e.target.dataset.name}'s account and saved games?`)) {
+      api("accounts", { id: e.target.dataset.delete, delete: true }).then(loadUsers, (err) => toast("Couldn't delete", err.message, "var(--worst)"));
+    }
   });
   body.addEventListener("submit", (e) => {
     e.preventDefault();

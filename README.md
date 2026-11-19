@@ -177,9 +177,11 @@ PIN their device already uses. There's no password or email. An account can join
 game it has an invite link for, playing under its own name; joining needs an account.
 Hosting games, saved games and replays is for the accounts the admin allows: the admin is
 the browser holding the host key, whose **Admin** button lists the accounts with a
-*May host* switch for each. Each account sees only its own saved games (the 50 newest are
+*May host* switch and a *Delete* button for each (deleting removes the account's saved
+games too). Names are unique. Each account sees only its own saved games (the 50 newest are
 kept), in `games/users/<account>` under `$HEXFIELD_HOME`; the accounts themselves are in
-`accounts.db` beside them. One address can make 5 accounts an hour.
+`accounts.db` beside them. One address (one IPv6 /64) can make 5 accounts an hour, and each
+host keeps at most 4 games live in memory at once, so nobody can push the others' games out.
 
 Passkeys belong to a domain name, so they work over HTTPS or on `localhost`, never on a
 bare IP address.
@@ -206,7 +208,9 @@ never the URL, so access logs that drop that header never hold one). With Caddy 
 The request allowances below go by the client's address. The server reads it from the
 proxy's `X-Forwarded-For` when the proxy runs on the same machine. When the proxy is
 elsewhere (another container) and nothing else can reach the server, say so with
-`--behind-proxy`; otherwise every player would share the proxy's allowance.
+`--behind-proxy`; otherwise every player would share the proxy's allowance. That flag
+believes the header from any peer, so use it only where every peer is your proxy (on
+hex.vaari.dev, the edge network holds only the shared Caddy and the owner's own apps).
 
 The server also protects itself and its players:
 

@@ -430,6 +430,7 @@ export function showHelp() {
 export function showGameOver() {
   const sm = S.summary;
   if (!sm) return;
+  $("#over-watch").hidden = S.own === false; // a game you were invited to is saved by its host
   const won = S.winner === S.human;
   $("#over-title").innerHTML = `<div class="over-banner ${won ? "win" : ""}">${won ? "♛ You win!" : `${esc(S.players[S.winner].name)} wins`}</div>`;
   // where every point came from

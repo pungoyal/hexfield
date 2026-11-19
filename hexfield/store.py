@@ -14,6 +14,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import tempfile
 import time
 
@@ -84,6 +85,12 @@ def delete(gid, owner=""):
         return True
     except OSError:
         return False
+
+
+def delete_owner(owner):
+    """Remove every saved game of an account."""
+    if OWNER_RE.match(owner or ""):
+        shutil.rmtree(os.path.join(home(), "games", "users", owner), ignore_errors=True)
 
 
 def _summary(gid, d):
