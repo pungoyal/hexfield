@@ -1,14 +1,17 @@
-# The production stack: one web service, behind the server's shared Caddy (vaari-dev/edge).
+# The production stack: one service, behind the server's shared Caddy (vaari-dev/edge).
 # CI copies this file to /opt/hexfield and writes .env beside it from deploy/.env.example;
 # nothing here is edited on the server. By hand there:
 #
 #   cd /opt/hexfield && docker compose ps | logs -f | restart
 #
 # No ports are published: Caddy reaches the server over the shared network as hexfield:8765.
+# deploy/deploy.sh (run by CI) lists everything a deploy may touch on the shared server.
 name: hexfield
 
 services:
-  web:
+  # Named after the app, not `web`: Compose puts the service name on every network the
+  # service joins, and a generic name on the shared one could take another app's traffic.
+  hexfield:
     image: ghcr.io/vaari-dev/hexfield:${IMAGE_TAG:?IMAGE_TAG is not set}
     restart: unless-stopped
     # The image runs `hexfield-web --lan --no-browser`; these are added to it.
@@ -46,11 +49,10 @@ services:
       retries: 3
       start_period: 20s
       start_interval: 1s
+    # On the shared network it answers to `hexfield` (the service name) and nothing generic;
+    # the edge's sites/hexfield.caddy proxies to hexfield:8765.
     networks:
-      edge:
-        # Unique on the shared network: the edge's sites/hexfield.caddy proxies to it.
-        aliases:
-          - hexfield
+      - edge
 
 volumes:
   data:

@@ -207,7 +207,7 @@ The public server runs on one Oracle Cloud ARM VM next to other apps. A single C
 ([vaari-dev/edge](https://github.com/vaari-dev/edge)) terminates HTTPS for all of them. Its
 `sites/hexfield.caddy` sends `hex.vaari.dev` to `hexfield:8765` on the shared Docker
 network. Hexfield is its own Compose project ([`deploy/compose.yaml`](deploy/compose.yaml)),
-publishes no ports, and only its `web` service joins that network.
+publishes no ports, and only its one service (also called `hexfield`) joins that network.
 
 On every push to `main`, CI runs all the checks, then builds a linux/arm64 image and pushes it
 to GHCR as `ghcr.io/vaari-dev/hexfield:<commit>` and `:main`. If the `DEPLOY_ENABLED`
@@ -216,12 +216,27 @@ repository variable is `true`, the deploy job then:
 1. writes the server's `/opt/hexfield/.env` from GitHub settings, one key per line of
    [`deploy/.env.example`](deploy/.env.example), and copies the compose file next to it.
    A missing or placeholder value stops the deploy before the server is touched;
-2. pulls the new image, then swaps in the new files;
+2. pulls the new image onto the server, then swaps in the new files;
 3. restarts the stack and waits up to 2 minutes for the health check. If the new release
    doesn't become healthy, it starts the previous one again and fails the run.
 
-It touches only `/opt/hexfield`, the `hexfield` Compose project and its own images. Games
-live in the `hexfield_data` volume and survive every deploy.
+The server is shared with other apps, so a deploy ([`deploy/deploy.sh`](deploy/deploy.sh))
+touches nothing but its own:
+
+* **Directory:** `/opt/hexfield`. The deploy refuses any path that isn't a single folder
+  directly under `/opt/`.
+* **Compose project:** `hexfield`, which is one container and the `hexfield_data` volume
+  where games live (they survive every deploy). Its service is also called `hexfield`, so
+  that is the only name it adds to the shared network. A generic name like `web` could take
+  another app's traffic.
+* **Images:** `ghcr.io/vaari-dev/hexfield` tags. It keeps the running release and the one
+  before it, and removes older ones. It never runs a system-wide prune.
+
+It joins the edge's network but never creates, changes or removes it. It stores no registry
+login on the server: the server's Docker pulls with the CI runner's login, which is sent
+with that pull only, so the `~/.docker` shared by other apps is left alone. Before changing
+anything it checks that no other project is called `hexfield` and that no other container
+answers to `hexfield` on the network; if either is true, it stops.
 
 Settings live in the `oracle-cloud` GitHub environment, which only `main` may deploy to:
 
