@@ -106,7 +106,7 @@ jobs:
   # /opt/hexfield, the `hexfield` Compose project and its own images.
   deploy:
     needs: [test, browser, image]
-    if: vars.DEPLOY_ENABLED == 'true'
+    if: github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
     environment: oracle-cloud
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 5
