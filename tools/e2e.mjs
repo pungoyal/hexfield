@@ -145,7 +145,8 @@ try {
 
   step = "six players";
   await newGame(page, { mode: "solo", opponents: "5", level: "easy", seed: "7" });
-  check(await page.eval(`document.querySelectorAll("#board .hex-tile").length`) === 30, "30 hexes");
+  // the dialog closes before the new board replaces the old one: wait for it, don't sample it
+  await page.waitFor(`document.querySelectorAll("#board .hex-tile").length === 30`, 8000, "30 hexes");
   check(await page.eval(`document.querySelectorAll("#players .player").length`) === 6, "six player panels");
   await playUntil(page, (s) => s.turn >= 8);
   if (SHOTS) await page.screenshot(`${SHOTS}/six.png`);
