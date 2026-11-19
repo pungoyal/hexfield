@@ -200,6 +200,62 @@ The server also protects itself and its players:
 It is built for a table of friends, not for strangers at scale. There are no accounts, one
 process holds every live game, and the bots think on the server's CPU.
 
+
+### Deploying hex.vaari.dev
+
+The public server runs on one Oracle Cloud ARM VM next to other apps. A single Caddy
+([vaari-dev/edge](https://github.com/vaari-dev/edge)) terminates HTTPS for all of them. Its
+`sites/hexfield.caddy` sends `hex.vaari.dev` to `hexfield:8765` on the shared Docker
+network. Hexfield is its own Compose project ([`deploy/compose.yaml`](deploy/compose.yaml)),
+publishes no ports, and only its `web` service joins that network.
+
+On every push to `main`, CI runs all the checks, then builds a linux/arm64 image and pushes it
+to GHCR as `ghcr.io/vaari-dev/hexfield:<commit>` and `:main`. If the `DEPLOY_ENABLED`
+repository variable is `true`, the deploy job then:
+
+1. writes the server's `/opt/hexfield/.env` from GitHub settings, one key per line of
+   [`deploy/.env.example`](deploy/.env.example), and copies the compose file next to it.
+   A missing or placeholder value stops the deploy before the server is touched;
+2. pulls the new image, then swaps in the new files;
+3. restarts the stack and waits up to 2 minutes for the health check. If the new release
+   doesn't become healthy, it starts the previous one again and fails the run.
+
+It touches only `/opt/hexfield`, the `hexfield` Compose project and its own images. Games
+live in the `hexfield_data` volume and survive every deploy.
+
+Settings live in the `oracle-cloud` GitHub environment, which only `main` may deploy to:
+
+| Name                 | Where                  | Value                                                   |
+| -------------------- | ---------------------- | ------------------------------------------------------- |
+| `DEPLOY_ENABLED`     | repository variable    | `true` once the server and the settings below are ready |
+| `DOCKER_NETWORK`     | repository variable    | the edge's shared network, exactly as in edge: `edge`   |
+| `DEPLOY_HOST`        | environment variable   | the server's public IP                                  |
+| `DEPLOY_USER`        | environment variable   | SSH user in the `docker` group (`ubuntu`)               |
+| `DEPLOY_KNOWN_HOSTS` | environment variable   | `ssh-keyscan -t ed25519 <host>` output                  |
+| `HEXFIELD_DOMAIN`    | environment variable   | `hex.vaari.dev`                                         |
+| `DEPLOY_SSH_KEY`     | environment secret     | private half of a deploy key whose public half is on the server |
+| `HEXFIELD_HOST_KEY`  | environment secret     | 16+ characters: `python3 -c "import secrets; print(secrets.token_urlsafe(24))"` |
+
+```sh
+gh api -X PUT repos/vaari-dev/hexfield/environments/oracle-cloud \
+  -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
+gh api -X POST repos/vaari-dev/hexfield/environments/oracle-cloud/deployment-branch-policies -f name=main
+gh variable set DOCKER_NETWORK --body edge
+gh variable set HEXFIELD_DOMAIN --env oracle-cloud --body hex.vaari.dev
+gh variable set DEPLOY_HOST --env oracle-cloud --body <ip>
+gh variable set DEPLOY_USER --env oracle-cloud --body ubuntu
+ssh-keyscan -t ed25519 <ip> | gh variable set DEPLOY_KNOWN_HOSTS --env oracle-cloud
+gh secret set DEPLOY_SSH_KEY --env oracle-cloud < deploy_key
+python3 -c "import secrets; print(secrets.token_urlsafe(24))" | gh secret set HEXFIELD_HOST_KEY --env oracle-cloud
+gh variable set DEPLOY_ENABLED --body true      # last
+```
+
+Before the first deploy, the edge must be running (it creates the network), `hex.vaari.dev`
+needs a DNS-only `A` record pointing at the VM (edge's `scripts/dns.sh`), and the deploy
+user needs passwordless `sudo` once so the job can create `/opt/hexfield`. Then open
+`https://hex.vaari.dev/?host=<HEXFIELD_HOST_KEY>` once to become the host. To deploy again
+without a new commit, re-run the workflow's latest run on `main`.
+
 ## Rules
 
 * A random board with balanced tile, number and dock distributions. The red numbers
@@ -369,7 +425,8 @@ and checks that every module parses and every import resolves. Without Node thos
 are skipped. The real-browser run also needs Chrome or Chromium (set `CHROME_BIN` if it
 isn't in a usual place) and is opt-in. GitHub Actions runs all of it on arm64 runners,
 then builds the package and the Docker image and checks that the container starts and
-stops cleanly.
+stops cleanly. On `main` it then publishes the image and deploys it (see
+[Deploying hex.vaari.dev](#deploying-hexvaaridev)).
 
 ## Contributing
 

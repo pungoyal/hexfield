@@ -5,6 +5,9 @@
 #
 # Then open http://<server>:8765/?host=<the key> once: that browser runs the games.
 FROM --platform=linux/arm64 python:3.15-slim
+LABEL org.opencontainers.image.source=https://github.com/vaari-dev/hexfield \
+      org.opencontainers.image.description="Hexfield: a hex-board settling and trading game" \
+      org.opencontainers.image.licenses=MIT
 
 RUN useradd --create-home --uid 10001 hexfield && mkdir /data && chown hexfield /data
 WORKDIR /src
