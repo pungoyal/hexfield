@@ -398,8 +398,11 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return name in APP.hosts or name.endswith(".local")
 
+    def https(self):
+        return (self.headers.get("X-Forwarded-Proto") or "").lower() == "https"
+
     def _cookie_header(self, name, value, days):
-        secure = "; Secure" if (self.headers.get("X-Forwarded-Proto") or "").lower() == "https" else ""
+        secure = "; Secure" if self.https() else ""
         return ("Set-Cookie", f"{name}={value}; Path=/; Max-Age={days * 86400}; HttpOnly; SameSite=Strict{secure}")
 
     def _login(self, body):
@@ -424,8 +427,7 @@ class Handler(BaseHTTPRequestHandler):
         if acc is None:
             return self._send(404, {"error": "this server has no accounts"})
         rp = host_name(self.headers.get("Host"))
-        proto = "https" if (self.headers.get("X-Forwarded-Proto") or "").lower() == "https" else "http"
-        origin = f"{proto}://{self.headers.get('Host')}"
+        origin = f"{'https' if self.https() else 'http'}://{self.headers.get('Host')}"
         try:
             if route == "accounts":
                 if not self.local():
