@@ -1,4 +1,4 @@
-"""Interactive terminal game: you vs. 2 or 3 machine opponents."""
+"""The terminal game: you against 2 to 5 bots, with the coach, saves and replays."""
 
 import argparse
 import random

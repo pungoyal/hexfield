@@ -1,4 +1,4 @@
-"""Static rules data for the base game."""
+"""Static rules data: costs, tile, number and port bags, and the fixed beginner map."""
 
 WOOD, BRICK, SHEEP, WHEAT, ORE = range(5)
 DESERT = 5

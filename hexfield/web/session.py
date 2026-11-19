@@ -386,7 +386,7 @@ class Table:
                         break
                 if steps[-1][0] == "bank":
                     steps, used = steps[:1], 1
-        # keep only the prefix that is legal on the real game
+        # keep only the prefix that is legal outside the simulation
         t = s.clone(sim=False)
         ok = 0
         for st in steps:

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Hexfield is open source under the MIT license.
 * Needs Python 3.15. CI uses Node 26 and the latest GitHub Actions, and runs on arm64.
 * The Docker image is built for linux/arm64, on `python:3.15-slim`.
 

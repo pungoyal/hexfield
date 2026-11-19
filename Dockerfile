@@ -8,7 +8,7 @@ FROM --platform=linux/arm64 python:3.15-slim
 
 RUN useradd --create-home --uid 10001 hexfield && mkdir /data && chown hexfield /data
 WORKDIR /src
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md LICENSE ./
 COPY hexfield ./hexfield
 RUN pip install --no-cache-dir . && rm -rf /src
 

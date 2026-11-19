@@ -35,7 +35,7 @@ class LargeBoardTests(unittest.TestCase):
         self.assertEqual(b.hex_resource, Board(1, large=False, layout="random").hex_resource)
         self.assertEqual(GameState(4, seed=5).board.hex_number, GameState(4, seed=5, dice="balanced").board.hex_number)
 
-    def test_beginner_board_is_the_rulebook_map(self):
+    def test_beginner_board_is_the_fixed_map(self):
         a, b = Board(1, layout="beginner"), Board(99, layout="beginner")
         self.assertEqual(a.hex_resource, [t for t, _ in BEGINNER_TILES])
         self.assertEqual(a.hex_number, [n for _, n in BEGINNER_TILES])
@@ -44,7 +44,7 @@ class LargeBoardTests(unittest.TestCase):
         self.assertEqual([a.hex_resource.count(r) for r in (WOOD, BRICK, SHEEP, WHEAT, ORE)], [4, 3, 4, 4, 3])
         self.assertEqual(sorted(str(k) for _, k in a.ports), sorted(["any"] * 4 + [str(r) for r in range(5)]))
         self.assertTrue(a._fair_numbers(a.hex_number))
-        # each harbour sits by the hex the rulebook shows, clockwise from the top left
+        # each harbour sits by its fixed hex, clockwise from the top left
         by = [(a.edge_hexes[e][0], kind) for e, kind in a.ports]
         self.assertEqual(by, [(0, "any"), (1, WHEAT), (6, ORE), (11, "any"), (15, SHEEP), (18, "any"),
                               (16, "any"), (12, BRICK), (3, WOOD)])
