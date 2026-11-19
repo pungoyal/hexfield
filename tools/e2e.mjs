@@ -58,7 +58,7 @@ async function playUntil(p, done, moves = 400) {
 }
 
 const page = await launch(URL);
-let guest = null;
+let guest = null, phone = null;
 try {
   await page.eval(`localStorage.clear(); localStorage.setItem("hexfield.speed", '"fast"')`);
   await page.goto(URL);
@@ -193,9 +193,29 @@ try {
   await playUntil(page, (s) => s.turn >= 8);
   if (SHOTS) await page.screenshot(`${SHOTS}/six.png`);
 
+  // a phone: the whole game on one screen (bar, the others, the board, your cards, the big button)
+  step = "phone";
+  phone = await launch(URL, { width: 390, height: 760, mobile: true });
+  await phone.waitFor(`document.querySelectorAll("#board .hex-tile").length === 30`, 8000, "the board on a phone");
+  await wait(600);
+  const lay = await phone.eval(`(() => { const r = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return { top: b.top, bottom: b.bottom, width: b.width }; };
+    return { players: r("#players"), board: r("#board"), tray: r(".tray"), status: r("#status"), w: innerWidth, h: innerHeight,
+      wide: document.documentElement.scrollWidth, chips: [...document.querySelectorAll("#players .player")].map((p) => p.getBoundingClientRect().top) }; })()`);
+  if (SHOTS) await phone.screenshot(`${SHOTS}/phone.png`);
+  if (process.env.E2E_DEBUG) console.log(JSON.stringify(lay));
+  check(lay.wide <= lay.w, "the page scrolls sideways on a phone");
+  check(lay.status.bottom <= lay.players.top + 1 && lay.players.bottom <= lay.board.top + 1 && lay.board.bottom <= lay.tray.top + 1, "bar, players, board and tray are not in that order");
+  check(lay.board.width >= lay.w - 1, "the board does not run from edge to edge");
+  check(lay.tray.bottom <= lay.h, "the tray does not fit on the first screen");
+  check(new Set(lay.chips.map(Math.round)).size === 1, "the players are not one strip");
+  if (SHOTS) await phone.screenshot(`${SHOTS}/phone.png`);
+  await phone.eval(`document.querySelector("#players").click()`);
+  check(await phone.eval(`getComputedStyle(document.querySelector("#players .p-race")).display !== "none"`), "a tap does not open the player cards");
+  check(phone.errors.length === 0, "phone page errors: " + phone.errors.join(" | "));
+
   step = "page errors";
   check(page.errors.length === 0, page.errors.join(" | "));
-  console.log("ok: solo, hint, reload, saved games, replay, pass and play, take-backs, online, no bot offers, six players");
+  console.log("ok: solo, hint, reload, saved games, replay, pass and play, take-backs, online, no bot offers, six players, phone");
 } catch (e) {
   console.error("FAILED " + e.message);
   if (page.errors.length) console.error("page errors: " + page.errors.join(" | "));
@@ -203,5 +223,6 @@ try {
   process.exitCode = 1;
 } finally {
   if (guest) await guest.close();
+  if (phone) await phone.close();
   await page.close();
 }

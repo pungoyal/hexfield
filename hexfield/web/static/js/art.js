@@ -327,24 +327,22 @@ export function trailArt({ x1, y1, x2, y2 }) {
     <line class="low" ${off(-2.3)}/><line class="shine" ${off(2.1)}/>`;
 }
 
-// the bandit's camp: a dark tent under a red pennant, two eyes in the doorway
+// the bandit's camp: a plain dark tent, two eyes in the doorway
 export const BANDIT = `
   <ellipse cx="1.5" cy="15.6" rx="15.5" ry="4" fill="#000" opacity=".42"/>
-  <path d="M0-23.5V-13" stroke="#07080b" stroke-width="1.7" stroke-linecap="round"/>
-  <path d="M.4-23.6 9.6-20.4.4-17.4z" fill="#e5484d" stroke="#07080b" stroke-width=".9" stroke-linejoin="round"/>
   <path d="M0-14.5 14.2 14.4H-14.2z" fill="url(#g-bandit)" stroke="#07080b" stroke-width="1.5" stroke-linejoin="round"/>
   <path d="M-9.6 8.6-2.6-6.2" fill="none" stroke="#aab2c4" stroke-width="1.4" stroke-linecap="round" opacity=".55"/>
   <path d="M0-2.4 5.6 14.4H-5.6z" fill="#07080b" opacity=".9"/>
   <circle class="eye" cx="-1.7" cy="7.2" r="1.15"/><circle class="eye" cx="1.7" cy="7.2" r="1.15"/>`;
 
-// A number marker is a dark, flat-topped plaque: the number, and under it a five-step
-// gauge of how often it is rolled. The two busiest numbers are lit in gold.
+// A number marker is a flat-topped paper plaque: the number in ink, and under it five dots
+// that fill with how often it is rolled. The two busiest numbers are heavier and warmer.
 const flatHex = (r) => Array.from({ length: 6 }, (_, i) => `${f1(Math.cos((Math.PI / 3) * i) * r)},${f1(Math.sin((Math.PI / 3) * i) * r)}`).join(" ");
-const PLAQUE = [flatHex(20.8), flatHex(20), flatHex(16.6)];
+const PLAQUE = [flatHex(19), flatHex(18.4)];
 export function tokenArt(num, pips) {
-  let s = `<polygon class="t-shadow" points="${PLAQUE[0]}" transform="translate(0 2.6)"/><polygon class="disc" points="${PLAQUE[1]}"/><polygon class="t-ring" points="${PLAQUE[2]}"/>
+  let s = `<polygon class="t-shadow" points="${PLAQUE[0]}" transform="translate(0 2.6)"/><polygon class="disc" points="${PLAQUE[1]}"/>
     <text y="-3.8">${num}</text>`;
-  for (let k = 0; k < 5; k++) s += `<rect class="pip ${k < pips ? "on" : ""}" x="${f1((k - 2) * 4.9 - 1.9)}" y="7.4" width="3.8" height="3.8" rx="1"/>`;
+  for (let k = 0; k < 5; k++) s += `<circle class="pip ${k < pips ? "on" : ""}" cx="${f1((k - 2) * 4.6)}" cy="9" r="1.6"/>`;
   return s;
 }
 

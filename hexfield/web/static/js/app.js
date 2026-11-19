@@ -291,6 +291,10 @@ export function wireUI() {
     if (e.target.closest("#show-over")) showGameOver();
     if (e.target.closest("#tb-withdraw")) answerTakeback(false);
   });
+  // phones size the board to what the tray leaves (it grows with ventures and warnings)
+  new ResizeObserver(() => document.documentElement.style.setProperty("--tray-h", `${$(".tray").offsetHeight}px`)).observe($(".tray"));
+  // phones show the players as a strip of counters: a tap opens the full cards, another closes them
+  $("#players").addEventListener("click", () => $("#players").classList.toggle("open"));
   $("#tb-yes").onclick = () => closeTakeback(true);
   $("#tb-no").onclick = () => closeTakeback(false);
   $("#dlg-takeback").addEventListener("cancel", (e) => e.preventDefault());
