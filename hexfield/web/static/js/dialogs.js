@@ -374,7 +374,6 @@ export function showStats() {
 
 export function showHelp() {
   const k = (keys, what) => `<span>${keys.map((x) => `<kbd>${x}</kbd>`).join(" ")}</span><span>${what}</span>`;
-  const undoKey = $("#btn-undo").dataset.key;
   const cost = (c) => c.flatMap((n, r) => Array.from({ length: n }, () => resIcon(r))).join("");
   openInfo("How to play", `<div class="help">
     <p>First to <b>10 VP</b> on their own turn wins. Settlements are worth 1, cities 2, Longest Road (5+ roads) and Largest Army (3+ knights) 2 each, and hidden victory-point cards 1.</p>
@@ -404,7 +403,7 @@ export function showHelp() {
     <h3>Coach and game</h3>
     <div class="help-grid">
       ${k(["H"], "Hint: the engine's top options")}${k(["⇧1–⇧5"], "Play hint option 1–5")}${k(["⇧V"], "Evaluate every player")}${k(["⇧A"], "All your moves, rated")}
-      ${k([undoKey], "Undo your last decision (the dice stay the same)")}${k(["⇧S"], "Dice statistics")}${k(["⇧N"], "New game")}${k(["⇧G"], "Saved games, replays, progress")}${k(["?"], "This help")}
+      ${k(["U"], "Undo your last decision, on every screen and in every dialog (the dice stay the same)")}${k(["⇧S"], "Dice statistics")}${k(["⇧N"], "New game")}${k(["⇧G"], "Saved games, replays, progress")}${k(["?"], "This help")}
       ${k(["⇧C"], "Colour-blind marks: a safer palette and seat numbers on the pieces")}${k(["Tab", "↵"], "Every board spot is a button: Tab to it, Enter to build")}
       ${k(["⇧R"], "Turn move reviews on/off")}${k(["⇧B"], "Show/hide bot reasoning")}${k(["⇧F"], "Bot speed")}${k(["⇧O"], "Auto-roll on/off")}
     </div>

@@ -238,9 +238,6 @@ export function wireUI() {
 
   $("#btn-roll").onclick = () => act(["roll"]);
   $("#btn-end").onclick = () => { G.mode = null; act(["end"]); };
-  const mac = /Mac|iP/.test(navigator.platform);
-  $("#btn-undo").dataset.key = mac ? "⌘Z" : "Ctrl Z";
-  $("#btn-undo").title = `Undo your last decision (${mac ? "⌘Z" : "Ctrl+Z"})`;
   decorateKeys();
   $("#btn-dev").onclick = () => act(["buy_dev"]);
   $("#btn-trade").onclick = () => openTrade();

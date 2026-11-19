@@ -47,11 +47,18 @@ class KeyTests(unittest.TestCase):
             dupes = {k for k in keys if keys.count(k) > 1}
             self.assertFalse(dupes, f"{scope} reuses keys {dupes}")
 
-    def test_web_shortcuts_avoid_hex_letters(self):
-        keys = web_shortcuts()
-        self.assertIn("r", keys)  # parsed the main screen
-        clash = {k.upper() for k in keys} & set(HEX_LETTERS)
-        self.assertFalse(clash, f"web shortcuts reuse hex letters: {clash}")
+    def test_undo_is_u_on_every_screen(self):
+        scopes = html_scopes()
+        self.assertIn("r", web_shortcuts())  # parsed the main screen
+        self.assertIn("U", scopes["main"])
+        html = (ROOT / "hexfield/web/static/index.html").read_text()
+        undo = re.findall(r'<button[^>]*(?:id="btn-undo"|class="[^"]*dlg-undo[^"]*")[^>]*>', html)
+        self.assertGreaterEqual(len(undo), 4)
+        for tag in undo:
+            self.assertIn('data-key="U"', tag)
+        # no other control may claim U anywhere
+        for scope, keys in scopes.items():
+            self.assertLessEqual(keys.count("U"), 1, scope)
 
     def test_cli_commands_avoid_hex_letters(self):
         cmds = cli_commands()

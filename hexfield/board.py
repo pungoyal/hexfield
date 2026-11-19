@@ -29,9 +29,9 @@ def axial_coords(large=False):
     return [(q, r) for r in range(-2, 3) for q in range(-2, 3) if abs(q + r) <= 2]
 
 
-# Hex names skip every single-key command, so typing a hex letter can never be
-# read as something else: B/H/Q in the terminal (board, hint, quit) and
-# D/E/H/R/T in the browser (dev card, end turn, hint, roll, trade).
+# Hex names skip every single-key command of the terminal (b, d, e, h, q, r, t), so
+# typing a hex letter there can never be read as something else. The browser doesn't
+# use these names for keys: it letters the spots by rank, skipping its own shortcuts.
 HEX_LETTERS = "ACFGIJKLMNOPSUVWXYZ"
 # the large board has more hexes than letters: the rest are AA, AC, AF ...
 HEX_LABELS = list(HEX_LETTERS) + ["A" + c for c in HEX_LETTERS]

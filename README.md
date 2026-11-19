@@ -69,7 +69,7 @@ to compare your move with the engine's. Undo works as in the terminal, at any mo
 the bots play, in the discard and bot-offer dialogs (an **Undo** button, or `U`), and after
 the game ends. Bots play at a
 selectable speed. Keys: `R` roll, `1/2/3` road/settlement/city, `D` dev card,
-`T` trade, `E` end turn, `H` hint, `Ctrl+Z` (`⌘Z` on a Mac) undo, `?` help. Reloading the
+`T` trade, `E` end turn, `H` hint, `U` undo (the same key on every screen and in every dialog), `?` help. Reloading the
 page resumes the game, and so does restarting the server.
 
 Every spot you can build on is also a real button: `Tab` to it and press `Enter`, and a

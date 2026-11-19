@@ -173,6 +173,7 @@ export function onKey(e) {
   if (!dlg && !e.metaKey && !e.ctrlKey && !e.target.matches("button, a, [role=button]") && replayKey(e)) { e.preventDefault(); return; }
   if (!dlg && session.replay && e.key === "Escape") { e.preventDefault(); replayKey(e); return; }
   if (e.metaKey || e.ctrlKey) {
+    // U is the undo key on every screen; Ctrl/⌘+Z still works out of habit
     if (k === "z" && (!dlg || dlg.id !== "dlg-new") && !session.replay) { e.preventDefault(); undo(); }
     return;
   }
