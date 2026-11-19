@@ -151,8 +151,11 @@ export function handGains(evs) {
 }
 
 // ------------------------------------------------------------------ toasts
+// a dialog that grows once its content arrives (the saved games list) may have run out of room for toasts
+const dlgSize = new ResizeObserver((es) => { if (es.some((e) => e.target.open)) raiseToasts(); });
 export function modal(dlg) {
   dlg.showModal();
+  dlgSize.observe(dlg);
   // without an explicit autofocus the browser focuses the first button (often ✕),
   // and Enter would press that instead of the dialog's ↵ action
   if (!dlg.querySelector("[autofocus]")) { dlg.tabIndex = -1; dlg.focus(); }

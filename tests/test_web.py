@@ -375,7 +375,16 @@ class SessionTests(unittest.TestCase):
         self.assertEqual((g.s.turn, g.s.phase, len(g.s.events)), after)
         self.assertEqual(g.view(me)["takeback_result"]["ok"], False)
         self.assertEqual(g.view(me)["takeback_result"]["by"], y)
-        # asked again and allowed by all: back to before the decision
+        # one request per decision: nobody can hold the game up by asking over and over
+        self.assertFalse(g.view(me)["can_undo"])
+        with self.assertRaises(Exception):
+            g.undo(me)
+        # the next decision, allowed by all: back to before it
+        play_until(g, lambda g: g.s.phase == "main" and g.s.actor() in g.humans)
+        me = g.s.actor()
+        x, y = [q for q in g.humans if q != me]
+        before = (g.s.turn, g.s.phase, len(g.s.events))
+        g.act(["end"], me)
         self.assertTrue(g.view(me)["can_undo"])
         g.undo(me)
         g.answer_takeback(True, x)
@@ -384,14 +393,35 @@ class SessionTests(unittest.TestCase):
         self.assertEqual((g.s.turn, g.s.phase, len(g.s.events)), before)
         self.assertTrue(g.view(x)["takeback_result"]["ok"])
         self.assertEqual(g.s.actor(), me)
-        # the asker may withdraw
+        # the asker may withdraw (and that was their one request for this decision)
         g.act(["end"], me)
         self.assertTrue(g.view(me)["can_undo"])
         g.undo(me)
         g.answer_takeback(False, me)
         self.assertIsNone(g.takeback)
         self.assertEqual(g.view(x)["takeback_result"]["by"], me)
+        self.assertFalse(g.view(me)["can_undo"])
         g.close()
+
+    def test_muting_and_a_pending_take_back_survive_a_restart(self):
+        g = WebGame(1, "easy", seed=26, humans=["Ann", "Bo"], mode="online")
+        g.open.clear()
+        play_until(g, lambda g: g.s.turn >= 4 and g.s.phase == "main" and g.s.actor() in g.humans)
+        me = g.s.actor()
+        other = next(q for q in g.humans if q != me)
+        g.mute_offers(other, True)
+        g.act(["end"], me)
+        g.undo(me)
+        g.close()
+        r = WebGame.resume(g.gid)
+        self.assertTrue(r.view(other)["mute_offers"])
+        self.assertFalse(r.view(me)["mute_offers"])
+        self.assertEqual(r.view(other)["takeback"]["from"], me)
+        self.assertTrue(r.view(other)["takeback"]["mine"])
+        r.answer_takeback(True, other)
+        self.assertIsNone(r.takeback)
+        self.assertEqual(r.s.actor(), me)
+        r.close()
 
     def test_offers_between_humans(self):
         g = WebGame(1, "easy", seed=25, humans=["Ann", "Bo"], mode="hotseat")

@@ -274,7 +274,8 @@ class Table:
             return False
         if len(self.humans) == 1:
             return True
-        return self.takeback is None and self.s.phase != OVER and self.history[-1]["seat"] == h
+        last = self.history[-1]
+        return self.takeback is None and self.s.phase != OVER and last["seat"] == h and not last.get("asked")
 
     def takeback_for(self, h):
         t = self.takeback
@@ -513,6 +514,14 @@ class WebGame(Table):
             if h not in self.tokens.values():
                 self.tokens[secrets.token_urlsafe(12)] = h
         self.open = {int(q) for q in saved.get("open") or [] if int(q) in self.humans}
+        # preferences and a request in flight survive a restart of the server
+        self.muted = {int(q) for q in saved.get("muted") or [] if int(q) in self.humans}
+        self.epoch = int(saved.get("epoch") or 0)
+        t = saved.get("takeback")
+        if t and self.history and self.history[-1]["seat"] == t.get("from"):
+            self.history[-1]["asked"] = True
+            self.takeback = {"from": int(t["from"]), "label": self.history[-1]["label"],
+                             "answers": {int(q): a for q, a in t["answers"].items() if int(q) in self.humans}}
 
     def save(self, force=True):
         if not self.persist or (not force and time.time() - self._saved_at < 3):
@@ -529,7 +538,8 @@ class WebGame(Table):
             meta.pop("coach", None)
         try:
             store.save(self.gid, self.rec, self.owner, offer=_offer_out(self.offer), tokens=self.tokens,
-                       open=sorted(self.open))
+                       open=sorted(self.open), muted=sorted(self.muted), epoch=self.epoch,
+                       takeback=self.takeback and {"from": self.takeback["from"], "answers": self.takeback["answers"]})
             self._saved_at = time.time()
         except OSError as ex:  # a full disk must not stop the game
             print("could not save the game:", ex)
@@ -652,10 +662,12 @@ class WebGame(Table):
         if a bot made it, is declined). They can still make offers of their own."""
         if not on:
             self.muted.discard(seat)
+            self.save()
             return
         self.muted.add(seat)
         if not self.takeback:  # (a take-back freezes the table; it settles the offer when it ends)
             self._drop_muted()
+        self.save()
 
     def _drop_muted(self):
         """A bot's offer stops waiting for players who have muted bot offers. That is not
@@ -893,8 +905,12 @@ class WebGame(Table):
         others = [q for q in self.humans if q != seat]
         if self.mode != "online" or not others:
             return self._undo()  # one screen: the table agrees out loud
+        if last.get("asked"):  # one request per decision: a game can't be held up by asking again and again
+            raise IllegalAction("you already asked to take this one back")
+        last["asked"] = True
         self.takeback = {"from": seat, "label": last["label"], "answers": {q: None for q in others}}
         self.bump()
+        self.save()
         return None
 
     def answer_takeback(self, ok, seat=None):
@@ -909,6 +925,7 @@ class WebGame(Table):
             self.takeback_result = {"n": n, "ok": False, "from": t["from"], "by": seat, "label": t["label"]}
             self._drop_muted()
             self.bump()
+            self.save()
             return
         t["answers"][seat] = True
         if all(t["answers"].values()):

@@ -151,7 +151,7 @@ A new game can seat several humans, with bots in the other chairs (3 to 6 player
 
 Alone, undo steps back as far as you like. In a shared game you can take back your own
 last decision, until someone else has decided: around one screen it asks the table first,
-and online every other player has to allow it (one refusal and the move stands). Offers
+and online every other player has to allow it (one refusal and the move stands, and you can ask once per decision). Offers
 between humans work like offers to bots: the others accept, decline or answer with a
 counter-offer, and the proposer picks.
 

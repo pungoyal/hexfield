@@ -200,12 +200,19 @@ export function renderActions() {
   end.hidden = pre;
   end.disabled = !can("end") || G.busy;
   const onlyEnd = (main || special) && (S.legal.kinds || []).every((k) => k === "end" || k === "bank");
+  // ... unless the status line is pointing at a bank trade that gets you a build: then Space stays out of it
+  const tradeFirst = (S.legal.kinds || []).includes("bank") && !!nearBuild();
   end.classList.toggle("pulse", onlyEnd);
-  end.classList.toggle("obvious", can("end") && onlyEnd); // nothing left to do: Space ends the turn
+  end.classList.toggle("obvious", can("end") && onlyEnd && !tradeFirst); // nothing left to do: Space ends the turn
   go(end, can("end"), onlyEnd);
   const label = special ? "Pass" : "End turn";
   if (end.firstChild.nodeValue !== label) end.firstChild.nodeValue = label;
   end.title = special ? "Done building: pass to the next player (E)" : "End your turn (E)";
+}
+
+// the build that is fewest bank trades away: [cost name, trades], if any is in reach
+export function nearBuild() {
+  return BUILD_BUTTONS.map(([, , cost]) => [cost, tradesShort(S.hand, COSTS[cost])]).filter(([, n]) => n > 0 && n < Infinity).sort((a, b) => a[1] - b[1])[0];
 }
 
 // main phase, no build mode: what you can build now, else what's closest
@@ -214,7 +221,7 @@ export function mainStatus() {
   const vs = playableVentures(), vtxt = vs.map((d) => `${d.name} <kbd>${d.hot}</kbd>`).join(" · ");
   if (ready.length) return `Build: ${ready.map(([id, , cost]) => `${BUILD_NAMES[cost]} <kbd>${$(id).dataset.key}</kbd>`).join(" · ")}${vs.length ? ` · play ${vtxt}` : ""}`;
   if (vs.length) return `Play ${vtxt}${vs.length > 1 ? "" : " — or end turn <kbd>E</kbd>"}`;
-  const near = BUILD_BUTTONS.map(([, , cost]) => [cost, tradesShort(S.hand, COSTS[cost])]).filter(([, n]) => n > 0 && n < Infinity).sort((a, b) => a[1] - b[1])[0];
+  const near = nearBuild();
   if (near) return `${BUILD_NAMES[near[0]]} is ${near[1]} bank trade${near[1] > 1 ? "s" : ""} away <kbd>T</kbd>`;
   return "Nothing to build — trade <kbd>T</kbd> or end turn <kbd>E</kbd>";
 }
