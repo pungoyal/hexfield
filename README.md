@@ -209,9 +209,9 @@ The public server runs on one Oracle Cloud ARM VM next to other apps. A single C
 network. Hexfield is its own Compose project ([`deploy/compose.yaml`](deploy/compose.yaml)),
 publishes no ports, and only its one service (also called `hexfield`) joins that network.
 
-On every push to `main`, CI runs all the checks, then builds a linux/arm64 image and pushes it
-to GHCR as `ghcr.io/vaari-dev/hexfield:<commit>` and `:main`. If the `DEPLOY_ENABLED`
-repository variable is `true`, the deploy job then:
+On every push to `main`, CI runs all the checks and builds and smoke-tests a linux/arm64 image
+once, pushing that image to GHCR as `ghcr.io/vaari-dev/hexfield:<commit>`. If the
+`DEPLOY_ENABLED` repository variable is `true` and every check passed, the deploy job then:
 
 1. writes the server's `/opt/hexfield/.env` from GitHub settings, one key per line of
    [`deploy/.env.example`](deploy/.env.example), and copies the compose file next to it.

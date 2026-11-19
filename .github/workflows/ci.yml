@@ -1,7 +1,8 @@
 name: CI
 
-# Pull requests and main run every check. On main, once they all pass, the image is built and
-# pushed to GHCR, and (with DEPLOY_ENABLED) deployed.
+# Every check runs once, in parallel, on pull requests and on main. The image is built once,
+# smoke-tested, and on main that same image is pushed to GHCR and (with DEPLOY_ENABLED)
+# deployed once every check has passed.
 on:
   push:
     branches: [main]
@@ -16,8 +17,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # rules, bots, terminal UI, web server, and the browser client's logic (node --test);
-  # one process per test module, stopping at the first failure
+  # rules, bots, terminal UI, web server and the browser client's logic (node --test), one
+  # process per test module, stopping at the first failure; then the wheel passes PyPI's checks
   test:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 5
@@ -30,11 +31,17 @@ jobs:
         with:
           node-version: 26
       - run: printf '%s\n' tests/test_*.py | sed 's#/#.#; s#\.py$##' | xargs -P0 -n1 python -m unittest -f
+      - run: |
+          pip install -q build twine
+          python -m build
+          twine check --strict dist/*
 
   # a real (headless) Chromium plays through the main screens
   browser:
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 5
+    env:
+      PLAYWRIGHT: playwright@1.65.1
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -43,76 +50,67 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 26
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ env.PLAYWRIGHT }}
       # Google Chrome has no Linux arm64 build; Playwright's Chromium does
       - run: |
-          npx -y playwright@1.65.1 install chromium
+          npx -y "$PLAYWRIGHT" install chromium
           bin=$(find ~/.cache/ms-playwright -path '*/chromium-*' -type f -name chrome | head -1)
-          if ldd "$bin" | grep -q "not found"; then sudo npx -y playwright@1.65.1 install-deps chromium; fi
+          if ldd "$bin" | grep -q "not found"; then sudo npx -y "$PLAYWRIGHT" install-deps chromium; fi
           echo "CHROME_BIN=$bin" >> "$GITHUB_ENV"
       - run: python -m unittest tests.test_js.ClientTests.test_in_a_real_browser
         env:
           HEXFIELD_BROWSER_TESTS: "1"
 
-  # the wheel passes PyPI's checks, installs and runs; the container starts, answers its
-  # health check and stops cleanly on SIGTERM
-  package:
-    runs-on: ubuntu-26.04-arm
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.15"
-      - run: |
-          pip install -q build twine
-          python -m build
-          twine check --strict dist/*
-          pip install -q dist/*.whl
-          cd / && hexfield --games && hexfield-web --version
-          python -c "import os; from hexfield.web.server import STATIC; assert os.path.isfile(os.path.join(STATIC, 'js', 'art.js'))"
-      - run: |
-          docker build -t hexfield .
-          docker run -d --name hexfield -p 8765:8765 -e HEXFIELD_HOST_KEY=ci-only-0123456789abcdef hexfield
-          for _ in $(seq 20); do curl -fs http://127.0.0.1:8765/healthz && break; sleep 0.5; done
-          curl -fs http://127.0.0.1:8765/healthz
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/api/games)" = 403
-          docker stop -t 5 hexfield
-          test "$(docker inspect -f '{{.State.ExitCode}}' hexfield)" = 0
-
-  # linux/arm64, matching the OCI server; tagged with the commit and `main`
+  # linux/arm64, matching the OCI server. Built once: the image that passes the smoke test
+  # (starts, serves the client, keeps host routes to the host, stops cleanly on SIGTERM) is
+  # the one pushed on main, tagged with its commit.
   image:
-    needs: [test, browser, package]
-    if: github.event_name == 'push'
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 10
     permissions:
       contents: read
       packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/arm64
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:main
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          load: true
+          tags: ${{ env.IMAGE }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max' || '' }}
+      - name: Smoke test
+        run: |
+          docker run --rm --entrypoint hexfield "$IMAGE" --games
+          docker run -d --name hexfield -p 8765:8765 -e HEXFIELD_HOST_KEY=ci-only-0123456789abcdef "$IMAGE"
+          for _ in $(seq 20); do curl -fs http://127.0.0.1:8765/healthz && break; sleep 0.5; done
+          curl -fs http://127.0.0.1:8765/healthz
+          curl -fs -o /dev/null http://127.0.0.1:8765/js/art.js
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/api/games)" = 403
+          docker stop -t 5 hexfield
+          test "$(docker inspect -f '{{.State.ExitCode}}' hexfield)" = 0
+      - if: github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: github.event_name == 'push'
+        run: docker push --quiet "$IMAGE"
 
   # Settings come from the oracle-cloud environment, which only main may use. Switched on by
   # the DEPLOY_ENABLED repository variable, since a job's `if` runs before the environment's
   # variables are loaded. The server is shared with other apps: this touches only
   # /opt/hexfield, the `hexfield` Compose project and its own images.
   deploy:
-    needs: image
+    needs: [test, browser, image]
     if: vars.DEPLOY_ENABLED == 'true'
     environment: oracle-cloud
     runs-on: ubuntu-26.04-arm

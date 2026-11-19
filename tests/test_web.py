@@ -483,10 +483,14 @@ class OnlineTests(unittest.TestCase):
         self.assertGreater(a["version"], v)
         b = c.call("step", {"v": v})            # a second browser, a moment late
         self.assertEqual(b["version"], a["version"], "a stale step must not move the game")
-        t0 = time.time()
-        w = c.call(f"wait?v={v}")               # already past v: answers at once
-        self.assertLess(time.time() - t0, 2)
-        self.assertEqual(w["version"], a["version"])
+        g = server.APP.games[st["gid"]]
+        blocked = []
+        g.changed.wait = lambda timeout=None: blocked.append(timeout)   # never sleeps
+        try:
+            w = c.call(f"wait?v={v}")           # already past v: answers without waiting
+        finally:
+            del g.changed.wait
+        self.assertEqual((w["version"], blocked), (a["version"], []))
 
     def test_start_with_bots_and_host_routes(self):
         c = self.c
@@ -659,7 +663,7 @@ class HardeningTests(unittest.TestCase):
 
     def test_remote_addresses_are_rate_limited(self):
         self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.7")[0], 200)
-        server.APP.buckets["203.0.113.7"] = [-60 * server.RATE, time.monotonic()]   # a minute in debt
+        server.APP.buckets["203.0.113.7"] = [-1e12, time.monotonic()]   # in debt for good
         self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.7")[0], 429)
         self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.8")[0], 200)   # others unaffected
         self.assertEqual({self.req("/healthz")[0] for _ in range(20)}, {200})          # nor this machine
