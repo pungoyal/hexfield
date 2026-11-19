@@ -109,6 +109,9 @@ export function openBotOffer() {
   if (po.counters_left <= 0) counter.on = false;
   const answer = async (body) => {
     while (G.busy) await sleep(40);
+    // a second press while the first answer was in flight: that offer is already answered
+    const now = S.pending_offer;
+    if (!now || JSON.stringify([now.from, now.give, now.get, now.note, now.counters_left]) !== sig) return;
     G.busy = true;
     try {
       apply(await api("respond", body));
