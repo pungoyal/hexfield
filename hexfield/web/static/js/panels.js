@@ -221,7 +221,6 @@ const playableVentures = () => VENTURES.filter((d, k) => d.play && S.ventures[k]
 export function renderStatus(thinker) {
   let text, p = S.current, mine = false, spin = false;
   const name = (q) => esc(S.players[q].name);
-  const L = S.legal || {};
   if (session.replay) {
     text = `Replay${S.phase === "game_over" ? ` — ${name(S.winner)} won` : ""}`;
     p = S.phase === "game_over" ? S.winner : S.actor;
