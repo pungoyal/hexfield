@@ -616,7 +616,7 @@ class Handler(BaseHTTPRequestHandler):
             with g.lock:
                 extra = {}
                 if isinstance(g, WebGame):
-                    g.expire_offer()  # an offer nobody answered in time stops holding the table up
+                    g.expire_offer()
                 if route == "join" and post:
                     name = body.get("name")
                     if APP.accounts is not None and not self.local():

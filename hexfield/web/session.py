@@ -31,7 +31,7 @@ from ..render import second_person
 
 MODES = ("solo", "hotseat", "online")
 COUNTER_TRIES = 2  # counter-offers a human may make to one bot offer
-OFFER_SECONDS = 30  # online: how long a trade offer waits for a person before it counts as declined
+OFFER_SECONDS = 30  # online: an offer unanswered this long is declined
 
 HEX_R = 60.0
 
@@ -305,14 +305,7 @@ class Table:
             return None
         return {"from": o["from"], "give": list(o["give"]), "get": list(o["get"]),
                 "counters_left": COUNTER_TRIES - o["tries"].get(h, 0) if o["bot"] else 1,
-                "note": o["notes"].get(h), "seconds": self.offer_seconds()}
-
-    def offer_seconds(self):
-        """How long the offer on the table still waits for people's answers (None: as long as it takes)."""
-        o = self.offer
-        if not o or o.get("due") is None:
-            return None
-        return max(0, math.ceil(o["due"] - time.monotonic()))
+                "note": o["notes"].get(h)}
 
     def my_offer_for(self, h):
         o = self.offer
@@ -321,7 +314,7 @@ class Table:
         replies = [{"p": q, "ok": o["answers"][q], "why": o["notes"].get(q), "counter": o["counters"].get(q)}
                    for q in sorted(o["answers"])]
         return {"give": list(o["give"]), "get": list(o["get"]), "replies": replies,
-                "accepted": [r["p"] for r in replies if r["ok"]], "seconds": self.offer_seconds()}
+                "accepted": [r["p"] for r in replies if r["ok"]]}
 
     def legal_for(self, h):
         s = self.s
@@ -568,12 +561,10 @@ class WebGame(Table):
             self.changed.notify_all()
 
     def wait(self, version, timeout=25.0):
-        """Block until the game has moved past `version` (long polling), or until the offer
-        on the table runs out of time."""
+        """Block until the game has moved past `version` (long polling)."""
         with self.changed:
             if self.version == version and self._alive:
-                left = self.offer_seconds()
-                self.changed.wait(timeout if left is None else min(timeout, left + 0.05))
+                self.changed.wait(timeout)
 
     def reviewing(self):
         return self._jobs.unfinished_tasks
@@ -670,30 +661,25 @@ class WebGame(Table):
         self._arm_offer()
 
     def _arm_offer(self):
-        """Start the clock on the offer on the table. Only online: there the others sit waiting
-        on their own screens. Alone, or around one screen, an offer waits as long as it takes."""
-        o = self.offer
-        if o:
-            waits = self.mode == "online" and None in o["answers"].values()
-            o["due"] = time.monotonic() + OFFER_SECONDS if waits else None
+        """Start the clock on the offer on the table (online only)."""
+        if self.offer:
+            self.offer["due"] = time.monotonic() + OFFER_SECONDS if self.mode == "online" else None
 
     def expire_offer(self, now=None):
-        """An offer nobody has answered for OFFER_SECONDS stops waiting: silence is a no. Like a
-        muted player's, it isn't a decision of theirs: no undo point and no review. True if it lapsed."""
+        """Decline the offer for everyone who hasn't answered in time. True if anyone was late."""
         o = self.offer
         now = time.monotonic() if now is None else now
         if not o or o.get("due") is None or now < o["due"]:
             return False
-        if self.takeback:  # the table is frozen: the clock starts again when the request is settled
+        if self.takeback:  # nobody can answer while a take-back is pending
             o["due"] = now + OFFER_SECONDS
             return False
         o["due"] = None
         late = sorted(q for q, a in o["answers"].items() if a is None)
         if not late:
             return False
-        s = self.s
         for q in late:
-            self._note("reply", q, f"{s.names[q]} doesn't answer in time")
+            self._note("reply", q, f"{self.s.names[q]} doesn't answer in time")
             if o["bot"]:
                 del o["answers"][q]
             else:
@@ -789,7 +775,7 @@ class WebGame(Table):
             else:
                 o["tries"][h] = o["tries"].get(h, 0) + 1
                 o["notes"][h] = f"{s.names[p]} turned your counter-offer down"
-                self._arm_offer()  # they are at the table: the clock starts again
+                self._arm_offer()
         else:
             if self.review_on.get(h):
                 self._queue("offer", (p, o["give"], o["get"], bool(accept)), h)

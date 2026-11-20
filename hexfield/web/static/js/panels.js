@@ -15,20 +15,16 @@ export function renderPlayers() {
     }));
   }
   const due = awaited();
-  // while the opening villages go down nobody has a turn yet: the one placing is the one to watch
+  // S.current stays on seat 1 through setup
   const turn = S.phase.startsWith("setup") ? S.actor : S.current;
   S.players.forEach((pl, p) => {
     const el = box.children[p];
     el.classList.toggle("active", p === turn && S.phase !== "game_over");
     el.classList.toggle("me", p === S.human);
-    // a person the game is waiting for: their card pulses and its tag says what is owed
     const wait = due.includes(p);
-    const answering = wait && (!!S.takeback || p !== S.actor);
     el.classList.toggle("awaited", wait);
     const tag = pl.open ? "open" : pl.bot ? esc(pl.style || pl.level)
-      : wait ? `<i class="p-due"></i>${p === S.human ? "your" : "their"} ${answering ? "answer" : "move"}` : p === S.human ? "you" : "player";
-    const tagTitle = pl.bot && pl.style ? `${esc(pl.level)} bot, ${esc(pl.style)}: ${esc(STYLE_NOTES[pl.style] || "")}`
-      : wait ? (p === S.human ? "The game is waiting for you" : `The game is waiting for ${esc(pl.name)}`) : "";
+      : wait ? `<i class="p-due"></i>${p === S.human ? "your" : "their"} ${S.takeback || p !== S.actor ? "answer" : "move"}` : p === S.human ? "you" : "player";
     const hid = p === S.human && pl.hidden_fame ? `<span class="hid" title="includes ${pl.hidden_fame} hidden landmark(s)">★${pl.hidden_fame}</span>` : "";
     const badges = [];
     // the two awards ride in the header as icon chips (2 fame each); warnings get a line of their own
@@ -45,7 +41,7 @@ export function renderPlayers() {
     const html = `
       <div class="p-head">
         <span class="p-seat" title="Seat ${p + 1}">${p + 1}</span><span class="p-name">${esc(pl.name)}</span>
-        <span class="p-tag" ${tagTitle ? `title="${tagTitle}"` : ""}>${tag}</span>${awards}
+        <span class="p-tag" ${pl.bot && pl.style ? `title="${esc(pl.level)} bot, ${esc(pl.style)}: ${esc(STYLE_NOTES[pl.style] || "")}"` : ""}>${tag}</span>${awards}
         <span class="p-fame">${hid}<b>${pl.fame}</b><small>fame</small></span>
       </div>
       <div class="p-race" title="${pl.fame} of 10 fame${pl.bot ? " (hidden landmarks not shown)" : ""}">${race}</div>
@@ -238,7 +234,6 @@ export function mainStatus() {
 }
 const playableVentures = () => VENTURES.filter((d, k) => d.play && S.ventures[k] && can(d.play));
 
-// (short: the line has to hold a fourteen-letter name on a phone)
 const WAITING_TO = { setup_village: " to place", setup_trail: " to place", pre_roll: " to roll", discard: " to discard",
   move_bandit: " to move the bandit", free_trails: " to place", special_build: " to build" };
 export function renderStatus(thinker) {
@@ -274,12 +269,11 @@ export function renderStatus(thinker) {
       default: text = S.phase;
     }
   } else {
-    // people, on other devices or about to take this one: say who the game is waiting for, and for what
     const due = awaited().filter((q) => q !== S.human);
     p = due.includes(S.actor) ? S.actor : due[0] ?? thinker ?? S.actor;
     spin = thinker !== null && thinker !== undefined;
     if (due.length) {
-      const what = due.length > 1 || p !== S.actor ? (due.includes(S.actor) ? "" : " to answer") : WAITING_TO[S.phase] ?? "";
+      const what = !due.includes(S.actor) ? " to answer" : due.length > 1 ? "" : WAITING_TO[S.phase] ?? "";
       text = `Waiting for ${new Intl.ListFormat("en").format(due.map(name))}${what}…`;
     } else {
       text = S.phase === "discard" ? `${name(p)} is discarding…` : S.phase.startsWith("setup") ? `${name(p)} is placing…` : `${name(p)} is thinking…`;

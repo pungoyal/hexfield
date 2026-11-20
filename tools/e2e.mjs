@@ -155,8 +155,7 @@ try {
   await guest.eval(`document.querySelector('#form-join [name="name"]').value = "Guest"; document.querySelector("#join-ok").click()`);
   await guest.waitFor(`document.querySelectorAll("#board .hex-tile").length === 19`, 8000, "the guest's board");
   await page.waitFor(`document.querySelector("#lobby").hidden`, 8000, "the host sees the guest arrive");
-  // whoever the game is waiting for is marked on both screens: their card, the status line of
-  // anyone not owed a move, and the tab title of anyone who is
+  // whoever the game is waiting for is marked on both screens
   const due = (p) => p.eval(`(async () => { const S = (await import("/js/state.js")).S; const on = S.waiting_on;
     const cards = [...document.querySelectorAll("#players .player")].map((el, i) => (el.classList.contains("awaited") ? i : "")).join("");
     const me = on.includes(S.human), status = document.querySelector("#status").innerText;

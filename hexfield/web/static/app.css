@@ -171,10 +171,9 @@ h3 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
 .badge svg { width: 12px; height: 12px; fill: currentColor; }
 .p-think { position: absolute; right: 10px; bottom: 10px; display: none; }
 .player.thinking .p-think { display: block; }
-/* a person the game is waiting for: the card breathes in their colour and the tag says so */
 .player.awaited { border-color: color-mix(in srgb, var(--pc) 80%, transparent); animation: due 1.8s ease-in-out infinite; }
 .player.awaited .p-tag { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--text); border-color: var(--pc); background: color-mix(in srgb, var(--pc) 22%, transparent); font-weight: 800; }
-.player.awaited .p-think { display: none; } /* the tag says it; the phone strip, which has no tags, shows the dot */
+.player.awaited .p-think { display: none; } /* shown only in the phone strip, which has no tags */
 .p-due { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--pc); box-shadow: 0 0 8px var(--pc); animation: due-dot 1.2s ease-in-out infinite; }
 @keyframes due { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc) 30%, transparent), 0 0 24px color-mix(in srgb, var(--pc) 28%, transparent); } }
 @keyframes due-dot { 50% { opacity: .35; scale: .75; } }
