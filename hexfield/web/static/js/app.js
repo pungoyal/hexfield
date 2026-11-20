@@ -502,7 +502,8 @@ export async function undo() {
     G.stopPump = false;
   }
   // forced dialogs (discard, a bot's offer) and the game-over screen give way to the undo
-  for (const d of $$("dialog[open]")) if (d.id !== "dlg-new") d.close();
+  // (the trade dialog stays: taking back a bank trade leaves you where you made it)
+  for (const d of $$("dialog[open]")) if (d.id !== "dlg-new" && d.id !== "dlg-trade") d.close();
   G.busy = true;
   try {
     G.mode = null;
@@ -511,6 +512,8 @@ export async function undo() {
     apply(st);
     G.reviewsSeen = S.reviews.length;
     G.overShown = null; // undoing out of a finished game: show the result again if it ends again
+    // stepped back to before you could trade (say, before the roll): the trade dialog has nothing to offer
+    if ($("#dlg-trade").open && !(myDecision() && S.phase === "main")) $("#dlg-trade").close();
     if (S.takeback) toast("Asked the others", `They decide whether you may take back: ${human(S.takeback.label)}`, "var(--muted)", 3600);
     else toast(`Undid: ${st.undone ? human(st.undone) : "your last decision"}`, "Same dice, different choices.", "var(--muted)", 2600);
   } catch (e) {
