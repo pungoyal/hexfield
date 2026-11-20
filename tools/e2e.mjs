@@ -155,9 +155,20 @@ try {
   await guest.eval(`document.querySelector('#form-join [name="name"]').value = "Guest"; document.querySelector("#join-ok").click()`);
   await guest.waitFor(`document.querySelectorAll("#board .hex-tile").length === 19`, 8000, "the guest's board");
   await page.waitFor(`document.querySelector("#lobby").hidden`, 8000, "the host sees the guest arrive");
+  // whoever the game is waiting for is marked on both screens
+  const due = (p) => p.eval(`(async () => { const S = (await import("/js/state.js")).S; const on = S.waiting_on;
+    const cards = [...document.querySelectorAll("#players .player")].map((el, i) => (el.classList.contains("awaited") ? i : "")).join("");
+    const me = on.includes(S.human), status = document.querySelector("#status").innerText;
+    return { on: on.join(""), me, shown: cards === on.join("") && document.title.includes("Your move") === me
+      && (me || on.every((q) => status.includes(S.players[q].name)) && status.startsWith("Waiting for")) }; })()`);
+  let marked = false;
   for (let i = 0; i < 120; i++) {
     const a = await state(page), b = await state(guest);
-    if (a.turn >= 2 && b.turn >= 2) break;
+    if (a.turn >= 2 && b.turn >= 2 && marked) break;
+    if (!marked) {
+      const [x, y] = [await due(page), await due(guest)];
+      marked = !!x.on && x.on === y.on && x.shown && y.shown && x.me !== y.me; // one to move, the other watching
+    }
     if (a.mine) await page.key(a.phase === "main" ? "e" : " ");
     if (b.mine) await guest.key(b.phase === "main" ? "e" : " ");
     await wait(180);
@@ -165,6 +176,7 @@ try {
   }
   const [a, b] = [await state(page), await state(guest)];
   check(a.human !== b.human && a.gid === b.gid, "two seats in one game");
+  check(marked, "the screens never showed who the game was waiting for");
   // online, a take-back needs the other player: whoever decided last asks, the other allows
   const [asker, other] = (await page.eval(`(async () => (await import("/js/state.js")).S.can_undo)()`)) ? [page, guest] : [guest, page];
   await asker.waitFor(`!document.querySelector("#btn-undo").hidden`, 8000, "the last to decide may ask to take it back");

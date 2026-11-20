@@ -615,6 +615,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise IllegalAction("v must be a number")
             with g.lock:
                 extra = {}
+                if isinstance(g, WebGame):
+                    g.expire_offer()
                 if route == "join" and post:
                     name = body.get("name")
                     if APP.accounts is not None and not self.local():

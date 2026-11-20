@@ -68,6 +68,8 @@ export async function api(route, body, query = {}) {
 
 export const myDecision = () => S && !session.replay && !S.lobby && S.phase !== "game_over" && S.actor === S.human
   && !S.pending_offer && !S.takeback && (S.waiting_on || [S.human]).includes(S.human);
+// the human seats the game is waiting for
+export const awaited = () => (S && !session.replay ? S.waiting_on || [] : []);
 // building is allowed in your main phase and in the special building phase (5-6 players)
 export const building = () => myDecision() && (S.phase === "main" || S.phase === "special_build");
 export const legal = () => (myDecision() ? S.legal : {});

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* The game shows who it is waiting for: their card pulses, the status line names them,
+  and online the tab title says "Your move".
+* Online, a trade offer unanswered for 30 seconds counts as declined.
 * Phones: the whole game fits one screen. A slim bar, the players as a strip of counters
   (tap for the full cards), the board from edge to edge, your cards as five counters, the
   builds and one big button. News is a single line across the top, never over the line

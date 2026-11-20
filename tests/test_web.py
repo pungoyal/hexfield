@@ -446,6 +446,24 @@ class SessionTests(unittest.TestCase):
         self.assertIsNone(g.offer)
         g.close()
 
+    def test_an_unanswered_offer_lapses_online(self):
+        import time
+        from hexfield.web.session import OFFER_SECONDS
+        for mode, lapses in (("online", True), ("hotseat", False)):
+            g = WebGame(1, "easy", seed=25, humans=["Ann", "Bo"], mode=mode, persist=False)
+            a, b = g.humans
+            g.open = set()
+            g.s.phase, g.s.current, g.s.turn = "main", a, 3
+            g.s.hands[a] = [2, 0, 0, 0, 0]
+            g.s.hands[b] = [0, 0, 0, 0, 2]
+            g.make_offer([1, 0, 0, 0, 0], [0, 0, 0, 0, 1], a)
+            self.assertFalse(g.expire_offer(), "the offer has only just been made")
+            self.assertEqual(g.expire_offer(time.monotonic() + OFFER_SECONDS + 1), lapses, mode)
+            reply = next(r for r in g.my_offer_for(a)["replies"] if r["p"] == b)
+            self.assertEqual(reply["ok"], False if lapses else None)
+            self.assertEqual(b in g.waiting_on(), not lapses)
+            g.close()
+
     def test_muting_bot_offers(self):
         g = WebGame(2, "easy", seed=27)
         h = g.human

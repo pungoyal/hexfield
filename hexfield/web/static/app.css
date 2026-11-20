@@ -171,6 +171,13 @@ h3 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
 .badge svg { width: 12px; height: 12px; fill: currentColor; }
 .p-think { position: absolute; right: 10px; bottom: 10px; display: none; }
 .player.thinking .p-think { display: block; }
+.player.awaited { border-color: color-mix(in srgb, var(--pc) 80%, transparent); animation: due 1.8s ease-in-out infinite; }
+.player.awaited .p-tag { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--text); border-color: var(--pc); background: color-mix(in srgb, var(--pc) 22%, transparent); font-weight: 800; }
+.player.awaited .p-think { display: none; } /* shown only in the phone strip, which has no tags */
+.p-due { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--pc); box-shadow: 0 0 8px var(--pc); animation: due-dot 1.2s ease-in-out infinite; }
+@keyframes due { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc) 30%, transparent), 0 0 24px color-mix(in srgb, var(--pc) 28%, transparent); } }
+@keyframes due-dot { 50% { opacity: .35; scale: .75; } }
+@media (prefers-reduced-motion: reduce) { .player.awaited, .p-due { animation: none; } }
 .delta { position: absolute; right: 54px; top: 8px; font-weight: 800; font-size: 13px; color: var(--good); pointer-events: none; animation: rise 1.4s ease-out forwards; }
 .delta.neg { color: var(--worst); }
 @keyframes rise { from { opacity: 0; translate: 0 6px; } 15% { opacity: 1; translate: 0 0; } to { opacity: 0; translate: 0 -16px; } }
@@ -946,6 +953,7 @@ dialog:focus { outline: none; }
 
 /* players: whose turn it is reads at a glance; you are always findable */
 .player.me .p-tag { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 800; }
+.player.me.awaited .p-tag .p-due { background: var(--accent-ink); box-shadow: none; }
 .player.active::after { content: ""; position: absolute; left: 5px; top: 0; bottom: 0; width: 60px; background: linear-gradient(90deg, color-mix(in srgb, var(--pc) 22%, transparent), transparent); pointer-events: none; }
 .p-fame b { font-size: 26px; }
 
@@ -1330,6 +1338,8 @@ dialog .dlg-actions .btn, dialog .offer-bar .btn { transition: scale .25s cubic-
   #players:not(.open) .p-stats { margin-top: 1px; font-size: 11px; justify-content: flex-start; color: var(--muted); }
   #players:not(.open) .p-stats > span:not(.st-cards) { display: none; }
   #players:not(.open) .p-stats .st-cards b { font-size: inherit; }
+  #players:not(.open) .player.awaited .p-think { display: block; right: 8px; bottom: 9px; }
+  #players:not(.open) .player.awaited .p-due { width: 9px; height: 9px; }
   /* five or six at the table: the name on its own line, fame and the card count under it */
   body.many #players:not(.open) { gap: 4px; }
   body.many #players:not(.open) .player { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 0 5px; padding: 5px 5px 5px 9px; }
@@ -1341,6 +1351,8 @@ dialog .dlg-actions .btn, dialog .offer-bar .btn { transition: scale .25s cubic-
   body.many #players:not(.open) .st-cards { font-size: 0; }
   body.many #players:not(.open) .st-cards b { font-size: 11.5px; font-weight: 600; }
   body.many #players:not(.open) .st-cards b::after { content: ""; display: inline-block; width: 6px; height: 8px; margin-left: 3px; border: 1px solid currentColor; border-radius: 1.5px; opacity: .7; }
+  body.many #players:not(.open) .player.awaited .p-think { right: 5px; bottom: 8px; }
+  body.many #players:not(.open) .player.awaited .p-due { width: 7px; height: 7px; }
   #players.open { grid-auto-flow: row; grid-auto-columns: auto; }
 
   /* the board runs from edge to edge */
