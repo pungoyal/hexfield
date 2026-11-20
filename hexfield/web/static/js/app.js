@@ -19,9 +19,11 @@ import {
   appendLog, pinLog, renderActions, renderBank, renderDice, renderEcon, renderHand, renderPlayers,
   renderStatus, showVenturePeek, wireLog,
 } from "./panels.js";
-import { B, G, S, api, building, can, els, localSeats, myDecision, prefs, session, setB, setS, setSession } from "./state.js";
+import { B, G, S, api, awaited, building, can, els, localSeats, myDecision, prefs, session, setB, setS, setSession } from "./state.js";
 import { human } from "./text.js";
 import { $, $$, VENTURES, SPEEDS, save, sleep } from "./util.js";
+
+const TITLE = document.title;
 
 export let pollTimer = null;
 export async function act(action) {
@@ -256,6 +258,9 @@ export function render() {
   $("#btn-undo").title = !shared ? "Undo your last decision (U)" : S.mode === "online" ? "Ask the others to let you take back your last decision (U)" : "Take back your last decision, if the table agrees (U)";
   document.body.classList.toggle("many", S.n > 4);
   document.body.classList.toggle("my-turn", !!myDecision() || !!S.pending_offer);
+  // with the others on their own devices this tab may be in the background: its title says when they wait for you
+  const title = (S.mode === "online" && awaited().includes(S.human) ? "● Your move · " : "") + TITLE;
+  if (document.title !== title) document.title = title;
   $("#btn-undo").disabled = !S.can_undo;
   for (const b of $$(".dlg-undo")) b.hidden = !S.can_undo;
   $("#review-on").checked = S.review_on;

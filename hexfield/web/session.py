@@ -31,6 +31,7 @@ from ..render import second_person
 
 MODES = ("solo", "hotseat", "online")
 COUNTER_TRIES = 2  # counter-offers a human may make to one bot offer
+OFFER_SECONDS = 30  # online: how long a trade offer waits for a person before it counts as declined
 
 HEX_R = 60.0
 
@@ -304,7 +305,14 @@ class Table:
             return None
         return {"from": o["from"], "give": list(o["give"]), "get": list(o["get"]),
                 "counters_left": COUNTER_TRIES - o["tries"].get(h, 0) if o["bot"] else 1,
-                "note": o["notes"].get(h)}
+                "note": o["notes"].get(h), "seconds": self.offer_seconds()}
+
+    def offer_seconds(self):
+        """How long the offer on the table still waits for people's answers (None: as long as it takes)."""
+        o = self.offer
+        if not o or o.get("due") is None:
+            return None
+        return max(0, math.ceil(o["due"] - time.monotonic()))
 
     def my_offer_for(self, h):
         o = self.offer
@@ -313,7 +321,7 @@ class Table:
         replies = [{"p": q, "ok": o["answers"][q], "why": o["notes"].get(q), "counter": o["counters"].get(q)}
                    for q in sorted(o["answers"])]
         return {"give": list(o["give"]), "get": list(o["get"]), "replies": replies,
-                "accepted": [r["p"] for r in replies if r["ok"]]}
+                "accepted": [r["p"] for r in replies if r["ok"]], "seconds": self.offer_seconds()}
 
     def legal_for(self, h):
         s = self.s
@@ -509,6 +517,7 @@ class WebGame(Table):
             if got:
                 self.reasons[got[0]] = got[1]
         self.offer = _offer_in(saved.get("offer"))
+        self._arm_offer()
         self.tokens = {t: int(q) for t, q in (saved.get("tokens") or {}).items() if int(q) in self.humans}
         for h in self.humans:  # a seat always has at least one token
             if h not in self.tokens.values():
@@ -559,10 +568,12 @@ class WebGame(Table):
             self.changed.notify_all()
 
     def wait(self, version, timeout=25.0):
-        """Block until the game has moved past `version` (long polling)."""
+        """Block until the game has moved past `version` (long polling), or until the offer
+        on the table runs out of time."""
         with self.changed:
             if self.version == version and self._alive:
-                self.changed.wait(timeout)
+                left = self.offer_seconds()
+                self.changed.wait(timeout if left is None else min(timeout, left + 0.05))
 
     def reviewing(self):
         return self._jobs.unfinished_tasks
@@ -656,6 +667,43 @@ class WebGame(Table):
                       "counters": {}, "tries": {}, "notes": {}, "bot": True}
         if None not in answers.values():
             self._finish_offer()
+        self._arm_offer()
+
+    def _arm_offer(self):
+        """Start the clock on the offer on the table. Only online: there the others sit waiting
+        on their own screens. Alone, or around one screen, an offer waits as long as it takes."""
+        o = self.offer
+        if o:
+            waits = self.mode == "online" and None in o["answers"].values()
+            o["due"] = time.monotonic() + OFFER_SECONDS if waits else None
+
+    def expire_offer(self, now=None):
+        """An offer nobody has answered for OFFER_SECONDS stops waiting: silence is a no. Like a
+        muted player's, it isn't a decision of theirs: no undo point and no review. True if it lapsed."""
+        o = self.offer
+        now = time.monotonic() if now is None else now
+        if not o or o.get("due") is None or now < o["due"]:
+            return False
+        if self.takeback:  # the table is frozen: the clock starts again when the request is settled
+            o["due"] = now + OFFER_SECONDS
+            return False
+        o["due"] = None
+        late = sorted(q for q, a in o["answers"].items() if a is None)
+        if not late:
+            return False
+        s = self.s
+        for q in late:
+            self._note("reply", q, f"{s.names[q]} doesn't answer in time")
+            if o["bot"]:
+                del o["answers"][q]
+            else:
+                o["answers"][q] = False
+                o["notes"][q] = "no answer in time"
+        if o["bot"]:
+            self._finish_offer()
+        self.bump()
+        self.save()
+        return True
 
     def mute_offers(self, seat, on):
         """A player's preference: bots stop asking them to trade (the offer on the table,
@@ -741,6 +789,7 @@ class WebGame(Table):
             else:
                 o["tries"][h] = o["tries"].get(h, 0) + 1
                 o["notes"][h] = f"{s.names[p]} turned your counter-offer down"
+                self._arm_offer()  # they are at the table: the clock starts again
         else:
             if self.review_on.get(h):
                 self._queue("offer", (p, o["give"], o["get"], bool(accept)), h)
@@ -845,6 +894,7 @@ class WebGame(Table):
             if why:
                 o["notes"][q] = why
         self.offer = o
+        self._arm_offer()
         self.bump()
         return self.my_offer_for(h)
 
@@ -947,6 +997,7 @@ class WebGame(Table):
         # the undone decision and its review go; reviews of earlier moves stay (even pending ones)
         self.rec.truncate(h["at"])
         self.offer = h["offer"]
+        self._arm_offer()
         self.reasons = h["reasons"]
         self._drop_muted()  # the offer that comes back may ask someone who has muted bots since
         self.bump()

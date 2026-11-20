@@ -104,7 +104,7 @@ export function openBotOffer() {
   $("#bo-get").innerHTML = mini(po.give);
   $("#bo-give").innerHTML = mini(po.get);
   handStrip($("#bo-hand"), RES.map((_, r) => po.give[r] - po.get[r]), "After");
-  $("#bo-note").textContent = po.note || "";
+  $("#bo-note").textContent = po.note || (po.seconds != null ? "No answer within 30 seconds counts as a decline." : "");
   if (fresh) { counter.on = false; counter.give = po.get.slice(); counter.get = po.give.slice(); }
   $("#bo-counter-btn").hidden = po.counters_left <= 0;
   if (po.counters_left <= 0) counter.on = false;

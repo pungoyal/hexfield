@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+* When the game is waiting for a person, it shows who: their card pulses in their colour
+  and its tag reads "their move" (or "your move", or "answer" while an offer or a
+  take-back is out), the status line says "Waiting for Ana to roll…" and names everyone
+  when several are owed, and in an online game the browser tab's title says "Your move".
+  During the opening placements the highlighted card is the player placing, not seat 1.
+* Online, a trade offer waits 30 seconds for each person's answer; after that their
+  silence counts as a decline and the game moves on. Alone or around one screen an offer
+  still waits as long as it takes.
 * Phones: the whole game fits one screen. A slim bar, the players as a strip of counters
   (tap for the full cards), the board from edge to edge, your cards as five counters, the
   builds and one big button. News is a single line across the top, never over the line
