@@ -122,8 +122,14 @@ export function renderKeys() {
   }
 }
 
+// Space shows them; they stay until the decision changes (renderTargets hides them again)
+export function showAids() {
+  G.aids = true;
+  $("#board").classList.add("aids");
+}
+
 export function pickKey(ch) {
-  if (!keyMap.length) return false;
+  if (!keyMap.length || !G.aids) return false;
   const next = keyBuf + ch;
   const hits = keyMap.filter((k) => k.code.startsWith(next));
   if (!hits.length) return false;
@@ -204,9 +210,11 @@ export function onKey(e) {
   }
   if (k === "backspace" && keyBuf) { e.preventDefault(); keyBuf = keyBuf.slice(0, -1); renderKeys(); return; }
   if (/^[A-Z]$/.test(label) && !G.busy && pickKey(k)) { e.preventDefault(); return; }
-  // Space is always the obvious move: the top-ranked spot (always a single letter), or the roll
+  // Space is always the obvious move: the top-ranked spot (always a single letter), or the roll.
+  // The board starts raw, so on the board the first Space only shows the letters, pips and best spot.
   if (label === " " && e.repeat) { e.preventDefault(); return; } // a held Space rolls once; it doesn't run on into End turn
   if (label === " " && !G.busy && !keyBuf) {
+    if (keyMap.length && !G.aids) { e.preventDefault(); showAids(); return; }
     if (keyMap.length) { e.preventDefault(); pickKey(keyMap[0].code); return; }
     const o = $$("body > .app .obvious").find((el) => shown(el) && !el.closest("dialog, [popover]"));
     if (o) { e.preventDefault(); press(o); return; }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* The board starts raw: every open spot looks the same, with no letters, pip totals or
+  best spot. Press Space to show them for that decision; Space again builds on the best spot.
 * The game shows who it is waiting for: their card pulses, the status line names them,
   and online the tab title says "Your move".
 * Online, a trade offer unanswered for 30 seconds counts as declined.

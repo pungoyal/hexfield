@@ -197,6 +197,9 @@ export function renderTargets() {
   const sig = JSON.stringify([t, S.human, S.turn, S.phase, S.bandit]);
   if (sig === els.targetSig) return;
   els.targetSig = sig;
+  // every new decision starts on the raw board: no letters, pip totals or best spot until Space asks for them
+  G.aids = false;
+  $("#board").classList.remove("aids");
   g.replaceChildren();
   $("#board").classList.toggle("robbing", t.h.length > 0);
   g.classList.toggle("quick", t.quick);

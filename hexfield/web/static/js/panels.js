@@ -257,14 +257,14 @@ export function renderStatus(thinker) {
   } else if (S.actor === S.human && myDecision()) {
     mine = true; p = S.human;
     switch (S.phase) {
-      case "setup_village": text = `Place your ${S.setup_idx < S.n ? "first" : "second"} village — ${TOUCH ? "tap a spot" : "click or type its letters"}`; break;
-      case "setup_trail": text = `Place a trail next to it — ${TOUCH ? "tap one" : "click or type its letter"}`; break;
+      case "setup_village": text = `Place your ${S.setup_idx < S.n ? "first" : "second"} village — ${TOUCH ? "tap a spot" : "click one · Space shows letters and pips"}`; break;
+      case "setup_trail": text = `Place a trail next to it — ${TOUCH ? "tap one" : "click one · Space shows letters"}`; break;
       case "pre_roll": { const vs = playableVentures(); text = vs.length ? `Roll the dice <kbd>R</kbd> — or play ${vs.map((d) => `${d.name} <kbd>${d.hot}</kbd>`).join(" · ")} first` : "Roll the dice"; break; }
-      case "main": text = G.mode ? `${BUILD_NAMES[G.mode]}: ${TOUCH ? "tap a spot · tap the button again to cancel" : "click a spot or type its letter · Esc to cancel"}` : mainStatus(); break;
+      case "main": text = G.mode ? `${BUILD_NAMES[G.mode]}: ${TOUCH ? "tap a spot · tap the button again to cancel" : "click a spot · Space shows letters · Esc to cancel"}` : mainStatus(); break;
       case "discard": text = `Discard ${S.discard_owed} cards`; break;
-      case "move_bandit": text = `Move the bandit — ${TOUCH ? "tap a hex" : "click a hex or type its letter"}`; break;
+      case "move_bandit": text = `Move the bandit — ${TOUCH ? "tap a hex" : "click a hex · Space shows letters"}`; break;
       case "free_trails": text = `Place a free trail (${S.free_trails} left)`; break;
-      case "special_build": text = G.mode ? `${BUILD_NAMES[G.mode]}: ${TOUCH ? "tap a spot" : "click a spot or type its letter · Esc to cancel"}`
+      case "special_build": text = G.mode ? `${BUILD_NAMES[G.mode]}: ${TOUCH ? "tap a spot" : "click a spot · Space shows letters · Esc to cancel"}`
         : `Special building phase after ${name(S.current)}'s turn — build, or pass <kbd>E</kbd>`; break;
       default: text = S.phase;
     }

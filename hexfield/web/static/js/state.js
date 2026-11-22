@@ -23,6 +23,7 @@ export const G = {
   holdAutoRoll: false, // set by undo so it can step back past a roll
   overShown: null,
   hintKey: null,
+  aids: false,         // the board's letters, pip totals and best spot are on show (Space), until the decision changes
   lastRoller: null,    // who threw the dice on show
   readyVentures: new Set(), // ventures playable at the last render, so a card rises only as it becomes playable
   me: null,            // who this browser is on the server (account.js)

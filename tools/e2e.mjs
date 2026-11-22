@@ -42,6 +42,12 @@ async function newGame(p, picks) {
   await p.waitFor(`!document.querySelector("#dlg-new").open && document.querySelectorAll("#board .hex-tile").length > 0`, 8000, "the board");
 }
 
+// Space on the board: the first press only shows the letters and pips, so press again to build
+async function obvious(p) {
+  await p.key(" ");
+  if (await p.eval(`document.querySelector("#board").classList.contains("aids")`)) await p.key(" ");
+}
+
 // press the obvious key until `done(state)`; dialogs get Space too (the recommended answer)
 async function playUntil(p, done, moves = 400) {
   for (let i = 0; i < moves; i++) {
@@ -51,7 +57,7 @@ async function playUntil(p, done, moves = 400) {
     // a double click on an offer must send one answer (a second one would get a 400)
     else if (s.dlg.includes("dlg-botoffer")) await p.eval(`(b => { b.click(); b.click(); })(document.querySelector("#bo-yes"))`);
     else if (s.dlg.length) await p.key(" ");
-    else if (s.mine) await p.key(s.phase === "main" || s.phase === "special_build" ? "e" : " ");
+    else if (s.mine) await (s.phase === "main" || s.phase === "special_build" ? p.key("e") : obvious(p));
     await wait(90);
   }
   throw new Error(`${step}: the game did not get there`);
@@ -69,6 +75,11 @@ try {
   await page.waitFor(`document.querySelectorAll("#board .hex-tile").length === 19`, 8000, "19 hexes");
   await page.waitFor(`document.querySelectorAll("#board [role=button]").length > 20`, 8000, "board spots are buttons");
   await page.waitFor(`document.querySelectorAll("#players .player").length === 3`, 8000, "three player panels");
+  // the board starts raw: no spot letters, pip totals or best spot until Space asks for them
+  const aidsShown = `[...document.querySelectorAll("#board .key-tag, #board .v-pips")].some((el) => getComputedStyle(el).display !== "none")`;
+  check(!(await page.eval(aidsShown)), "the setup board shows letters or pips before Space");
+  await page.key(" ");
+  check(await page.eval(aidsShown), "Space shows the spot letters and pips");
   await playUntil(page, (s) => s.turn >= 1 && s.mine && s.phase === "main");
 
   step = "hint";
@@ -132,7 +143,7 @@ try {
       if (SHOTS && !seats.size) await page.screenshot(`${SHOTS}/pass.png`);
       await page.eval(`document.querySelector("#pass-ok").click()`);
       await wait(350);
-    } else if (s.mine) { seats.add(s.human); await page.key(" "); }
+    } else if (s.mine) { seats.add(s.human); await obvious(page); }
     await wait(100);
   }
   check(seats.size === 2, "both players got the screen");
@@ -169,8 +180,8 @@ try {
       const [x, y] = [await due(page), await due(guest)];
       marked = !!x.on && x.on === y.on && x.shown && y.shown && x.me !== y.me; // one to move, the other watching
     }
-    if (a.mine) await page.key(a.phase === "main" ? "e" : " ");
-    if (b.mine) await guest.key(b.phase === "main" ? "e" : " ");
+    if (a.mine) await (a.phase === "main" ? page.key("e") : obvious(page));
+    if (b.mine) await (b.phase === "main" ? guest.key("e") : obvious(guest));
     await wait(180);
     check(i < 119, "two browsers could not play the opening");
   }
