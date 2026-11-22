@@ -105,6 +105,20 @@ class SignatureTests(unittest.TestCase):
         self.assertFalse(passkey.verify(key, MSG, b"\x30\x06\x02\x01\x00\x02\x01\x01"))  # r = 0
 
 
+class SignCountTests(unittest.TestCase):
+    def test_a_count_must_go_up_unless_the_authenticator_keeps_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            acc = Accounts(os.path.join(tmp, "accounts.db"))
+            self.addCleanup(acc.close)
+            acc.create("a" * 32, "Ada", b"counted", (1, 2), 5)
+            self.assertFalse(acc.used(b"counted", 5))
+            self.assertTrue(acc.used(b"counted", 6))
+            self.assertFalse(acc.used(b"counted", 6))
+            acc.create("b" * 32, "Bo", b"uncounted", (1, 2), 0)
+            self.assertTrue(acc.used(b"uncounted", 0))
+            self.assertTrue(acc.used(b"uncounted", 0))
+
+
 class Browser:
     """One browser: its cookies, sent to the server as `localhost`."""
 

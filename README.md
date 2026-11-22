@@ -205,6 +205,19 @@ docker build -t hexfield .
 docker run -p 8765:8765 -v hexfield-data:/data -e HEXFIELD_HOST_KEY="$HEXFIELD_HOST_KEY" hexfield
 ```
 
+To run the production stack ([`compose.yaml`](compose.yaml)) on your own machine, with the
+pre-deploy backup and the same health check, build it and fill in a `.env`:
+
+```
+docker build -t hexfield:dev .
+cp .env.example .env              # then set HEXFIELD_HOST_KEY, and HEXFIELD_DOMAIN=localhost
+docker network create edge        # once; on the server the edge stack creates it
+docker compose up -d --wait       # http://127.0.0.1:8765
+```
+
+`docker compose` merges in [`compose.override.yaml`](compose.override.yaml) on its own: it
+publishes the port on 127.0.0.1 and does nothing else. It is never copied to the server.
+
 The image CI publishes to GHCR is linux/arm64 only, to match the server it deploys to.
 
 ### Behind a proxy
@@ -246,31 +259,53 @@ CPU.
 The public server runs on one Oracle Cloud ARM VM next to other apps. A single Caddy
 ([vaari-dev/edge](https://github.com/vaari-dev/edge)) terminates HTTPS for all of them. Its
 `sites/hexfield.caddy` sends `hex.vaari.dev` to `hexfield:8765` on the shared Docker
-network. Hexfield is its own Compose project ([`deploy/compose.yaml`](deploy/compose.yaml)),
-publishes no ports, and only its one service (also called `hexfield`) joins that network.
+network. Hexfield is its own Compose project ([`compose.yaml`](compose.yaml)), publishes
+no ports, and only its one long-running service (also called `hexfield`) joins that network.
 
-On every push to `main`, CI runs all the checks and builds and smoke-tests a linux/arm64 image
-once, pushing that image to GHCR as `ghcr.io/vaari-dev/hexfield:<commit>`. If the
-`DEPLOY_ENABLED` repository variable is `true` and every check passed, the deploy job then:
+On every push to `main`, CI runs every check, builds and smoke-tests one linux/arm64 image,
+pushes it to GHCR as `ghcr.io/vaari-dev/hexfield:<commit>` (with a build provenance
+attestation), and deploys it. The deploy is two files and one command:
 
-1. writes the server's `/opt/hexfield/.env` from GitHub settings, one key per line of
-   [`deploy/.env.example`](deploy/.env.example), and copies the compose file next to it.
-   A missing or placeholder value stops the deploy before the server is touched;
-2. pulls the new image onto the server, then swaps in the new files;
-3. restarts the stack and waits up to 2 minutes for the health check. If the new release
-   doesn't become healthy, it starts the previous one again and fails the run.
+1. CI writes `.env` from the `oracle-cloud` environment: one single-quoted line for each key
+   in [`.env.example`](.env.example), the first being `APP_IMAGE`, the image of this commit.
+   A missing value stops the deploy before the server is touched.
+2. It keeps the serving release's `compose.yaml` and `.env` as `*.previous`, copies the new
+   two over, pulls the image, and runs `docker compose up --wait`. The `backup` service runs
+   first and the server starts only once it has finished; the app's health check decides
+   whether the deploy passed.
+3. If the new release doesn't come up healthy within 5 minutes, CI puts the kept files
+   back, brings the previous release up the same way, and fails the run.
+4. Only after a good deploy does it remove older `ghcr.io/vaari-dev/hexfield` images.
+
+`GET https://hex.vaari.dev/healthz` names the commit that is serving (`build`). To go back
+to an older release, re-run the `deploy` job of a good commit's run on `main`: GHCR still
+holds its image. To deploy again without a new commit, re-run the latest one.
 
 The server is shared with other apps, so a deploy touches only `/opt/hexfield`, the
-`hexfield` Compose project (one container, and the `hexfield_data` volume where games live)
-and older `ghcr.io/vaari-dev/hexfield` images. It joins the edge's network without creating
-or changing it, and stores no registry login on the server: the server's Docker pulls with
-the CI runner's login.
+`hexfield` Compose project (its containers, the `hexfield_data` volume where games live and
+`hexfield_backups`) and older Hexfield images. It joins the edge's network without creating
+or changing it. No script, registry login or other logic lives on the server: the
+package `ghcr.io/vaari-dev/hexfield` is public, so the server pulls it without a login.
 
-Settings live in the `oracle-cloud` GitHub environment, which only `main` may deploy to:
+**Backups.** Before every start, `backup` (`python -m hexfield.backup /data /backups`)
+writes `hexfield-<UTC time>.tar.gz` to the `hexfield_backups` volume: every saved game and
+a consistent copy of `accounts.db`, taken while the old server keeps running. The newest 7
+are kept. To restore one, on the server:
+
+```sh
+cd /opt/hexfield
+docker compose stop hexfield
+docker compose run --rm --no-deps -v hexfield_backups:/backups --entrypoint sh hexfield \
+  -c 'cd /data && tar -xzf /backups/hexfield-<time>.tar.gz && rm -f accounts.db-wal accounts.db-shm'
+docker compose up -d --wait hexfield
+```
+
+Settings live in the `oracle-cloud` GitHub environment, which only `main` may deploy to. A
+new setting is one line in each of `.env.example`, `compose.yaml` and the deploy job's
+`Write .env` step; a blank value stops the deploy.
 
 | Name                 | Where                  | Value                                                   |
 | -------------------- | ---------------------- | ------------------------------------------------------- |
-| `DEPLOY_ENABLED`     | repository variable    | `true` once the server and the settings below are ready |
 | `DOCKER_NETWORK`     | repository variable    | the edge's shared network, exactly as in edge: `edge`   |
 | `DEPLOY_HOST`        | environment variable   | the server's public IP                                  |
 | `DEPLOY_USER`        | environment variable   | SSH user in the `docker` group (`ubuntu`)               |
@@ -290,15 +325,19 @@ gh variable set DEPLOY_USER --env oracle-cloud --body ubuntu
 ssh-keyscan -t ed25519 <ip> | gh variable set DEPLOY_KNOWN_HOSTS --env oracle-cloud
 gh secret set DEPLOY_SSH_KEY --env oracle-cloud < deploy_key
 openssl rand -hex 32 | gh secret set HEXFIELD_HOST_KEY --env oracle-cloud
-gh variable set DEPLOY_ENABLED --body true      # last
 ```
 
-Before the first deploy, the edge must be running (it creates the network), `hex.vaari.dev`
-needs a DNS-only `A` record pointing at the VM (edge's `scripts/dns.sh`), and the deploy
-user needs passwordless `sudo` once so the job can create `/opt/hexfield`. The server
-runs with [accounts](#accounts) and `--behind-proxy`: open
-`https://hex.vaari.dev/#host=<HEXFIELD_HOST_KEY>` once to be the admin. To deploy
-again without a new commit, re-run the workflow's latest run on `main`.
+Before the first deploy, once: the edge must be running (it creates the network),
+`hex.vaari.dev` needs a DNS-only `A` record pointing at the VM (edge's `scripts/dns.sh`),
+the package must be public (its *Package settings* on GitHub), and the server needs the
+deploy directory with a first pair of files to keep:
+
+```sh
+sudo install -d -o ubuntu -g ubuntu -m 700 /opt/hexfield && touch /opt/hexfield/compose.yaml /opt/hexfield/.env
+```
+
+The server runs with [accounts](#accounts) and `--behind-proxy`: open
+`https://hex.vaari.dev/#host=<HEXFIELD_HOST_KEY>` once to be the admin.
 
 ## Rules
 
@@ -442,6 +481,7 @@ hexfield/ai.py          evaluation weights and styles, beam search, setup lookah
 hexfield/match.py       seating, trade resolution with counter-offers, headless games
 hexfield/record.py      a game as data: seed + decisions, replayed exactly
 hexfield/store.py       saved games on disk, statistics across games
+hexfield/backup.py      a Hexfield home as one .tar.gz, run before every deploy
 hexfield/render.py      ANSI board and panel
 hexfield/cli.py         terminal game, coach, undo, resume, replay, statistics
 hexfield/web/session.py live games (any mix of humans and bots), offers, reviews, replays
@@ -467,10 +507,24 @@ HEXFIELD_BROWSER_TESTS=1 python3 -m unittest tests.test_js  # plus a real browse
 The suite runs on Python 3.11 or newer (CI runs it on 3.11 and 3.15). With Node 26 on the path it also runs the client's unit tests
 and checks that every module parses and every import resolves. Without Node those tests
 are skipped. The real-browser run also needs Chrome or Chromium (set `CHROME_BIN` if it
-isn't in a usual place) and is opt-in. GitHub Actions runs all of it on arm64 runners,
-then builds the package and the Docker image and checks that the container starts and
-stops cleanly. On `main` it then publishes the image and deploys it (see
-[Deploying hex.vaari.dev](#deploying-hexvaaridev)).
+isn't in a usual place) and is opt-in.
+
+The game needs nothing beyond Python; the tools for working on it are pinned in
+`pyproject.toml`'s `dev` group. Install them and turn on the pre-commit hook (lint and
+format check of the staged files, then the tests) once:
+
+```
+python3 -m pip install --group dev
+git config core.hooksPath .githooks
+ruff check . && ruff format .
+```
+
+GitHub Actions runs all of it on arm64 runners, then builds the package and the Docker
+image and starts the production compose stack from it. On `main` it then publishes the
+image and deploys it (see [Deploying hex.vaari.dev](#deploying-hexvaaridev)). Every action
+is pinned to a commit and the base image to a digest; [Renovate](renovate.json) moves them,
+with everything short of a major in one weekly pull request that merges itself once CI
+passes.
 
 ## Contributing
 

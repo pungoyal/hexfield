@@ -563,14 +563,13 @@ class Handler(BaseHTTPRequestHandler):
                 known = acc.passkey(cred)
                 if known is None:
                     raise Forbidden("this server doesn't know that passkey (was its account deleted?)")
-                uid, key, last = known
+                uid, key = known
                 challenge, count = passkey.assertion(
                     client_data, auth_data, passkey.unb64u(body.get("signature", "")), key, rp, origin
                 )
                 APP.answer("signin", challenge)
-                if count and count <= last:
+                if not acc.used(cred, count):
                     raise Forbidden("that passkey looks copied; sign in with another")
-                acc.used(cred, count)
             else:
                 return self._send(404, {"error": "unknown route"})
             return self._send(200, {"ok": True}, headers=[self._cookie_header(SESSION, acc.start_session(uid), 30)])
@@ -586,7 +585,7 @@ class Handler(BaseHTTPRequestHandler):
             return None
         url = urlparse(self.path)
         if url.path == "/healthz":
-            return self._send(200, {"ok": True, "version": __version__})
+            return self._send(200, {"ok": True, "version": __version__, "build": os.environ.get("HEXFIELD_BUILD")})
         if url.path.startswith("/api/"):
             if self.command == "HEAD":
                 return self._send(405, {"error": "use GET"}, headers=[("Allow", "GET, POST")])
