@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=84.2"]
+requires = ["setuptools==84.2.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -28,6 +28,9 @@ classifiers = [
     "Environment :: Web Environment",
     "Topic :: Games/Entertainment :: Board Games",
 ]
+
+[dependency-groups]
+dev = ["build==1.6.1", "ruff==0.17.5", "twine==7.0.0"]
 
 [project.urls]
 Homepage = "https://github.com/vaari-dev/hexfield"

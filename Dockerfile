@@ -1,26 +1,20 @@
-# The web server in a container. It has no dependencies beyond Python itself, and builds for
-# whatever machine runs `docker build` (CI builds the published image for linux/arm64).
-#
-#   docker build -t hexfield .
-#   docker run -p 8765:8765 -v hexfield-data:/data -e HEXFIELD_HOST_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')" hexfield
-#
-# Then open http://<server>:8765/#host=<the key> once: that browser runs the games.
-FROM python:3.15-slim
-LABEL org.opencontainers.image.source=https://github.com/vaari-dev/hexfield \
-      org.opencontainers.image.description="Hexfield: a hex-board settling and trading game" \
-      org.opencontainers.image.licenses=MIT
-
-RUN useradd --create-home --uid 10001 hexfield && mkdir /data && chown hexfield /data
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS build
 WORKDIR /src
 COPY pyproject.toml README.md LICENSE ./
 COPY hexfield ./hexfield
-RUN pip install --no-cache-dir . && rm -rf /src
+RUN pip install --no-cache-dir --root-user-action=ignore --prefix=/install .
 
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
+LABEL org.opencontainers.image.source=https://github.com/vaari-dev/hexfield \
+      org.opencontainers.image.description="Hexfield: a hex-board settling and trading game" \
+      org.opencontainers.image.licenses=MIT
+RUN useradd --create-home --uid 10001 hexfield && install -d -o hexfield -m 700 /data /backups
+COPY --from=build /install /usr/local
 USER hexfield
 WORKDIR /data
 ENV HEXFIELD_HOME=/data PYTHONUNBUFFERED=1
 VOLUME /data
 EXPOSE 8765
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/healthz', timeout=2)"
 ENTRYPOINT ["hexfield-web", "--lan", "--no-browser"]
+ARG HEXFIELD_BUILD
+ENV HEXFIELD_BUILD=$HEXFIELD_BUILD

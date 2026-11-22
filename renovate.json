@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices", "customManagers:githubActionsVersions"],
+  "schedule": ["before 6am on monday"],
+  "osvVulnerabilityAlerts": true,
+  "lockFileMaintenance": { "automerge": true },
+  "packageRules": [
+    { "matchPackageNames": ["*"], "minimumReleaseAge": "7 days" },
+    { "matchDatasources": ["docker"], "minimumReleaseAge": null },
+    { "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
+      "groupName": "everything short of a major", "automerge": true },
+    { "matchCurrentVersion": "/^0\\./", "matchUpdateTypes": ["minor"],
+      "groupName": null, "automerge": false },
+    { "matchDepNames": ["node"], "matchUpdateTypes": ["major"], "groupName": "node" },
+    { "description": "A new Python (3.15 to 3.16 is a minor) also needs a classifier in pyproject.toml.",
+      "matchDepNames": ["python"], "matchUpdateTypes": ["major", "minor"],
+      "groupName": "python", "automerge": false },
+    { "description": "The test job also runs the oldest Python in requires-python; that pin moves only with requires-python.",
+      "matchDepNames": ["python"], "matchCurrentValue": "3.11", "enabled": false },
+    { "matchPackageNames": ["ruff"], "groupName": null }
+  ]
+}

@@ -89,15 +89,25 @@ class Accounts:
                 raise
 
     def passkey(self, cred_id):
-        """-> (user id, (x, y), sign count) or None."""
-        rows = self._q("select user_id, public_key, sign_count from passkeys where id = ?", cred_id)
+        """-> (user id, (x, y)) or None."""
+        rows = self._q("select user_id, public_key from passkeys where id = ?", cred_id)
         if not rows:
             return None
-        uid, raw, count = rows[0]
-        return uid, (int.from_bytes(raw[:32]), int.from_bytes(raw[32:])), count
+        uid, raw = rows[0]
+        return uid, (int.from_bytes(raw[:32]), int.from_bytes(raw[32:]))
 
     def used(self, cred_id, sign_count):
-        self._q("update passkeys set sign_count = ?, used = ? where id = ?", sign_count, time.time(), cred_id)
+        """Record a sign-in. False when the count didn't go up: the passkey looks copied.
+
+        A count of 0 means the authenticator doesn't keep one."""
+        with self.lock:
+            return (
+                self.db.execute(
+                    "update passkeys set sign_count = ?, used = ? where id = ? and (? = 0 or sign_count < ?)",
+                    (sign_count, time.time(), cred_id, sign_count, sign_count),
+                ).rowcount
+                == 1
+            )
 
     def start_session(self, user_id):
         token = secrets.token_urlsafe(32)

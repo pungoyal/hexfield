@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+staged=$(git diff --cached --name-only --diff-filter=ACMR -- '*.py')
+if [ -n "$staged" ]; then
+  echo "$staged" | xargs ruff check
+  echo "$staged" | xargs ruff format --check
+fi
+printf '%s\n' tests/test_*.py | sed 's#/#.#; s#\.py$##' | xargs -P0 -n1 python3 -m unittest -f -q
