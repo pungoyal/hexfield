@@ -399,8 +399,8 @@ export function showHelp() {
       ${k(["R"], "Roll the dice")}${k(["1", "2", "3"], "Build a trail / village / town: then type the letter on the spot")}
       ${k(["D"], "Buy a venture")}${k(["4", "5", "6", "7"], "Play Ranger / Pathfinder / Hoard / Windfall")}
       ${k(["T"], "Trade with the bank, docks or players")}${k(["E"], "End your turn")}
-      ${k(["Space"], "The obvious move, everywhere: the green-ringed choice. On the board the best spot, the roll, or End turn once nothing else is left; in a dialog the recommended answer (the coach's verdict on an offer, the suggested discard, the trade that unlocks your best build, the richest player to rob). Keep pressing to follow a multi-step recommendation")}
-      ${k(["A", "S", "F", "…"], "Pick a board spot (setup, build modes, bandit). Spots are ranked: A is always the best, then S, F, G… down the home row; weaker spots get two letters")}
+      ${k(["Space"], "The obvious move, everywhere: the green-ringed choice. The board starts raw: when it is a spot to pick, the first Space shows each spot's letters and pips and rings the best one, and a second Space builds there. Otherwise the roll, or End turn once nothing else is left; in a dialog the recommended answer (the coach's verdict on an offer, the suggested discard, the trade that unlocks your best build, the richest player to rob). Keep pressing to follow a multi-step recommendation")}
+      ${k(["A", "S", "F", "…"], "Pick a board spot (setup, build modes, bandit) once Space has shown the letters. Spots are ranked: A is always the best, then S, F, G… down the home row; weaker spots get two letters")}
       ${k(["⌫"], "Take back a typed letter")}${k(["1", "2", "3"], "Choose who to rob (when asked)")}
       ${k(["⇧D"], "Reopen the discard dialog")}${k(["⇧Y"], "Reopen a bot's trade offer")}${k(["Esc"], "Cancel: typed letters, then build mode, then the coach panel")}
     </div>

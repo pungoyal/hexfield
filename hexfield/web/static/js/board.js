@@ -4,7 +4,7 @@ import { act, render } from "./app.js";
 import { BANDIT, boardDefs, townArt, hexPoints, dockBadge, trailArt, villageArt, terrain, tokenArt } from "./art.js";
 import { resetKeyCaches, setObvious } from "./keys.js";
 import { boardBox } from "./logic.js";
-import { B, G, S, els, legal, myDecision } from "./state.js";
+import { B, G, S, TOUCH, els, legal, myDecision } from "./state.js";
 import { edgeLine, resetBoardCaches as resetTextCaches, trailsToward, spotName } from "./text.js";
 import { $, RES, esc, pc, resIcon, svg } from "./util.js";
 
@@ -197,6 +197,11 @@ export function renderTargets() {
   const sig = JSON.stringify([t, S.human, S.turn, S.phase, S.bandit]);
   if (sig === els.targetSig) return;
   els.targetSig = sig;
+  // every spot-picking decision starts on the raw board: no letters, pip totals or best spot until Space
+  // asks for them. A phone has no Space, and one-click building in the main phase has no letters to
+  // reveal (Space rolls or ends the turn there), so both keep their pips.
+  G.aids = TOUCH || t.quick;
+  $("#board").classList.toggle("aids", G.aids);
   g.replaceChildren();
   $("#board").classList.toggle("robbing", t.h.length > 0);
   g.classList.toggle("quick", t.quick);

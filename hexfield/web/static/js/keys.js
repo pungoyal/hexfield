@@ -111,7 +111,8 @@ export function renderKeys() {
     el.classList.toggle("best", !!top && (top.v !== undefined ? el.dataset.v === String(top.v)
       : top.e !== undefined ? el.dataset.e === String(top.e) : el.dataset.h === String(top.hex)));
   }
-  if (keyBuf && !keyMap.some((k) => k.code.startsWith(keyBuf))) keyBuf = "";
+  // nothing can be half typed on a board whose letters are hidden (a new decision starts raw)
+  if (keyBuf && (!G.aids || !keyMap.some((k) => k.code.startsWith(keyBuf)))) keyBuf = "";
   for (const k of keyMap) {
     const on = keyBuf && k.code.startsWith(keyBuf);
     const kg = svg("g", { class: `key-tag ${on ? "on" : keyBuf ? "dim" : ""} ${k.best ? "best" : ""}`, transform: `translate(${k.x.toFixed(1)} ${(k.v !== undefined ? k.y - 20 : k.y).toFixed(1)})` }, g);
@@ -122,8 +123,14 @@ export function renderKeys() {
   }
 }
 
+// Space shows them; they stay until the decision changes (renderTargets hides them again)
+export function showAids() {
+  G.aids = true;
+  $("#board").classList.add("aids");
+}
+
 export function pickKey(ch) {
-  if (!keyMap.length) return false;
+  if (!keyMap.length || !G.aids) return false;
   const next = keyBuf + ch;
   const hits = keyMap.filter((k) => k.code.startsWith(next));
   if (!hits.length) return false;
@@ -204,9 +211,11 @@ export function onKey(e) {
   }
   if (k === "backspace" && keyBuf) { e.preventDefault(); keyBuf = keyBuf.slice(0, -1); renderKeys(); return; }
   if (/^[A-Z]$/.test(label) && !G.busy && pickKey(k)) { e.preventDefault(); return; }
-  // Space is always the obvious move: the top-ranked spot (always a single letter), or the roll
+  // Space is always the obvious move: the top-ranked spot (always a single letter), or the roll.
+  // The board starts raw, so on the board the first Space only shows the letters, pips and best spot.
   if (label === " " && e.repeat) { e.preventDefault(); return; } // a held Space rolls once; it doesn't run on into End turn
   if (label === " " && !G.busy && !keyBuf) {
+    if (keyMap.length && !G.aids) { e.preventDefault(); showAids(); return; }
     if (keyMap.length) { e.preventDefault(); pickKey(keyMap[0].code); return; }
     const o = $$("body > .app .obvious").find((el) => shown(el) && !el.closest("dialog, [popover]"));
     if (o) { e.preventDefault(); press(o); return; }
