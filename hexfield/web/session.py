@@ -13,8 +13,8 @@ record without playing it.
 
 import math
 import queue
-import re
 import random
+import re
 import secrets
 import threading
 import time
@@ -23,8 +23,20 @@ from .. import store
 from ..ai import LEVELS, STYLES, AIPlayer, describe
 from ..cli import VERDICTS
 from ..constants import BADLANDS, MAX_TOWNS, MAX_TRAILS, MAX_VILLAGES, RES_NAMES
-from ..game import (DICE_MODES, LAYOUTS, MAIN, OVER, PRE_ROLL, FREE_TRAILS, BANDIT, SETUP_TRAIL,
-                    SETUP_SETTLE, SPECIAL, IllegalAction, fmt_cards)
+from ..game import (
+    BANDIT,
+    DICE_MODES,
+    FREE_TRAILS,
+    LAYOUTS,
+    MAIN,
+    OVER,
+    PRE_ROLL,
+    SETUP_SETTLE,
+    SETUP_TRAIL,
+    SPECIAL,
+    IllegalAction,
+    fmt_cards,
+)
 from ..match import AI_NAMES, bot_counters, clean_name, pick_partner, public_reason, seat_plan
 from ..record import Record
 from ..render import second_person
@@ -69,8 +81,9 @@ def board_geometry(b):
     """Pixel layout of a board (pointy-top hexes, radius HEX_R)."""
     rt3 = math.sqrt(3)
     centers = [(HEX_R * rt3 * (q + r / 2), HEX_R * 1.5 * r) for q, r in b.coords]
-    corners = [(math.cos(math.radians(60 * i - 90)) * HEX_R,
-                math.sin(math.radians(60 * i - 90)) * HEX_R) for i in range(6)]
+    corners = [
+        (math.cos(math.radians(60 * i - 90)) * HEX_R, math.sin(math.radians(60 * i - 90)) * HEX_R) for i in range(6)
+    ]
     vxy = [None] * b.V
     for h, vs in enumerate(b.hex_vertices):
         cx, cy = centers[h]
@@ -80,16 +93,28 @@ def board_geometry(b):
     hexes = []
     for h in range(b.H):
         r = b.hex_resource[h]
-        hexes.append({
-            "x": round(centers[h][0], 2), "y": round(centers[h][1], 2),
-            "res": None if r == BADLANDS else RES_NAMES[r],
-            "num": b.hex_number[h], "pips": b.hex_pips[h], "label": b.hex_label(h),
-        })
+        hexes.append(
+            {
+                "x": round(centers[h][0], 2),
+                "y": round(centers[h][1], 2),
+                "res": None if r == BADLANDS else RES_NAMES[r],
+                "num": b.hex_number[h],
+                "pips": b.hex_pips[h],
+                "label": b.hex_label(h),
+            }
+        )
     return {
         "hexes": hexes,
-        "vertices": [{"x": x, "y": y, "pips": b.vertex_total_pips[v], "hexes": list(b.vertex_hexes[v]),
-                      "dock": dock_name(b.vertex_dock[v])}
-                     for v, (x, y) in enumerate(vxy)],
+        "vertices": [
+            {
+                "x": x,
+                "y": y,
+                "pips": b.vertex_total_pips[v],
+                "hexes": list(b.vertex_hexes[v]),
+                "dock": dock_name(b.vertex_dock[v]),
+            }
+            for v, (x, y) in enumerate(vxy)
+        ],
         "edges": [list(pr) for pr in b.edge_vertices],
         "docks": [{"kind": dock_name(kind), "v": list(b.edge_vertices[e])} for e, kind in b.docks],
         "radius": HEX_R,
@@ -97,9 +122,21 @@ def board_geometry(b):
 
 
 # number of integer arguments each simple action takes
-ARITY = {"settle": 1, "trail": 1, "town": 1, "buy_venture": 0, "play_ranger": 0, "play_pathfinder": 0,
-         "play_hoard": 1, "play_windfall": 2, "roll": 0, "bandit": 2, "bank": 2, "end": 0,
-         "end_free_trails": 0}
+ARITY = {
+    "settle": 1,
+    "trail": 1,
+    "town": 1,
+    "buy_venture": 0,
+    "play_ranger": 0,
+    "play_pathfinder": 0,
+    "play_hoard": 1,
+    "play_windfall": 2,
+    "roll": 0,
+    "bandit": 2,
+    "bank": 2,
+    "end": 0,
+    "end_free_trails": 0,
+}
 
 
 def _int(x):
@@ -144,20 +181,20 @@ class Table:
         self.seed = rec.seed
         self.s = rec.new_state()
         self.humans = rec.humans
-        self.human = self.humans[0] if self.humans else 0   # the seat requests default to
+        self.human = self.humans[0] if self.humans else 0  # the seat requests default to
         self.mode = rec.meta.get("mode", "solo")
         self.geometry = board_geometry(self.s.board)
         self.coach = AIPlayer(self.s.board, "hard", seed=self.seed)
-        self.reasons = {}        # event index -> bot reasoning
-        self.offer = None        # the trade offer on the table, if any
-        self.history = []        # undo points: dicts, one per human decision
+        self.reasons = {}  # event index -> bot reasoning
+        self.offer = None  # the trade offer on the table, if any
+        self.history = []  # undo points: dicts, one per human decision
         self.review_on = {h: True for h in self.humans}
-        self.muted = set()       # human seats that don't want trade offers from bots
-        self.open = set()        # online: human seats nobody has taken yet
+        self.muted = set()  # human seats that don't want trade offers from bots
+        self.open = set()  # online: human seats nobody has taken yet
         self.version = 0
-        self.takeback = None     # online: a decision someone asks to take back, until the others answer
+        self.takeback = None  # online: a decision someone asks to take back, until the others answer
         self.takeback_result = None  # how the last request ended: {"n", "ok", "from", "by", "label"}
-        self.epoch = 0           # grows with every undo: the log each browser holds is stale
+        self.epoch = 0  # grows with every undo: the log each browser holds is stale
 
     @property
     def reviews(self):
@@ -186,11 +223,14 @@ class Table:
                 "ventures": s.venture_count(p),
                 "rangers": s.rangers[p],
                 "trail": s.trail_len[p],
-                "left": {"trail": MAX_TRAILS - len(s.trails[p]),
-                         "village": MAX_VILLAGES - len(s.villages[p]),
-                         "town": MAX_TOWNS - len(s.towns[p])},
+                "left": {
+                    "trail": MAX_TRAILS - len(s.trails[p]),
+                    "village": MAX_VILLAGES - len(s.villages[p]),
+                    "town": MAX_TOWNS - len(s.towns[p]),
+                },
                 "bot": info["kind"] == "bot",
-                "level": info.get("level"), "style": info.get("style"),
+                "level": info.get("level"),
+                "style": info.get("style"),
                 "open": p in self.open,
             }
             if reveal:
@@ -204,8 +244,7 @@ class Table:
                 continue
             if kind == "private_steal" and h not in p and not reveal:
                 continue
-            item = {"i": i, "turn": turn, "p": p if isinstance(p, int) else None, "kind": kind,
-                    "msg": self.you(msg, h)}
+            item = {"i": i, "turn": turn, "p": p if isinstance(p, int) else None, "kind": kind, "msg": self.you(msg, h)}
             if kind == "private_steal":
                 item["thief"], item["victim"] = p
             if i in self.reasons:
@@ -214,28 +253,58 @@ class Table:
         po = self.pending_for(h)
         revs = [r for r in self.reviews if r.get("seat") == h]
         out = {
-            "gid": self.gid, "seed": self.seed, "level": self.level, "human": h, "n": s.n,
-            "mode": self.mode, "options": self.rec.options, "large": s.board.large,
-            "special_build": s.special_build, "version": self.version,
-            "phase": s.phase, "actor": s.actor() if s.phase != OVER else s.current,
-            "current": s.current, "turn": s.turn, "round": self.round(),
+            "gid": self.gid,
+            "seed": self.seed,
+            "level": self.level,
+            "human": h,
+            "n": s.n,
+            "mode": self.mode,
+            "options": self.rec.options,
+            "large": s.board.large,
+            "special_build": s.special_build,
+            "version": self.version,
+            "phase": s.phase,
+            "actor": s.actor() if s.phase != OVER else s.current,
+            "current": s.current,
+            "turn": s.turn,
+            "round": self.round(),
             "last_roll": list(s.last_roll) if s.last_roll else None,
-            "bandit": s.bandit, "v_owner": s.v_owner, "v_level": s.v_level, "e_owner": s.e_owner,
-            "players": players, "longest": s.longest, "patrol": s.patrol,
-            "hand": s.hands[h], "ventures": s.ventures[h][:5], "new_ventures": s.new_ventures[h][:5],
-            "bank": s.bank, "deck": s.deck_size(), "venture_played": s.venture_played,
-            "free_trails": s.free_trails, "discard_owed": s.discards.get(h, 0),
+            "bandit": s.bandit,
+            "v_owner": s.v_owner,
+            "v_level": s.v_level,
+            "e_owner": s.e_owner,
+            "players": players,
+            "longest": s.longest,
+            "patrol": s.patrol,
+            "hand": s.hands[h],
+            "ventures": s.ventures[h][:5],
+            "new_ventures": s.new_ventures[h][:5],
+            "bank": s.bank,
+            "deck": s.deck_size(),
+            "venture_played": s.venture_played,
+            "free_trails": s.free_trails,
+            "discard_owed": s.discards.get(h, 0),
             "discards_pending": {str(q): k for q, k in s.discards.items()},
-            "ratios": s.ratios(h), "roll_hist": s.roll_hist, "setup_idx": s.setup_idx,
+            "ratios": s.ratios(h),
+            "roll_hist": s.roll_hist,
+            "setup_idx": s.setup_idx,
             "tracker": self.tracker(h),
             "legal": self.legal_for(h),
-            "events": evs, "ev_total": len(s.events),
-            "reviews": sorted(revs, key=lambda r: r["token"]), "review_on": self.review_on.get(h, False),
+            "events": evs,
+            "ev_total": len(s.events),
+            "reviews": sorted(revs, key=lambda r: r["token"]),
+            "review_on": self.review_on.get(h, False),
             "mute_offers": h in self.muted,
-            "pending_offer": po, "my_offer": self.my_offer_for(h),
-            "waiting_on": self.waiting_on(), "lobby": bool(self.open),
-            "can_undo": self.can_undo(h), "winner": s.winner, "epoch": self.epoch,
-            "takeback": self.takeback_for(h), "takeback_result": self.takeback_result and {**self.takeback_result, "label": self.you(self.takeback_result["label"], h)},
+            "pending_offer": po,
+            "my_offer": self.my_offer_for(h),
+            "waiting_on": self.waiting_on(),
+            "lobby": bool(self.open),
+            "can_undo": self.can_undo(h),
+            "winner": s.winner,
+            "epoch": self.epoch,
+            "takeback": self.takeback_for(h),
+            "takeback_result": self.takeback_result
+            and {**self.takeback_result, "label": self.you(self.takeback_result["label"], h)},
             "reviewing": self.reviewing(),
         }
         if s.phase == OVER:
@@ -282,8 +351,12 @@ class Table:
         t = self.takeback
         if not t:
             return None
-        return {"from": t["from"], "label": self.you(t["label"], h), "mine": t["answers"].get(h, True) is None,
-                "waiting": sorted(q for q, a in t["answers"].items() if a is None)}
+        return {
+            "from": t["from"],
+            "label": self.you(t["label"], h),
+            "mine": t["answers"].get(h, True) is None,
+            "waiting": sorted(q for q, a in t["answers"].items() if a is None),
+        }
 
     def waiting_on(self):
         """The human seats the game is waiting for right now."""
@@ -303,23 +376,32 @@ class Table:
         o = self.offer
         if not o or o["answers"].get(h, 0) is not None:
             return None
-        return {"from": o["from"], "give": list(o["give"]), "get": list(o["get"]),
-                "counters_left": COUNTER_TRIES - o["tries"].get(h, 0) if o["bot"] else 1,
-                "note": o["notes"].get(h)}
+        return {
+            "from": o["from"],
+            "give": list(o["give"]),
+            "get": list(o["get"]),
+            "counters_left": COUNTER_TRIES - o["tries"].get(h, 0) if o["bot"] else 1,
+            "note": o["notes"].get(h),
+        }
 
     def my_offer_for(self, h):
         o = self.offer
         if not o or o["bot"] or o["from"] != h:
             return None
-        replies = [{"p": q, "ok": o["answers"][q], "why": o["notes"].get(q), "counter": o["counters"].get(q)}
-                   for q in sorted(o["answers"])]
-        return {"give": list(o["give"]), "get": list(o["get"]), "replies": replies,
-                "accepted": [r["p"] for r in replies if r["ok"]]}
+        replies = [
+            {"p": q, "ok": o["answers"][q], "why": o["notes"].get(q), "counter": o["counters"].get(q)}
+            for q in sorted(o["answers"])
+        ]
+        return {
+            "give": list(o["give"]),
+            "get": list(o["get"]),
+            "replies": replies,
+            "accepted": [r["p"] for r in replies if r["ok"]],
+        }
 
     def legal_for(self, h):
         s = self.s
-        if (not self.live or s.phase == OVER or self.open or s.actor() != h
-                or (self.offer and self.offer["bot"])):
+        if not self.live or s.phase == OVER or self.open or s.actor() != h or (self.offer and self.offer["bot"]):
             return {}
         L = {"settle": [], "town": [], "trail": [], "bandit": {}, "kinds": []}
         for a in s.legal_actions():
@@ -339,18 +421,32 @@ class Table:
         h = self.human if h is None else h
         rows = []
         for p in sorted(range(s.n), key=lambda q: -s.fame(q)):
-            rows.append({"p": p, "fame": s.fame(p), "villages": len(s.villages[p]),
-                         "towns": len(s.towns[p]), "longest": s.longest == p,
-                         "patrol": s.patrol == p, "landmarks": s.landmarks(p)})
+            rows.append(
+                {
+                    "p": p,
+                    "fame": s.fame(p),
+                    "villages": len(s.villages[p]),
+                    "towns": len(s.towns[p]),
+                    "longest": s.longest == p,
+                    "patrol": s.patrol == p,
+                    "landmarks": s.landmarks(p),
+                }
+            )
         revs = [r for r in self.reviews if r.get("seat") == h and not r.get("forced")]
         counts = {v[1]: 0 for v in VERDICTS}
         for r in revs:
             counts[r["verdict"]] += 1
         acc = 100.0 * sum(1 for r in revs if r["delta"] < 0.2) / len(revs) if revs else None
         worst = [r for r in sorted(revs, key=lambda r: -r["delta"])[:5] if r["delta"] >= 0.2]
-        return {"rows": rows, "counts": counts, "accuracy": acc,
-                "lost": sum(r["delta"] for r in revs), "worst": worst, "turns": s.turn,
-                "rounds": self.round()}
+        return {
+            "rows": rows,
+            "counts": counts,
+            "accuracy": acc,
+            "lost": sum(r["delta"] for r in revs),
+            "worst": worst,
+            "turns": s.turn,
+            "rounds": self.round(),
+        }
 
     # ================================================================ coach
     def hint(self, seat=None):
@@ -422,7 +518,7 @@ class Table:
                 break
             ok += 1
         if ok < len(steps):
-            steps, used = steps[:max(ok, 1)], max(ok, 1)
+            steps, used = steps[: max(ok, 1)], max(ok, 1)
         return steps, " -> ".join(parts), used < len(parts)
 
     def evaluate(self, seat=None):
@@ -439,11 +535,27 @@ class Table:
 class WebGame(Table):
     live = True
 
-    def __init__(self, opponents=3, level="hard", seed=None, seat=None, name="You", review=True,
-                 styles="mixed", dice="random", layout="random", humans=None, mode="solo",
-                 persist=True, record=None, saved=None, gid=None, owner=""):
+    def __init__(
+        self,
+        opponents=3,
+        level="hard",
+        seed=None,
+        seat=None,
+        name="You",
+        review=True,
+        styles="mixed",
+        dice="random",
+        layout="random",
+        humans=None,
+        mode="solo",
+        persist=True,
+        record=None,
+        saved=None,
+        gid=None,
+        owner="",
+    ):
         if record is None:
-            seed = seed if seed is not None else random.randrange(1, 10 ** 6)
+            seed = seed if seed is not None else random.randrange(1, 10**6)
             if level not in LEVELS or (styles != "mixed" and styles not in STYLES):
                 raise IllegalAction("unknown level or style")
             if mode not in MODES or dice not in DICE_MODES or layout not in LAYOUTS:
@@ -455,12 +567,12 @@ class WebGame(Table):
         self._table(record, gid or store.new_id())
         s = self.s
         self.persist = persist
-        self.owner = owner         # whose saved games this is one of (see store.py)
+        self.owner = owner  # whose saved games this is one of (see store.py)
         self.agents = [self._agent(p) for p in range(s.n)]
         self.lock = threading.RLock()
         self.changed = threading.Condition(self.lock)
         self.review_on = {h: bool(review) for h in self.humans}
-        self.tokens = {}           # secret -> seat
+        self.tokens = {}  # secret -> seat
         self.touched = time.time()
         self._saved_at = 0.0
         self._jobs = queue.Queue()
@@ -479,8 +591,7 @@ class WebGame(Table):
         x = self.rec.seats[p]
         if x["kind"] != "bot":
             return None
-        return AIPlayer(self.s.board, x.get("level", "hard"), seed=self.seed * 7 + p,
-                        style=x.get("style", "balanced"))
+        return AIPlayer(self.s.board, x.get("level", "hard"), seed=self.seed * 7 + p, style=x.get("style", "balanced"))
 
     # ============================================================ persistence
     @classmethod
@@ -503,8 +614,17 @@ class WebGame(Table):
         for i, e in enumerate(self.rec.entries):
             if e[0] == "m":
                 offer = e[3] if len(e) > 3 else None
-                self.history.append({"state": s.clone(sim=False), "at": i, "seat": e[1], "label": e[2],
-                                     "offer": _offer_in(offer), "reasons": dict(self.reasons), "agents": None})
+                self.history.append(
+                    {
+                        "state": s.clone(sim=False),
+                        "at": i,
+                        "seat": e[1],
+                        "label": e[2],
+                        "offer": _offer_in(offer),
+                        "reasons": dict(self.reasons),
+                        "agents": None,
+                    }
+                )
                 continue
             got = Record.play(s, e)
             if got:
@@ -522,8 +642,11 @@ class WebGame(Table):
         t = saved.get("takeback")
         if t and self.history and self.history[-1]["seat"] == t.get("from"):
             self.history[-1]["asked"] = True
-            self.takeback = {"from": int(t["from"]), "label": self.history[-1]["label"],
-                             "answers": {int(q): a for q, a in t["answers"].items() if int(q) in self.humans}}
+            self.takeback = {
+                "from": int(t["from"]),
+                "label": self.history[-1]["label"],
+                "answers": {int(q): a for q, a in t["answers"].items() if int(q) in self.humans},
+            }
 
     def save(self, force=True):
         if not self.persist or (not force and time.time() - self._saved_at < 3):
@@ -532,16 +655,28 @@ class WebGame(Table):
         meta = self.rec.meta
         meta["round"] = self.round()
         if s.phase == OVER:
-            meta["result"] = {"winner": s.winner, "fame": [s.fame(p) for p in range(s.n)],
-                              "rounds": self.round(), "human": self.human}
+            meta["result"] = {
+                "winner": s.winner,
+                "fame": [s.fame(p) for p in range(s.n)],
+                "rounds": self.round(),
+                "human": self.human,
+            }
             meta["coach"] = store.review_summary(self.reviews, self.human)
         else:
             meta.pop("result", None)
             meta.pop("coach", None)
         try:
-            store.save(self.gid, self.rec, self.owner, offer=_offer_out(self.offer), tokens=self.tokens,
-                       open=sorted(self.open), muted=sorted(self.muted), epoch=self.epoch,
-                       takeback=self.takeback and {"from": self.takeback["from"], "answers": self.takeback["answers"]})
+            store.save(
+                self.gid,
+                self.rec,
+                self.owner,
+                offer=_offer_out(self.offer),
+                tokens=self.tokens,
+                open=sorted(self.open),
+                muted=sorted(self.muted),
+                epoch=self.epoch,
+                takeback=self.takeback and {"from": self.takeback["from"], "answers": self.takeback["answers"]},
+            )
             self._saved_at = time.time()
         except OSError as ex:  # a full disk must not stop the game
             print("could not save the game:", ex)
@@ -596,8 +731,12 @@ class WebGame(Table):
         """Start an online game now: every seat still open is played by a bot."""
         free = [b for b in AI_NAMES if b not in self.s.names]
         for seat in sorted(self.open):
-            self.rec.seats[seat] = {"name": free.pop(0), "kind": "bot", "level": level or self.level,
-                                    "style": random.Random(self.seed * 13 + seat).choice(sorted(STYLES))}
+            self.rec.seats[seat] = {
+                "name": free.pop(0),
+                "kind": "bot",
+                "level": level or self.level,
+                "style": random.Random(self.seed * 13 + seat).choice(sorted(STYLES)),
+            }
             self.s.names[seat] = self.rec.seats[seat]["name"]
             self.agents[seat] = self._agent(seat)
             self.tokens = {t: q for t, q in self.tokens.items() if q != seat}
@@ -653,9 +792,19 @@ class WebGame(Table):
             if self.agents[q] is not None:
                 answers[q] = bool(s.can_afford(q, get) and self.agents[q].evaluate_offer(s, q, p, give, get)[0])
             elif s.can_afford(q, get) and q not in self.muted:
-                answers[q] = None  # a human answers for themselves; one who can't pay, or who has muted bot offers, isn't asked
-        self.offer = {"from": p, "give": tuple(give), "get": tuple(get), "answers": answers,
-                      "counters": {}, "tries": {}, "notes": {}, "bot": True}
+                answers[q] = (
+                    None  # a human answers for themselves; one who can't pay, or who has muted bot offers, isn't asked
+                )
+        self.offer = {
+            "from": p,
+            "give": tuple(give),
+            "get": tuple(get),
+            "answers": answers,
+            "counters": {},
+            "tries": {},
+            "notes": {},
+            "bot": True,
+        }
         if None not in answers.values():
             self._finish_offer()
         self._arm_offer()
@@ -815,9 +964,15 @@ class WebGame(Table):
         if a[0] == "trade":
             o = self.offer
             terms = {"give": list(a[2]), "get": list(a[3])}
-            agreed = o and not o["bot"] and o["from"] == h and (
-                (o["answers"].get(a[1]) is True and terms == {"give": list(o["give"]), "get": list(o["get"])})
-                or o["counters"].get(a[1]) == terms)
+            agreed = (
+                o
+                and not o["bot"]
+                and o["from"] == h
+                and (
+                    (o["answers"].get(a[1]) is True and terms == {"give": list(o["give"]), "get": list(o["get"])})
+                    or o["counters"].get(a[1]) == terms
+                )
+            )
             if not agreed:
                 raise IllegalAction("that player hasn't accepted this trade")
         if a[0] in ("discard", "trade"):
@@ -834,10 +989,22 @@ class WebGame(Table):
         at = self.snapshot(label, h)
         if self.review_on.get(h):
             if forced:
-                self.reviews.append({"token": at, "at": at, "seat": h, "turn": s.turn, "phase": s.phase,
-                                     "label": label, "best": "only sensible move", "delta": 0.0,
-                                     "verdict": "forced", "forced": True,
-                                     "action": a, "best_action": a})
+                self.reviews.append(
+                    {
+                        "token": at,
+                        "at": at,
+                        "seat": h,
+                        "turn": s.turn,
+                        "phase": s.phase,
+                        "label": label,
+                        "best": "only sensible move",
+                        "delta": 0.0,
+                        "verdict": "forced",
+                        "forced": True,
+                        "action": a,
+                        "best_action": a,
+                    }
+                )
             else:
                 self._queue("discard" if a[0] == "discard" else "action", a, h)
         self.offer = None
@@ -858,8 +1025,7 @@ class WebGame(Table):
             raise IllegalAction("don't give and ask for the same resource")
         if any(give[r] > s.hands[h][r] for r in range(5)):
             raise IllegalAction("you don't have those cards")
-        o = {"from": h, "give": give, "get": get, "answers": {}, "counters": {}, "tries": {},
-             "notes": {}, "bot": False}
+        o = {"from": h, "give": give, "get": get, "answers": {}, "counters": {}, "tries": {}, "notes": {}, "bot": False}
         for q in range(s.n):
             if q == h:
                 continue
@@ -914,8 +1080,18 @@ class WebGame(Table):
         at = len(self.rec.entries)
         agents = [(a.rng.getstate(), a._proposed) if a else None for a in self.agents]
         self._serial = getattr(self, "_serial", 0) + 1
-        self.history.append({"state": self.s.clone(sim=False), "at": at, "id": self._serial, "seat": seat, "label": label,
-                             "offer": _offer_copy(self.offer), "reasons": dict(self.reasons), "agents": agents})
+        self.history.append(
+            {
+                "state": self.s.clone(sim=False),
+                "at": at,
+                "id": self._serial,
+                "seat": seat,
+                "label": label,
+                "offer": _offer_copy(self.offer),
+                "reasons": dict(self.reasons),
+                "agents": agents,
+            }
+        )
         self.rec.mark(seat, label, _offer_out(self.offer))
         return at
 
@@ -1056,36 +1232,66 @@ class WebGame(Table):
             if a[0] == "trade":
                 label = f"trade {fmt_cards(a[2])} for {fmt_cards(a[3])} with {s.names[a[1]]}"
         delta = max(0.0, best - mine)
-        return {"token": at, "at": at, "seat": h, "action": mine_a, "best_action": best_a, "turn": s.turn,
-                "phase": s.phase, "kind": "offer" if kind == "offer" else s.phase,
-                "label": label, "best": best_desc, "delta": round(delta, 3), "verdict": verdict(delta),
-                "forced": False}
+        return {
+            "token": at,
+            "at": at,
+            "seat": h,
+            "action": mine_a,
+            "best_action": best_a,
+            "turn": s.turn,
+            "phase": s.phase,
+            "kind": "offer" if kind == "offer" else s.phase,
+            "label": label,
+            "best": best_desc,
+            "delta": round(delta, 3),
+            "verdict": verdict(delta),
+            "forced": False,
+        }
 
 
 def _offer_copy(o):
     if not o:
         return None
-    return {**o, "answers": dict(o["answers"]), "counters": dict(o["counters"]),
-            "tries": dict(o["tries"]), "notes": dict(o["notes"])}
+    return {
+        **o,
+        "answers": dict(o["answers"]),
+        "counters": dict(o["counters"]),
+        "tries": dict(o["tries"]),
+        "notes": dict(o["notes"]),
+    }
 
 
 def _offer_out(o):
     """An offer as JSON (seat keys become strings)."""
     if not o:
         return None
-    js = lambda d: {str(k): v for k, v in d.items()}  # noqa: E731
-    return {"from": o["from"], "give": list(o["give"]), "get": list(o["get"]), "bot": o["bot"],
-            "answers": js(o["answers"]), "counters": js(o["counters"]), "tries": js(o["tries"]),
-            "notes": js(o["notes"])}
+    js = lambda d: {str(k): v for k, v in d.items()}
+    return {
+        "from": o["from"],
+        "give": list(o["give"]),
+        "get": list(o["get"]),
+        "bot": o["bot"],
+        "answers": js(o["answers"]),
+        "counters": js(o["counters"]),
+        "tries": js(o["tries"]),
+        "notes": js(o["notes"]),
+    }
 
 
 def _offer_in(d):
     if not d:
         return None
-    back = lambda x: {int(k): v for k, v in (x or {}).items()}  # noqa: E731
-    return {"from": d["from"], "give": tuple(d["give"]), "get": tuple(d["get"]), "bot": d["bot"],
-            "answers": back(d.get("answers")), "counters": back(d.get("counters")),
-            "tries": back(d.get("tries")), "notes": back(d.get("notes"))}
+    back = lambda x: {int(k): v for k, v in (x or {}).items()}
+    return {
+        "from": d["from"],
+        "give": tuple(d["give"]),
+        "get": tuple(d["get"]),
+        "bot": d["bot"],
+        "answers": back(d.get("answers")),
+        "counters": back(d.get("counters")),
+        "tries": back(d.get("tries")),
+        "notes": back(d.get("notes")),
+    }
 
 
 class Replay(Table):
@@ -1100,19 +1306,19 @@ class Replay(Table):
         self._table(rec, gid)
         self.lock = threading.RLock()
         self.touched = time.time()
-        self.cuts = []      # entry index just past the k-th action (and the notes after it)
+        self.cuts = []  # entry index just past the k-th action (and the notes after it)
         entries = rec.entries
         i = 0
         while i <= len(entries):
             j = i
             while j < len(entries) and entries[j][0] != "a":
                 j += 1
-            self.cuts.append(j)   # everything before the next action
+            self.cuts.append(j)  # everything before the next action
             i = j + 1
         if self.cuts and len(self.cuts) > 1:
             self.cuts[-1] = len(entries)
         self.total = len(self.cuts) - 1
-        self.marks = []     # human decisions: {"k", "seat", "label", "review"}
+        self.marks = []  # human decisions: {"k", "seat", "label", "review"}
         by_at = {r.get("at"): r for r in rec.reviews}
         k = 0
         for i, e in enumerate(entries):
@@ -1121,7 +1327,7 @@ class Replay(Table):
             elif e[0] == "m":
                 self.marks.append({"k": k, "at": i, "seat": e[1], "label": e[2], "review": by_at.get(i)})
         self.turns = []
-        self._check = {}    # entry index -> (state, reasons)
+        self._check = {}  # entry index -> (state, reasons)
         self._at = 0
         self._reasons_at = {}
         self.s = rec.new_state()
@@ -1156,11 +1362,21 @@ class Replay(Table):
         h = out["human"]
         here = [m for m in self.marks if m["k"] == self.k and m["seat"] == h]
         out["replay"] = {
-            "k": self.k, "total": self.total, "reveal": bool(reveal),
+            "k": self.k,
+            "total": self.total,
+            "reveal": bool(reveal),
             "decision": here[-1] if here else None,
-            "marks": [{"k": m["k"], "verdict": (m["review"] or {}).get("verdict"),
-                       "delta": (m["review"] or {}).get("delta", 0)} for m in self.marks if m["seat"] == h],
-            "finished": bool(self.rec.meta.get("result")), "seats": self.humans,
+            "marks": [
+                {
+                    "k": m["k"],
+                    "verdict": (m["review"] or {}).get("verdict"),
+                    "delta": (m["review"] or {}).get("delta", 0),
+                }
+                for m in self.marks
+                if m["seat"] == h
+            ],
+            "finished": bool(self.rec.meta.get("result")),
+            "seats": self.humans,
             "entry": self.cuts[self.k],
         }
         return out

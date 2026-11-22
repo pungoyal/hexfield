@@ -1,4 +1,5 @@
 """Keyboard input never means two things: hex letters avoid every single-key command."""
+
 import pathlib
 import re
 import unittest
@@ -13,7 +14,7 @@ def html_scopes():
     html = (ROOT / "hexfield/web/static/index.html").read_text()
     main, _, dialogs = html.partition("<!-- ============ dialogs")
     scopes = {"main": re.findall(r'data-key="([^"]+)"', main)}
-    for name, body in re.findall(r'<dialog id="([^"]+)".*?>(.*?)</dialog>', dialogs, re.S):
+    for name, body in re.findall(r'<dialog id="([^"]+)".*?>(.*?)</dialog>', dialogs, re.DOTALL):
         scopes[name] = re.findall(r'data-key="([^"]+)"', body)
     return scopes
 
@@ -25,8 +26,8 @@ def web_shortcuts():
 
 def cli_commands():
     py = (ROOT / "hexfield/cli.py").read_text()
-    block = py[py.index("def common"):]
-    block = block[:block.index("\n    def ", 1)]
+    block = py[py.index("def common") :]
+    block = block[: block.index("\n    def ", 1)]
     words = set()
     for group in re.findall(r'cmd in \(([^)]*)\)|cmd == "([^"]*)"', block):
         for part in group:
@@ -72,7 +73,7 @@ class KeyTests(unittest.TestCase):
         self.assertEqual(len(order), len(set(order)), "a letter appears twice")
         free = set("abcdefghijklmnopqrstuvwxyz") - web_shortcuts()
         self.assertEqual(set(order) & free, free, "a free letter is missing from the spot-key order")
-        self.assertEqual([c for c in order if c in free][0], "a", "the best spot should be A")
+        self.assertEqual(next(c for c in order if c in free), "a", "the best spot should be A")
 
 
 if __name__ == "__main__":

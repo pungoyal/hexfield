@@ -39,6 +39,7 @@ LARGE_VENTURE_DECK_COUNTS = (20, 5, 3, 3, 3)
 LARGE_FROM = 5  # this many players or more play on the large board
 
 # The fixed beginner board, row by row (3-4-5-4-3), as (terrain, number).
+# fmt: off
 BEGINNER_TILES = [
     (STONE, 10), (WOOL, 2), (TIMBER, 9),
     (GRAIN, 12), (CLAY, 6), (WOOL, 4), (CLAY, 10),
@@ -46,9 +47,11 @@ BEGINNER_TILES = [
     (TIMBER, 8), (STONE, 3), (GRAIN, 4), (WOOL, 5),
     (CLAY, 5), (GRAIN, 6), (WOOL, 11),
 ]
+# fmt: on
 # its docks clockwise from the north-west corner
 BEGINNER_DOCKS = ["any", GRAIN, STONE, "any", WOOL, "any", "any", CLAY, TIMBER]
 
+# fmt: off
 RES_ALIASES = {
     "t": TIMBER, "ti": TIMBER, "timber": TIMBER,
     "c": CLAY, "cl": CLAY, "clay": CLAY,
@@ -56,6 +59,7 @@ RES_ALIASES = {
     "g": GRAIN, "gr": GRAIN, "grain": GRAIN,
     "s": STONE, "st": STONE, "stone": STONE,
 }
+# fmt: on
 
 
 def parse_res(tok):

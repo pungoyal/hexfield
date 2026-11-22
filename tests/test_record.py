@@ -1,4 +1,5 @@
 """Games as data: records replay exactly, and saved games survive on disk."""
+
 import argparse
 import json
 import os
@@ -37,6 +38,7 @@ class RecordTests(unittest.TestCase):
         # a record holds actions, not decisions: changing how bots think can't change a replay
         rec, s = self.game(seed=23)
         from hexfield import ai
+
         old = ai.PARAMS["pip_value"]
         ai.PARAMS["pip_value"] = old * 3
         try:
@@ -151,8 +153,19 @@ class StoreTests(unittest.TestCase):
 
 class TerminalSaveTests(unittest.TestCase):
     def args(self, **kw):
-        base = dict(opponents=2, level="easy", seed=77, seat=1, name="You", no_color=True, no_review=True,
-                    no_reasoning=True, fast=True, delay=0, autoroll=True)
+        base = {
+            "opponents": 2,
+            "level": "easy",
+            "seed": 77,
+            "seat": 1,
+            "name": "You",
+            "no_color": True,
+            "no_review": True,
+            "no_reasoning": True,
+            "fast": True,
+            "delay": 0,
+            "autoroll": True,
+        }
         base.update(kw)
         return argparse.Namespace(**base)
 

@@ -8,48 +8,77 @@ import time
 from collections import Counter
 
 from . import store
-from .ai import STYLES, STYLE_NOTES, AIPlayer, describe
-from .constants import (BADLANDS, RANGER, PIPS, RES_NAMES,
-                        parse_res)
-from .game import (DISCARD, MAIN, OVER, PRE_ROLL, FREE_TRAILS, BANDIT, SETUP_TRAIL,
-                   SETUP_SETTLE, SPECIAL, IllegalAction, fmt_cards)
+from .ai import STYLE_NOTES, STYLES, AIPlayer, describe
+from .constants import BADLANDS, PIPS, RANGER, RES_NAMES, parse_res
+from .game import (
+    BANDIT,
+    DISCARD,
+    FREE_TRAILS,
+    MAIN,
+    OVER,
+    PRE_ROLL,
+    SETUP_SETTLE,
+    SETUP_TRAIL,
+    SPECIAL,
+    IllegalAction,
+    fmt_cards,
+)
 from .match import public_reason, resolve_proposal, seat_plan
 from .record import Record
-from .render import (PLAYER_COLORS, PLAYER_COLOR_NAMES, RES_ABBR, Renderer, clip, pad, plural, second_person,
-                     term_width, use_color_default)
+from .render import (
+    PLAYER_COLOR_NAMES,
+    PLAYER_COLORS,
+    RES_ABBR,
+    Renderer,
+    clip,
+    pad,
+    plural,
+    second_person,
+    term_width,
+    use_color_default,
+)
 
 HELP_ROWS = (
-    ("COMMANDS", (
-        ("r, roll", "roll the dice"),
-        ("v [n], village [n]", "village at vertex n (no n: list the spots)"),
-        ("tn [n], town [n]", "upgrade your village at n to a town"),
-        ("tr [e], trail [e]", "trail on edge e (no e: show the edge ids)"),
-        ("vn, venture", "buy a venture"),
-        ("rg, ranger", "play a ranger"),
-        ("pf, pathfinder", "play a pathfinder"),
-        ("hoard <res>", "play hoard, e.g. hoard stone"),
-        ("windfall <res> <res>", "play windfall, e.g. windfall grain stone"),
-        ("t <give> <get> [n]", "bank/dock trade at your best ratio;"),
-        ("", "n = number of trades, e.g. t timber stone 2"),
-        ("offer <cards> for <cards>", "offer the bots a trade: offer 2 timber for stone"),
-        ("", "(a bot that says no may name its price)"),
-        ("e, end", "end your turn"),
-    )),
-    ("COACHING", (
-        ("h, hint", "engine's top options for this decision"),
-        ("eval", "engine evaluation of every player + production"),
-        ("review [on|off]", "post-move review of your decisions (default on)"),
-        ("reason [on|off]", "show the bots' reasoning (default on)"),
-        ("undo", "take back your last decision (dice stay the same)"),
-    )),
-    ("VIEW", (
-        ("b, board", "redraw the board"),
-        ("ids", "show all vertex ids"),
-        ("log [n]", "recent events"),
-        ("cost", "building costs"),
-        ("stats", "dice histogram"),
-        ("q, quit", "quit (asks first)"),
-    )),
+    (
+        "COMMANDS",
+        (
+            ("r, roll", "roll the dice"),
+            ("v [n], village [n]", "village at vertex n (no n: list the spots)"),
+            ("tn [n], town [n]", "upgrade your village at n to a town"),
+            ("tr [e], trail [e]", "trail on edge e (no e: show the edge ids)"),
+            ("vn, venture", "buy a venture"),
+            ("rg, ranger", "play a ranger"),
+            ("pf, pathfinder", "play a pathfinder"),
+            ("hoard <res>", "play hoard, e.g. hoard stone"),
+            ("windfall <res> <res>", "play windfall, e.g. windfall grain stone"),
+            ("t <give> <get> [n]", "bank/dock trade at your best ratio;"),
+            ("", "n = number of trades, e.g. t timber stone 2"),
+            ("offer <cards> for <cards>", "offer the bots a trade: offer 2 timber for stone"),
+            ("", "(a bot that says no may name its price)"),
+            ("e, end", "end your turn"),
+        ),
+    ),
+    (
+        "COACHING",
+        (
+            ("h, hint", "engine's top options for this decision"),
+            ("eval", "engine evaluation of every player + production"),
+            ("review [on|off]", "post-move review of your decisions (default on)"),
+            ("reason [on|off]", "show the bots' reasoning (default on)"),
+            ("undo", "take back your last decision (dice stay the same)"),
+        ),
+    ),
+    (
+        "VIEW",
+        (
+            ("b, board", "redraw the board"),
+            ("ids", "show all vertex ids"),
+            ("log [n]", "recent events"),
+            ("cost", "building costs"),
+            ("stats", "dice histogram"),
+            ("q, quit", "quit (asks first)"),
+        ),
+    ),
 )
 
 
@@ -111,21 +140,29 @@ class Game:
         where it stopped."""
         self.args = args
         if record is None:
-            seed = args.seed if args.seed is not None else random.randrange(1, 10 ** 6)
+            seed = args.seed if args.seed is not None else random.randrange(1, 10**6)
             layout = getattr(args, "layout", "random") if args.opponents + 1 < 5 else "random"
-            seats = seat_plan(args.opponents, args.level, seed, args.seat, args.name, None,
-                              getattr(args, "styles", "mixed"))
-            record = Record(seed, seats, {"dice": getattr(args, "dice", "random"), "layout": layout},
-                            {"mode": "solo", "ui": "terminal"})
+            seats = seat_plan(
+                args.opponents, args.level, seed, args.seat, args.name, None, getattr(args, "styles", "mixed")
+            )
+            record = Record(
+                seed,
+                seats,
+                {"dice": getattr(args, "dice", "random"), "layout": layout},
+                {"mode": "solo", "ui": "terminal"},
+            )
         self.rec = record
         self.gid = gid or store.new_id()
         self.save_on = not getattr(args, "no_save", False)
         seed = self.seed = record.seed
         seat = self.human = record.humans[0]
         self.s = record.replay()
-        self.agents = [None if x["kind"] == "human" else
-                       AIPlayer(self.s.board, x.get("level", "hard"), seed=seed * 7 + p, style=x.get("style", "balanced"))
-                       for p, x in enumerate(record.seats)]
+        self.agents = [
+            None
+            if x["kind"] == "human"
+            else AIPlayer(self.s.board, x.get("level", "hard"), seed=seed * 7 + p, style=x.get("style", "balanced"))
+            for p, x in enumerate(record.seats)
+        ]
         self.coach = AIPlayer(self.s.board, "hard", seed=seed)
         self.r = Renderer(self.s, seat, use_color_default() and not args.no_color)
         self.st = self.r.st
@@ -133,10 +170,13 @@ class Game:
         self.review_on = not args.no_review
         self.reason_on = not args.no_reasoning
         self.delay = 0.0 if args.fast else args.delay
-        self.history = []        # undo snapshots
-        self.resume = None       # a bot offer to ask again after undoing back to it
-        self.reviews = [(r["turn"], r["phase"], r["label"], r["best"], r["delta"], r["verdict"])
-                        for r in record.reviews if not r.get("forced")]  # (turn, phase, my, best, delta, verdict)
+        self.history = []  # undo snapshots
+        self.resume = None  # a bot offer to ask again after undoing back to it
+        self.reviews = [
+            (r["turn"], r["phase"], r["label"], r["best"], r["delta"], r["verdict"])
+            for r in record.reviews
+            if not r.get("forced")
+        ]  # (turn, phase, my, best, delta, verdict)
         self.printed = len(self.s.events) if record.entries else 0
         self.pending_review = None
         self.shown = None
@@ -223,10 +263,12 @@ class Game:
     # --------------------------------------------------------------- run
     def replay(self):
         opts = self.rec.options
-        return (f"python3 -m hexfield --seed {self.seed} --seat {self.human + 1} "
-                f"--opponents {self.s.n - 1}"
-                + (f" --dice {opts['dice']}" if opts["dice"] != "random" else "")
-                + (f" --layout {opts['layout']}" if opts["layout"] != "random" else ""))
+        return (
+            f"python3 -m hexfield --seed {self.seed} --seat {self.human + 1} "
+            f"--opponents {self.s.n - 1}"
+            + (f" --dice {opts['dice']}" if opts["dice"] != "random" else "")
+            + (f" --layout {opts['layout']}" if opts["layout"] != "random" else "")
+        )
 
     def save(self):
         """Write the game to disk (after every decision, so quitting loses nothing)."""
@@ -235,8 +277,12 @@ class Game:
         s, meta = self.s, self.rec.meta
         meta["round"] = (s.turn - 1) // s.n + 1 if s.turn else 0
         if s.phase == OVER:
-            meta["result"] = {"winner": s.winner, "fame": [s.fame(p) for p in range(s.n)],
-                              "rounds": meta["round"], "human": self.human}
+            meta["result"] = {
+                "winner": s.winner,
+                "fame": [s.fame(p) for p in range(s.n)],
+                "rounds": meta["round"],
+                "human": self.human,
+            }
             meta["coach"] = store.review_summary(self.rec.reviews, self.human)
         try:
             store.save(self.gid, self.rec)
@@ -248,20 +294,32 @@ class Game:
         st = self.st
         you = PLAYER_COLOR_NAMES[self.human]
         self.out(self.banner())
-        self.out(f"  Seed {st(str(self.seed), bold=True)}  ·  replay this exact board and dice with "
-                 f"{st(self.replay(), fg=117)}")
+        self.out(
+            f"  Seed {st(str(self.seed), bold=True)}  ·  replay this exact board and dice with "
+            f"{st(self.replay(), fg=117)}"
+        )
         order = " → ".join(self.r.pname(p) for p in range(self.s.n))
-        self.out(f"  You are {st(you, fg=PLAYER_COLORS[self.human], bold=True)} (seat {self.human + 1}).  "
-                 f"Turn order: {order}.")
+        self.out(
+            f"  You are {st(you, fg=PLAYER_COLORS[self.human], bold=True)} (seat {self.human + 1}).  "
+            f"Turn order: {order}."
+        )
         for p, x in enumerate(self.rec.seats):
             if x["kind"] == "bot":
                 style = x.get("style", "balanced")
-                self.out(f"   {self.r.pname(p, 9)} {x.get('level', 'hard'):<7}"
-                         + st(f"{style}: {STYLE_NOTES[style]}", dim=True))
+                self.out(
+                    f"   {self.r.pname(p, 9)} {x.get('level', 'hard'):<7}"
+                    + st(f"{style}: {STYLE_NOTES[style]}", dim=True)
+                )
         opts = self.rec.options
-        extras = [t for t in ("balanced dice" if opts["dice"] == "balanced" else "",
-                              "beginner board" if opts["layout"] == "beginner" else "",
-                              "special building phase after every turn" if self.s.special_build else "") if t]
+        extras = [
+            t
+            for t in (
+                "balanced dice" if opts["dice"] == "balanced" else "",
+                "beginner board" if opts["layout"] == "beginner" else "",
+                "special building phase after every turn" if self.s.special_build else "",
+            )
+            if t
+        ]
         if extras:
             self.out("  " + " · ".join(extras))
         self.out(f"  Type {st('help', bold=True)} for commands, {st('hint', bold=True)} for engine advice.")
@@ -336,8 +394,11 @@ class Game:
 
     def bot_offer(self, p, give, get, why):
         s = self.s
-        self.out(" " + self.st("⇄", fg=PLAYER_COLORS[p], bold=True) +
-                 f" {s.names[p]} offers {fmt_cards(give)} for {fmt_cards(get)}")
+        self.out(
+            " "
+            + self.st("⇄", fg=PLAYER_COLORS[p], bold=True)
+            + f" {s.names[p]} offers {fmt_cards(give)} for {fmt_cards(get)}"
+        )
         if self.reason_on:
             self.reason(why)
 
@@ -346,11 +407,25 @@ class Game:
                 self.out(self.st(f"     {s.names[q]} {'accepts' if ok else 'declines'}", dim=True))
 
         def on_counter(q, g2, t2, ok):
-            self.out(self.st(f"     {s.names[q]} counters: {fmt_cards(t2)} for {fmt_cards(g2)} - "
-                             f"{s.names[p]} {'accepts' if ok else 'declines'}", dim=True))
+            self.out(
+                self.st(
+                    f"     {s.names[q]} counters: {fmt_cards(t2)} for {fmt_cards(g2)} - "
+                    f"{s.names[p]} {'accepts' if ok else 'declines'}",
+                    dim=True,
+                )
+            )
 
-        resolve_proposal(s, self.agents, p, give, get, ask_human=self.ask_trade, on_reply=on_reply,
-                         apply=self.apply, on_counter=on_counter)
+        resolve_proposal(
+            s,
+            self.agents,
+            p,
+            give,
+            get,
+            ask_human=self.ask_trade,
+            on_reply=on_reply,
+            apply=self.apply,
+            on_counter=on_counter,
+        )
         self.flush_events()
 
     def reason(self, why):
@@ -368,16 +443,20 @@ class Game:
         self.out(f"  You have {self.r.hand_chips(hand)}  →  after {self.r.hand_chips(after)}")
         self.info("this trade " + self.r.hand_change(hand, after, q))
         while True:
-            ans = self.ask(f"{s.names[proposer]} gives you {fmt_cards(give)} for your {fmt_cards(get)}. "
-                           "accept? [y/N, hint, or counter: c <you give> for <you get>]").lower()
+            ans = self.ask(
+                f"{s.names[proposer]} gives you {fmt_cards(give)} for your {fmt_cards(get)}. "
+                "accept? [y/N, hint, or counter: c <you give> for <you get>]"
+            ).lower()
             if ans.split()[:1] in (["c"], ["counter"]):
                 if self.counter(q, proposer, ans.split()[1:], give, get):
                     return "traded"
                 continue
             if ans in ("h", "hint"):
                 ok, gain = self.coach.evaluate_offer(s, q, proposer, give, get)
-                self.info(f"engine: {'ACCEPT' if ok else 'DECLINE'} (net value for you {gain:+.2f}, "
-                          f"includes what {s.names[proposer]} builds with it)")
+                self.info(
+                    f"engine: {'ACCEPT' if ok else 'DECLINE'} (net value for you {gain:+.2f}, "
+                    f"includes what {s.names[proposer]} builds with it)"
+                )
                 continue
             if ans in ("y", "yes", "n", "no", ""):
                 yes = ans in ("y", "yes")
@@ -386,8 +465,12 @@ class Game:
                     my = gain if yes else 0.0
                     best = max(gain, 0.0)
                     eng = "accept" if gain > 0 else "decline"
-                    self.report(my, best, f"{eng} (trade worth {gain:+.2f} to you)",
-                                f"{'accept' if yes else 'decline'} {s.names[proposer]}'s offer")
+                    self.report(
+                        my,
+                        best,
+                        f"{eng} (trade worth {gain:+.2f} to you)",
+                        f"{'accept' if yes else 'decline'} {s.names[proposer]}'s offer",
+                    )
                 return yes
             self.warn("answer y or n")
 
@@ -407,7 +490,10 @@ class Game:
             self.warn("that is the offer you were made - answer y")
             return False
         # from the proposer's side: it gives `theirs` and gets `mine`
-        ok = s.can_afford(proposer, theirs) and self.agents[proposer].accepts_counter(s, proposer, tuple(theirs), tuple(mine))[0]
+        ok = (
+            s.can_afford(proposer, theirs)
+            and self.agents[proposer].accepts_counter(s, proposer, tuple(theirs), tuple(mine))[0]
+        )
         if not ok:
             self.info(f"{s.names[proposer]} turns your counter-offer down")
             return False
@@ -466,10 +552,21 @@ class Game:
         best_desc = (f"→ {cmd}  " if cmd else "") + best_desc
         self.reviews.append((self.s.turn, self.s.phase, label or "", best_desc, delta, name))
         at = self.history[-1][4] if self.history else len(self.rec.entries)
-        self.rec.reviews.append({"token": at, "at": at, "seat": self.human, "turn": self.s.turn,
-                                 "phase": self.s.phase, "kind": "offer" if "offer" in (label or "") else self.s.phase,
-                                 "label": label or "", "best": best_desc, "delta": round(delta, 3),
-                                 "verdict": name, "forced": False})
+        self.rec.reviews.append(
+            {
+                "token": at,
+                "at": at,
+                "seat": self.human,
+                "turn": self.s.turn,
+                "phase": self.s.phase,
+                "kind": "offer" if "offer" in (label or "") else self.s.phase,
+                "label": label or "",
+                "best": best_desc,
+                "delta": round(delta, 3),
+                "verdict": name,
+                "forced": False,
+            }
+        )
 
     def trivial(self, a):
         s = self.s
@@ -523,7 +620,7 @@ class Game:
             a, k = a[1][0], "bank"
         bare = s.phase in (SETUP_SETTLE, SETUP_TRAIL, FREE_TRAILS)
         if k in ("settle", "trail", "town"):
-            return str(a[1]) if bare else f"{dict(settle='v', trail='tr', town='tn')[k]} {a[1]}"
+            return str(a[1]) if bare else f"{ {'settle': 'v', 'trail': 'tr', 'town': 'tn'}[k] } {a[1]}"
         simple = {"buy_venture": "vn", "play_ranger": "rg", "play_pathfinder": "pf", "roll": "r", "end": "e"}
         if k in simple:
             return simple[k]
@@ -590,8 +687,10 @@ class Game:
                 self.out(line)
             return True
         if cmd == "cost" or cmd == "costs":
-            self.out("  trail: timber+clay · village: timber+clay+wool+grain · "
-                     "town: 2 grain+3 stone · venture: wool+grain+stone")
+            self.out(
+                "  trail: timber+clay · village: timber+clay+wool+grain · "
+                "town: 2 grain+3 stone · venture: wool+grain+stone"
+            )
             return True
         if cmd == "review":
             self.review_on = self.toggle("post-move review", "review", self.review_on, args)
@@ -678,14 +777,16 @@ class Game:
         more = f" (top {len(best)} of {len(legal)})" if len(legal) > len(best) else ""
         self.out(self.st(f"  Open spots by pips{more}:", bold=True))
         for i in range(0, len(items), per):
-            self.out("   " + "".join(x.ljust(colw) for x in items[i:i + per]).rstrip())
+            self.out("   " + "".join(x.ljust(colw) for x in items[i : i + per]).rstrip())
 
     def pick_spot(self, prompt, spot, legal):
         """Show the board with the legal vertex/edge ids marked; ask until one is picked."""
+
         def redraw():
             self.show(**{f"{spot}_ids": legal})
             if spot == "vertex":
                 self.spot_list(legal)
+
         redraw()
         while True:
             cmd = self.command(prompt, redraw)[0]
@@ -697,20 +798,19 @@ class Game:
     def human_setup_settle(self):
         s = self.s
         which = "first" if s.setup_idx < s.n else "second"
-        v = self.pick_spot(f"place your {which} village (vertex id)", "vertex",
-                           s.legal_villages(self.human, setup=True))
+        v = self.pick_spot(
+            f"place your {which} village (vertex id)", "vertex", s.legal_villages(self.human, setup=True)
+        )
         self.info(f"vertex {v}: {s.board.describe_vertex(v)}")
         self.act(("settle", v))
 
     def human_setup_trail(self):
-        e = self.pick_spot("place a trail next to it (edge id)", "edge",
-                           self.s.legal_setup_trails(self.human))
+        e = self.pick_spot("place a trail next to it (edge id)", "edge", self.s.legal_setup_trails(self.human))
         self.act(("trail", e))
 
     def human_free_trail(self):
         s = self.s
-        e = self.pick_spot(f"pathfinder: place a free trail ({s.free_trails} left)", "edge",
-                           s.legal_trails(self.human))
+        e = self.pick_spot(f"pathfinder: place a free trail ({s.free_trails} left)", "edge", s.legal_trails(self.human))
         self.act(("trail", e))
 
     # discard / bandit ----------------------------------------------------
@@ -756,10 +856,13 @@ class Game:
         rows.sort()
         r = b.hex_resource
         what = {h: "badlands" if r[h] == BADLANDS else f"{b.hex_number[h]:>2} {RES_NAMES[r[h]]}" for *_, h, _ in rows}
-        blocks = {h: ", ".join(f"{s.names[q]} {n}" for q, n in sorted(pips.items()) if q != me) or "-"
-                  for *_, h, pips in rows}
-        robs = {h: ", ".join(f"{s.names[q]} ({plural(s.hand_size(q), 'card')})" for q in s.bandit_targets(me, h)) or "-"
-                for *_, h, _ in rows}
+        blocks = {
+            h: ", ".join(f"{s.names[q]} {n}" for q, n in sorted(pips.items()) if q != me) or "-" for *_, h, pips in rows
+        }
+        robs = {
+            h: ", ".join(f"{s.names[q]} ({plural(s.hand_size(q), 'card')})" for q in s.bandit_targets(me, h)) or "-"
+            for *_, h, _ in rows
+        }
         ww = max(len(x) for x in what.values()) + 2
         bw = max(len(x) for x in blocks.values())
         rw = max(len(x) for x in robs.values())
@@ -867,8 +970,13 @@ class Game:
         if cmd in ("e", "end", "done", "pass"):
             return ("end",)
         if cmd in ("v", "village"):
-            return self.build("settle", "village", s.legal_villages(p), args,
-                              "no legal village spots (need a trail leading to an open spot)")
+            return self.build(
+                "settle",
+                "village",
+                s.legal_villages(p),
+                args,
+                "no legal village spots (need a trail leading to an open spot)",
+            )
         if cmd in ("tn", "town"):
             return self.build("town", "town", s.legal_towns(p), args, "no villages to upgrade")
         if cmd in ("tr", "trail"):
@@ -909,8 +1017,9 @@ class Game:
                 raise IllegalAction("n is the number of trades, e.g. t timber stone 2")
             ratio = s.trade_ratio(p, give)
             if s.phase == MAIN and give != get and s.hands[p][give] < ratio * n:
-                raise IllegalAction(f"{n} trades need {ratio * n} {RES_NAMES[give]} at {ratio}:1 - "
-                                    f"you have {s.hands[p][give]}")
+                raise IllegalAction(
+                    f"{n} trades need {ratio * n} {RES_NAMES[give]} at {ratio}:1 - you have {s.hands[p][give]}"
+                )
             if s.phase == MAIN and s.bank[get] < n:
                 raise IllegalAction(f"the bank has only {s.bank[get]} {RES_NAMES[get]}")
             return ("repeat", n, a)
@@ -936,7 +1045,7 @@ class Game:
             if q == self.human:
                 continue
             # a bot without the cards simply declines - its hand stays hidden
-            ok, gain = self.agents[q].evaluate_offer(s, q, self.human, give, get)
+            ok, _gain = self.agents[q].evaluate_offer(s, q, self.human, give, get)
             line = st("accepts", fg=46, bold=True) if ok else st("declines", fg=203)
             if ok:
                 accepters.append(q)
@@ -989,8 +1098,9 @@ class Game:
             self.out("")
             self.out(st("  Your decision review", bold=True))
             counts = Counter(r[5] for r in self.reviews)
-            self.out("   " + "".join(st(f"{name} {counts[name]}   ", fg=col, bold=True)
-                                     for _, name, col, _ in VERDICTS))
+            self.out(
+                "   " + "".join(st(f"{name} {counts[name]}   ", fg=col, bold=True) for _, name, col, _ in VERDICTS)
+            )
             loss = sum(r[4] for r in self.reviews)
             acc = 100.0 * sum(1 for r in self.reviews if r[4] < 0.2) / len(self.reviews)
             self.out(f"   accuracy {acc:.0f}% of {len(self.reviews)} decisions  ·  total value lost {loss:.2f} fame-eq")
@@ -1006,18 +1116,38 @@ class Game:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="hexfield", description="Hex-board settling and trading game vs. tough bots")
-    ap.add_argument("-o", "--opponents", type=int, choices=(2, 3, 4, 5), default=3,
-                    help="number of bots (4 or 5 play the large board with a special building phase)")
+    ap.add_argument(
+        "-o",
+        "--opponents",
+        type=int,
+        choices=(2, 3, 4, 5),
+        default=3,
+        help="number of bots (4 or 5 play the large board with a special building phase)",
+    )
     ap.add_argument("-l", "--level", choices=("easy", "medium", "hard"), default="hard")
-    ap.add_argument("--styles", choices=["mixed"] + sorted(STYLES), default="mixed",
-                    help="how the bots like to play (mixed: each bot gets its own style)")
-    ap.add_argument("--dice", choices=("random", "balanced"), default="random",
-                    help="balanced: the 36 dice combinations are dealt from a shuffled deck")
-    ap.add_argument("--layout", choices=("random", "beginner"), default="random",
-                    help="beginner: the fixed starting map (up to 4 players)")
+    ap.add_argument(
+        "--styles",
+        choices=["mixed"] + sorted(STYLES),
+        default="mixed",
+        help="how the bots like to play (mixed: each bot gets its own style)",
+    )
+    ap.add_argument(
+        "--dice",
+        choices=("random", "balanced"),
+        default="random",
+        help="balanced: the 36 dice combinations are dealt from a shuffled deck",
+    )
+    ap.add_argument(
+        "--layout",
+        choices=("random", "beginner"),
+        default="random",
+        help="beginner: the fixed starting map (up to 4 players)",
+    )
     ap.add_argument("--seed", type=int, help="board/dice seed (replays are exact)")
     ap.add_argument("--seat", type=int, choices=(1, 2, 3, 4, 5, 6), help="your seat (1 = goes first)")
-    ap.add_argument("--resume", nargs="?", const="last", metavar="ID", help="pick up a saved game (default: the latest)")
+    ap.add_argument(
+        "--resume", nargs="?", const="last", metavar="ID", help="pick up a saved game (default: the latest)"
+    )
     ap.add_argument("--games", action="store_true", help="list your saved games")
     ap.add_argument("--replay", metavar="ID", help="step through a saved game ('last' = the latest)")
     ap.add_argument("--stats", action="store_true", help="your coach statistics across finished games")
@@ -1028,8 +1158,12 @@ def main(argv=None):
     ap.add_argument("--no-reasoning", action="store_true", help="hide bot reasoning")
     ap.add_argument("--fast", action="store_true", help="no pause between bot actions")
     ap.add_argument("--delay", type=float, default=0.15, help="seconds between bot actions")
-    ap.add_argument("--no-autoroll", dest="autoroll", action="store_false",
-                    help="always ask before rolling (default: auto-roll unless you can play a ranger)")
+    ap.add_argument(
+        "--no-autoroll",
+        dest="autoroll",
+        action="store_false",
+        help="always ask before rolling (default: auto-roll unless you can play a ranger)",
+    )
     args = ap.parse_args(argv)
     if args.seat and args.seat > args.opponents + 1:
         ap.error("seat must be <= number of players")
@@ -1066,8 +1200,10 @@ def list_games():
     games = store.list_games()
     old = store.other_versions()
     if old:
-        print(f"  {old} saved game{'' if old == 1 else 's'} in {store.games_dir()} "
-              f"{'was' if old == 1 else 'were'} written by another version of Hexfield and can't be opened by this one.")
+        print(
+            f"  {old} saved game{'' if old == 1 else 's'} in {store.games_dir()} "
+            f"{'was' if old == 1 else 'were'} written by another version of Hexfield and can't be opened by this one."
+        )
     if not games:
         return print("  No saved games yet.")
     print(f"  {'id':<22} {'when':<17} {'players':<34} state")
@@ -1075,8 +1211,11 @@ def list_games():
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(g["updated"] or 0))
         who = ", ".join(p["name"] for p in g["players"])
         res = g["result"]
-        state = (f"{g['players'][res['winner']]['name']} won in {res['rounds']} rounds" if res
-                 else f"round {g['round']} - resume with --resume {g['id']}")
+        state = (
+            f"{g['players'][res['winner']]['name']} won in {res['rounds']} rounds"
+            if res
+            else f"round {g['round']} - resume with --resume {g['id']}"
+        )
         print(f"  {g['id']:<22} {when:<17} {clip(who, 33):<34} {state}")
     print("\n  --replay ID steps through a game; --resume ID plays on.")
 
@@ -1089,8 +1228,10 @@ def show_stats():
     rated = [g for g in games if g["accuracy"] is not None]
     print(f"  {len(games)} finished games, {st['won']} won ({100 * st['won'] / len(games):.0f}%).")
     if rated:
-        print(f"  Accuracy {sum(g['accuracy'] for g in rated) / len(rated):.0f}% on average, "
-              f"{sum(g['lost'] for g in rated) / len(rated):.2f} fame-eq lost per game.")
+        print(
+            f"  Accuracy {sum(g['accuracy'] for g in rated) / len(rated):.0f}% on average, "
+            f"{sum(g['lost'] for g in rated) / len(rated):.2f} fame-eq lost per game."
+        )
         print("\n  Last games (oldest first): accuracy %")
         print("   " + "  ".join(f"{g['accuracy']:.0f}{'*' if g['won'] else ''}" for g in rated[-20:]) + "    (* = won)")
     if st["groups"]:
@@ -1110,8 +1251,10 @@ def replay_game(args):
     steps = rec.steps()
     reviews = {r.get("at"): r for r in rec.reviews}
     k = 0
-    print(f"  Replay of {gid}: {len(steps)} moves. Enter = next move, b = back, a number = jump to that move, "
-          "t = next turn, q = quit.")
+    print(
+        f"  Replay of {gid}: {len(steps)} moves. Enter = next move, b = back, a number = jump to that move, "
+        "t = next turn, q = quit."
+    )
     while True:
         s = rec.replay(steps[k - 1] + 1 if k else 0)
         r = Renderer(s, seat, use_color_default() and not args.no_color)
@@ -1123,8 +1266,10 @@ def replay_game(args):
         for i in range(steps[k - 1] + 1 if k else 0, nxt):
             rv = reviews.get(i)
             if rec.entries[i][0] == "m" and rv:
-                print(f"  ◆ you played: {rv['label']}  -  {rv['verdict']}"
-                      + (f" (-{rv['delta']:.2f} fame-eq; engine: {rv['best']})" if rv["delta"] >= 0.05 else ""))
+                print(
+                    f"  ◆ you played: {rv['label']}  -  {rv['verdict']}"
+                    + (f" (-{rv['delta']:.2f} fame-eq; engine: {rv['best']})" if rv["delta"] >= 0.05 else "")
+                )
         try:
             cmd = input("  replay › ").strip().lower()
         except (EOFError, KeyboardInterrupt):

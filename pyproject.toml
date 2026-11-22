@@ -46,3 +46,13 @@ version = { attr = "hexfield.__version__" }
 
 [tool.setuptools.package-data]
 "hexfield.web" = ["static/*", "static/js/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+ignore = [
+    "BLE001", "S112",  # a bug in a bot or the coach must never crash a game, so they catch everything
+    "PLW1510",  # the tests assert on the return code instead
+]

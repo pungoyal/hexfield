@@ -1,13 +1,23 @@
 import unittest
 
-from hexfield.board import Board
-from hexfield.constants import (CLAY, COSTS, BADLANDS, RANGER, HOARD, STONE, PATHFINDER,
-                             LANDMARK, TIMBER, WINDFALL)
-from hexfield.game import (DISCARD, MAIN, OVER, PRE_ROLL, FREE_TRAILS, BANDIT, SETUP_TRAIL,
-                        SETUP_SETTLE, GameState, IllegalAction, great_trail)
 from hexfield.ai import AIPlayer
-from hexfield.match import play_headless
+from hexfield.board import Board
 from hexfield.cli import parse_cards
+from hexfield.constants import BADLANDS, CLAY, COSTS, HOARD, LANDMARK, PATHFINDER, RANGER, STONE, TIMBER, WINDFALL
+from hexfield.game import (
+    BANDIT,
+    DISCARD,
+    FREE_TRAILS,
+    MAIN,
+    OVER,
+    PRE_ROLL,
+    SETUP_SETTLE,
+    SETUP_TRAIL,
+    GameState,
+    IllegalAction,
+    great_trail,
+)
+from hexfield.match import play_headless
 
 
 def put_village(s, p, v, town=False):
@@ -108,7 +118,7 @@ class BuildTests(unittest.TestCase):
         put_village(s, 0, 20)
         e1 = b.vertex_edges[20][0]
         s.hands[0] = [5, 5, 0, 0, 0]
-        far = [e for e in range(b.E) if e not in s.legal_trails(0)][0]
+        far = next(e for e in range(b.E) if e not in s.legal_trails(0))
         with self.assertRaises(IllegalAction):
             s.apply(("trail", far))
         s.apply(("trail", e1))
@@ -127,7 +137,7 @@ class BuildTests(unittest.TestCase):
         for e in path:
             put_trail(s, 0, e)
         a, c = b.edge_vertices[path[1]]
-        end = [x for x in (a, c) if x not in b.edge_vertices[path[0]]][0]
+        end = next(x for x in (a, c) if x not in b.edge_vertices[path[0]])
         self.assertIn(end, s.legal_villages(0))
         with self.assertRaises(IllegalAction):
             s.apply(("settle", end))  # can't afford
@@ -221,8 +231,9 @@ class DiceTests(unittest.TestCase):
         s.phase = PRE_ROLL
         before = [s.hands[q][r] for q in range(3)]
         s.apply(("roll", b.hex_number[h]))
-        other_hexes = [x for x in range(b.H) if b.hex_number[x] == b.hex_number[h] and x != h
-                       and b.hex_resource[x] == r]
+        other_hexes = [
+            x for x in range(b.H) if b.hex_number[x] == b.hex_number[h] and x != h and b.hex_resource[x] == r
+        ]
         if not other_hexes:
             self.assertEqual([s.hands[q][r] for q in range(3)], before)
 
@@ -232,9 +243,9 @@ class DiceTests(unittest.TestCase):
         to_main(s)
         h = next(i for i in range(b.H) if i != s.bandit)
         put_village(s, 1, b.hex_vertices[h][0])
-        s.hands[0] = [2, 2, 2, 2, 2]   # 10 -> discard 5
+        s.hands[0] = [2, 2, 2, 2, 2]  # 10 -> discard 5
         s.hands[1] = [1, 0, 0, 0, 0]
-        s.hands[2] = [3, 3, 1, 0, 0]   # 7 -> no discard
+        s.hands[2] = [3, 3, 1, 0, 0]  # 7 -> no discard
         s.phase = PRE_ROLL
         s.apply(("roll", 7))
         self.assertEqual(s.phase, DISCARD)
@@ -337,20 +348,22 @@ class TradeTests(unittest.TestCase):
         to_main(s)
         s.hands[0] = [2, 0, 0, 0, 0]
         s.hands[1] = [0, 0, 0, 0, 1]
-        for partner, give, get in ((1, (-3, 0, 0, 0, 0), (0, 0, 0, 0, 0)),   # cards from nothing
-                                   (1, (1, 0, 0, 0, 0), (0, 0, 0, 0, 0)),    # a gift
-                                   (0, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1)),    # yourself
-                                   (5, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1))):   # nobody
+        for partner, give, get in (
+            (1, (-3, 0, 0, 0, 0), (0, 0, 0, 0, 0)),  # cards from nothing
+            (1, (1, 0, 0, 0, 0), (0, 0, 0, 0, 0)),  # a gift
+            (0, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1)),  # yourself
+            (5, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1)),
+        ):  # nobody
             with self.assertRaises(IllegalAction):
                 s.apply(("trade", partner, give, get))
         self.assertEqual(s.hands[0], [2, 0, 0, 0, 0])
 
     def test_parse_cards(self):
-        self.assertEqual(parse_cards("2 timber stone".split()), [2, 0, 0, 0, 1])
-        self.assertEqual(parse_cards("t t s".split()), [2, 0, 0, 0, 1])
-        self.assertEqual(parse_cards("2t 1s g".split()), [2, 0, 0, 1, 1])
-        self.assertEqual(parse_cards("wool2".split()), [0, 0, 2, 0, 0])
-        self.assertIsNone(parse_cards("banana".split()))
+        self.assertEqual(parse_cards(["2", "timber", "stone"]), [2, 0, 0, 0, 1])
+        self.assertEqual(parse_cards(["t", "t", "s"]), [2, 0, 0, 0, 1])
+        self.assertEqual(parse_cards(["2t", "1s", "g"]), [2, 0, 0, 1, 1])
+        self.assertEqual(parse_cards(["wool2"]), [0, 0, 2, 0, 0])
+        self.assertIsNone(parse_cards(["banana"]))
 
 
 class CloneTests(unittest.TestCase):
@@ -423,13 +436,13 @@ class AITests(unittest.TestCase):
         b = s.board
         put_village(s, 0, 0)
         e = next(e for e in b.vertex_edges[0])
-        w = [v for v in b.edge_vertices[e] if v != 0][0]
+        w = next(v for v in b.edge_vertices[e] if v != 0)
         e2 = next(x for x in b.vertex_edges[w] if x != e)
         put_trail(s, 0, e)
         put_trail(s, 0, e2)
         s.ventures[0][LANDMARK] = 8
         s.ventures[0][WINDFALL] = 1
-        s.hands[0] = [0, 0, 1, 1, 0]           # missing timber + clay for the village
+        s.hands[0] = [0, 0, 1, 1, 0]  # missing timber + clay for the village
         self.assertTrue(s.legal_villages(0))
         a, why = AIPlayer(s.board, "hard", seed=1).decide(s)
         self.assertEqual(a, ("play_windfall", TIMBER, CLAY), why)
@@ -444,15 +457,16 @@ class AITests(unittest.TestCase):
         to_main(s)
         put_village(s, 0, 0)
         e = s.board.vertex_edges[0][0]
-        w = [v for v in s.board.edge_vertices[e] if v != 0][0]
+        w = next(v for v in s.board.edge_vertices[e] if v != 0)
         put_trail(s, 0, e)
         put_trail(s, 0, next(x for x in s.board.vertex_edges[w] if x != e))
         s.ventures[0][LANDMARK] = 8
         s.ventures[0][RANGER] = 1
-        s.hands[0] = [1, 0, 1, 1, 0]           # one clay short
+        s.hands[0] = [1, 0, 1, 1, 0]  # one clay short
         s.hands[1] = [0, 5, 0, 0, 0]
-        put_village(s, 1, next(v for v in range(s.board.V) if s.vertex_free(v)
-                                  and s.bandit not in s.board.vertex_hexes[v]))
+        put_village(
+            s, 1, next(v for v in range(s.board.V) if s.vertex_free(v) and s.bandit not in s.board.vertex_hexes[v])
+        )
         s.belief = [[[float(x) for x in s.hands[q]] for q in range(3)] for _ in range(3)]
         ai = AIPlayer(s.board, "hard", seed=1)
         self.assertIsNone(ai.find_win(ai.view(s, 0), 0))
@@ -465,7 +479,7 @@ class AITests(unittest.TestCase):
         self.assertIn("wins the game", why)
         self.assertGreaterEqual(best - coach.value_of_action(s, ("end",)), 1.0)
         self.assertAlmostEqual(coach.value_of_action(s, best_a), best)
-        self.assertLess(best, 100)             # fame-eq scale, not the internal 1000
+        self.assertLess(best, 100)  # fame-eq scale, not the internal 1000
         self.assertEqual(coach.analyze(s, top=1)[0][1][0], "trail")
 
     def test_rolling_before_a_ranger_is_not_a_mistake(self):
@@ -509,7 +523,7 @@ class HiddenInfoTests(unittest.TestCase):
             to_main(s, 0)
             for v in (0, 9, 20, 30):
                 put_village(s, 0, v)
-            s.ventures[0][hidden] = 4          # 5 public fame + 4 Landmarks would be a win
+            s.ventures[0][hidden] = 4  # 5 public fame + 4 Landmarks would be a win
             s.hands[0] = [0, 0, 1, 2, 2]
             s.hands[1] = [0, 0, 0, 0, 2]
             s.belief = [[[float(x) for x in s.hands[q]] for q in range(3)] for _ in range(3)]
@@ -554,7 +568,8 @@ class HiddenInfoTests(unittest.TestCase):
         self.assertEqual(v.hands[0], s.hands[0])
 
     def test_panel_hides_opponent_cards(self):
-        from hexfield.render import Renderer, ANSI_RE
+        from hexfield.render import ANSI_RE, Renderer
+
         s = GameState(3, seed=9, names=["You", "Ada", "Bo"])
         to_main(s)
         s.hands[1] = [3, 0, 0, 0, 0]

@@ -10,12 +10,23 @@ and rendering in perfect agreement.
 import math
 import random
 
-from .constants import (BEGINNER_DOCKS, BEGINNER_TILES, BADLANDS, LARGE_NUMBER_BAG, LARGE_DOCK_BAG,
-                        LARGE_TILE_BAG, NUMBER_BAG, PIPS, DOCK_BAG, RES_NAMES, TILE_BAG)
+from .constants import (
+    BADLANDS,
+    BEGINNER_DOCKS,
+    BEGINNER_TILES,
+    DOCK_BAG,
+    LARGE_DOCK_BAG,
+    LARGE_NUMBER_BAG,
+    LARGE_TILE_BAG,
+    NUMBER_BAG,
+    PIPS,
+    RES_NAMES,
+    TILE_BAG,
+)
 
 # character-grid geometry
-HEX_DX = 12          # horizontal distance between hex centres in a row
-HEX_DY = 6           # vertical distance between rows
+HEX_DX = 12  # horizontal distance between hex centres in a row
+HEX_DY = 6  # vertical distance between rows
 MARGIN_X = 14
 MARGIN_Y = 6
 CORNER_OFFSETS = ((0, -4), (6, -2), (6, 2), (0, 4), (-6, 2), (-6, -2))  # N NE SE S SW NW
@@ -50,8 +61,7 @@ class Board:
         self.H = len(self.coords)
         xs = [HEX_DX * q + 6 * r for q, r in self.coords]
         r0 = min(r for _, r in self.coords)
-        self.hex_xy = [(MARGIN_X + x - min(xs), MARGIN_Y + HEX_DY * (r - r0))
-                       for x, (_, r) in zip(xs, self.coords)]
+        self.hex_xy = [(MARGIN_X + x - min(xs), MARGIN_Y + HEX_DY * (r - r0)) for x, (_, r) in zip(xs, self.coords)]
         self.width = MARGIN_X * 2 + max(xs) - min(xs) + 1
         self.height = MARGIN_Y * 2 + HEX_DY * (max(r for _, r in self.coords) - r0) + 1
 
@@ -92,15 +102,17 @@ class Board:
             self.vertex_edges[b].append(e)
             self.vertex_neighbors[a].append(b)
             self.vertex_neighbors[b].append(a)
-        self.edge_hexes = [[h for h in self.vertex_hexes[a] if h in self.vertex_hexes[b]]
-                           for a, b in self.edge_vertices]
+        self.edge_hexes = [
+            [h for h in self.vertex_hexes[a] if h in self.vertex_hexes[b]] for a, b in self.edge_vertices
+        ]
 
         # hex adjacency
         index = {c: i for i, c in enumerate(self.coords)}
         self.hex_neighbors = []
         for q, r in self.coords:
-            self.hex_neighbors.append([index[(q + dq, r + dr)] for dq, dr in AXIAL_NEIGHBORS
-                                       if (q + dq, r + dr) in index])
+            self.hex_neighbors.append(
+                [index[(q + dq, r + dr)] for dq, dr in AXIAL_NEIGHBORS if (q + dq, r + dr) in index]
+            )
 
         self._generate_tiles(rng)
         self._generate_docks(rng)
@@ -239,4 +251,3 @@ class Board:
         if dock is not None:
             parts.append("3:1 dock" if dock == "any" else f"2:1 {RES_NAMES[dock]} dock")
         return ", ".join(parts)
-

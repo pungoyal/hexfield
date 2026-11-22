@@ -42,7 +42,7 @@ class Record:
         if self.options["dice"] not in DICE_MODES or self.options["layout"] not in LAYOUTS:
             raise ValueError("unknown game option")
         self.entries = []
-        self.reviews = []      # coach verdicts: dicts with "at" (entry index of the decision) and "seat"
+        self.reviews = []  # coach verdicts: dicts with "at" (entry index of the decision) and "seat"
         self.meta = {"created": time.time(), **(meta or {})}
 
     # ------------------------------------------------------------ building
@@ -55,8 +55,9 @@ class Record:
         return [i for i, x in enumerate(self.seats) if x["kind"] == "human"]
 
     def new_state(self):
-        return GameState(len(self.seats), seed=self.seed, names=self.names,
-                         dice=self.options["dice"], layout=self.options["layout"])
+        return GameState(
+            len(self.seats), seed=self.seed, names=self.names, dice=self.options["dice"], layout=self.options["layout"]
+        )
 
     def act(self, s, action, why=None):
         """Apply `action` to `s` and write it down. Raises (and records nothing) if illegal."""
@@ -107,8 +108,16 @@ class Record:
 
     # --------------------------------------------------------------- json
     def to_dict(self, **extra):
-        return {"version": VERSION, "seed": self.seed, "seats": self.seats, "options": self.options,
-                "meta": self.meta, "entries": self.entries, "reviews": self.reviews, **extra}
+        return {
+            "version": VERSION,
+            "seed": self.seed,
+            "seats": self.seats,
+            "options": self.options,
+            "meta": self.meta,
+            "entries": self.entries,
+            "reviews": self.reviews,
+            **extra,
+        }
 
     def dumps(self, **extra):
         return json.dumps(self.to_dict(**extra), separators=(",", ":"))
@@ -120,8 +129,10 @@ class Record:
         v = d.get("version")
         if v != VERSION:  # say which way it is off, so the player knows what would open it
             older = isinstance(v, int) and v < VERSION
-            raise ValueError(f"this game was saved by {'an older' if older else 'a newer'} version of Hexfield "
-                             f"(save format {v}; this version reads format {VERSION}), so it can't be opened here")
+            raise ValueError(
+                f"this game was saved by {'an older' if older else 'a newer'} version of Hexfield "
+                f"(save format {v}; this version reads format {VERSION}), so it can't be opened here"
+            )
         seats = d["seats"]
         if not isinstance(seats, list) or not 2 <= len(seats) <= 6:
             raise ValueError("bad seat list")

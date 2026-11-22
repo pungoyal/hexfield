@@ -28,8 +28,9 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from hexfield.ai import PARAMS  # noqa: E402
-from selfplay import run_match, wilson  # noqa: E402
+from selfplay import run_match, wilson
+
+from hexfield.ai import PARAMS
 
 # trading thresholds are left alone: against copies of itself a bot "learns" to refuse every deal
 FROZEN = ("trade_margin", "propose_gain")
@@ -49,8 +50,8 @@ def tune(args):
     seed = args.seed * 100000
     t0 = time.time()
     for it in range(1, args.iterations + 1):
-        a = args.step / (it + 10) ** 0.602 * 11 ** 0.602
-        c = args.nudge / it ** 0.101
+        a = args.step / (it + 10) ** 0.602 * 11**0.602
+        c = args.nudge / it**0.101
         delta = {k: rng.choice((-1, 1)) for k in names}
         plus = {k: math.exp(theta[k] + c * delta[k]) for k in names}
         minus = {k: math.exp(theta[k] - c * delta[k]) for k in names}
@@ -61,9 +62,12 @@ def tune(args):
         for k in names:
             theta[k] += a * grad * delta[k]
         moved = sorted(names, key=lambda k: -abs(theta[k] - math.log(PARAMS[k])))[:3]
-        print(f"iter {it:3d}  plus {wp:2d} - {wm:2d} minus   step {a:.4f}   biggest changes: "
-              + ", ".join(f"{k} x{math.exp(theta[k]) / PARAMS[k]:.2f}" for k in moved)
-              + f"   ({time.time() - t0:.0f}s)", flush=True)
+        print(
+            f"iter {it:3d}  plus {wp:2d} - {wm:2d} minus   step {a:.4f}   biggest changes: "
+            + ", ".join(f"{k} x{math.exp(theta[k]) / PARAMS[k]:.2f}" for k in moved)
+            + f"   ({time.time() - t0:.0f}s)",
+            flush=True,
+        )
         if args.out:
             with open(args.out, "w") as f:
                 json.dump({k: round(math.exp(v), 4) for k, v in theta.items()}, f, indent=1)
@@ -74,8 +78,13 @@ def validate(params, games, seed, level, jobs):
     wa, wb = duel(params, {}, games, seed, level, jobs)
     lo, hi = wilson(wa, wa + wb)
     print(f"tuned {wa} - {wb} current   tuned share {wa / max(1, wa + wb):.1%}  (95% {lo:.1%}-{hi:.1%})")
-    print("adopt it" if lo > 0.5 else "not shown to be stronger: keep the current weights"
-          if hi > 0.5 else "weaker: keep the current weights")
+    print(
+        "adopt it"
+        if lo > 0.5
+        else "not shown to be stronger: keep the current weights"
+        if hi > 0.5
+        else "weaker: keep the current weights"
+    )
     return wa, wb
 
 

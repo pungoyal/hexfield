@@ -72,8 +72,7 @@ def bot_counters(s, agents, proposer, give, get, declined):
     return out
 
 
-def resolve_proposal(s, agents, proposer, give, get, ask_human=None, on_reply=None,
-                     apply=None, on_counter=None):
+def resolve_proposal(s, agents, proposer, give, get, ask_human=None, on_reply=None, apply=None, on_counter=None):
     """Offer `give` for `get` to every other player. Returns the partner or None.
 
     agents[q] is an AIPlayer or None for a human; ask_human(q, proposer, give, get)
@@ -118,16 +117,27 @@ def resolve_proposal(s, agents, proposer, give, get, ask_human=None, on_reply=No
     return best[1]
 
 
-def play_headless(seed, levels, max_turns=500, verbose=False, styles=None, params=None,
-                  dice="random", layout="random", record=None):
+def play_headless(
+    seed, levels, max_turns=500, verbose=False, styles=None, params=None, dice="random", layout="random", record=None
+):
     """One bot-only game. levels/styles/params are per seat (params: evaluation
     overrides for tools/tune.py). With a `record` every action is written to it."""
     n = len(levels)
-    s = record.new_state() if record else GameState(n, seed=seed, names=[f"Bot{i}" for i in range(n)],
-                                                     dice=dice, layout=layout)
-    agents = [AIPlayer(s.board, lv, seed=(seed or 0) * 31 + i,
-                       style=(styles[i] if styles else "balanced"), params=(params[i] if params else None))
-              for i, lv in enumerate(levels)]
+    s = (
+        record.new_state()
+        if record
+        else GameState(n, seed=seed, names=[f"Bot{i}" for i in range(n)], dice=dice, layout=layout)
+    )
+    agents = [
+        AIPlayer(
+            s.board,
+            lv,
+            seed=(seed or 0) * 31 + i,
+            style=(styles[i] if styles else "balanced"),
+            params=(params[i] if params else None),
+        )
+        for i, lv in enumerate(levels)
+    ]
     apply = (lambda a, why=None: record.act(s, a, why)) if record else (lambda a, why=None: s.apply(a))
     t0 = time.time()
     while s.phase != OVER and s.turn < max_turns:

@@ -24,10 +24,15 @@ KEEP = 200  # saved games kept; the oldest finished ones go first
 ID_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
 OWNER_RE = re.compile(r"^[0-9a-f]{32}$")
 PHASE_GROUPS = {
-    "setup_village": "opening", "setup_trail": "opening",
-    "main": "building and trading", "special_build": "building and trading",
-    "free_trails": "building and trading", "pre_roll": "rangers",
-    "move_bandit": "bandit", "discard": "discards", "offer": "trade offers",
+    "setup_village": "opening",
+    "setup_trail": "opening",
+    "main": "building and trading",
+    "special_build": "building and trading",
+    "free_trails": "building and trading",
+    "pre_roll": "rangers",
+    "move_bandit": "bandit",
+    "discard": "discards",
+    "offer": "trade offers",
 }
 
 
@@ -97,12 +102,20 @@ def _summary(gid, d):
     meta = d.get("meta", {})
     seats = d.get("seats", [])
     return {
-        "id": gid, "seed": d.get("seed"), "created": meta.get("created"), "updated": meta.get("updated"),
-        "mode": meta.get("mode", "solo"), "finished": bool(meta.get("result")),
-        "result": meta.get("result"), "coach": meta.get("coach"),
-        "players": [{"name": x.get("name"), "kind": x.get("kind"), "level": x.get("level"),
-                     "style": x.get("style")} for x in seats],
-        "options": d.get("options", {}), "moves": sum(1 for e in d.get("entries", []) if e and e[0] == "a"),
+        "id": gid,
+        "seed": d.get("seed"),
+        "created": meta.get("created"),
+        "updated": meta.get("updated"),
+        "mode": meta.get("mode", "solo"),
+        "finished": bool(meta.get("result")),
+        "result": meta.get("result"),
+        "coach": meta.get("coach"),
+        "players": [
+            {"name": x.get("name"), "kind": x.get("kind"), "level": x.get("level"), "style": x.get("style")}
+            for x in seats
+        ],
+        "options": d.get("options", {}),
+        "moves": sum(1 for e in d.get("entries", []) if e and e[0] == "a"),
         "round": meta.get("round", 0),
     }
 
@@ -169,7 +182,7 @@ def other_versions(owner=""):
 
 def prune(keep=KEEP, owner=""):
     """Drop the oldest games beyond `keep` (finished ones before unfinished)."""
-    games = list_games(limit=10 ** 6, owner=owner)
+    games = list_games(limit=10**6, owner=owner)
     extra = len(games) - keep
     if extra <= 0:
         return 0
@@ -209,12 +222,18 @@ def stats(limit=200, owner=""):
         if not g["finished"] or g["mode"] != "solo" or not res:
             continue
         me = res.get("human")
-        row = {"id": g["id"], "when": g["updated"], "won": res.get("winner") == me,
-               "fame": (res.get("fame") or [None])[me] if me is not None else None,
-               "rounds": res.get("rounds"), "level": next((p["level"] for p in g["players"] if p["kind"] == "bot"), None),
-               "players": len(g["players"]),
-               "accuracy": coach and coach["accuracy"], "lost": coach and coach["lost"],
-               "decisions": coach and coach["decisions"]}
+        row = {
+            "id": g["id"],
+            "when": g["updated"],
+            "won": res.get("winner") == me,
+            "fame": (res.get("fame") or [None])[me] if me is not None else None,
+            "rounds": res.get("rounds"),
+            "level": next((p["level"] for p in g["players"] if p["kind"] == "bot"), None),
+            "players": len(g["players"]),
+            "accuracy": coach and coach["accuracy"],
+            "lost": coach and coach["lost"],
+            "decisions": coach and coach["decisions"],
+        }
         rows.append(row)
         won += row["won"]
         for k, v in ((coach or {}).get("groups") or {}).items():

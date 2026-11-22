@@ -12,11 +12,13 @@ import binascii
 import hashlib
 import json
 
-P = 2 ** 256 - 2 ** 224 + 2 ** 192 + 2 ** 96 - 1
+P = 2**256 - 2**224 + 2**192 + 2**96 - 1
 N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
 B = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
-G = (0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296,
-     0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5)
+G = (
+    0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296,
+    0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5,
+)
 SPKI_PREFIX = bytes.fromhex("3059301306072a8648ce3d020106082a8648ce3d030107034200")  # P-256, uncompressed
 ES256 = -7
 UP, UV, AT = 0x01, 0x04, 0x40  # authenticator data flags: user present, verified, key included
@@ -69,17 +71,18 @@ def public_key(spki):
     if len(spki) != 91 or not spki.startswith(SPKI_PREFIX) or spki[26] != 4:
         raise Invalid("not a P-256 public key")
     x, y = int.from_bytes(spki[27:59]), int.from_bytes(spki[59:])
-    if not (x < P and y < P and (y * y - x ** 3 + 3 * x - B) % P == 0):
+    if not (x < P and y < P and (y * y - x**3 + 3 * x - B) % P == 0):
         raise Invalid("the public key is not on the curve")
     return x, y
 
 
 def _signature(der):
     """(r, s) from a DER ECDSA signature."""
+
     def integer(i):
         if i + 2 > len(der) or der[i] != 2 or not 1 <= der[i + 1] <= 33 or i + 2 + der[i + 1] > len(der):
             raise Invalid("bad signature")
-        return int.from_bytes(der[i + 2:i + 2 + der[i + 1]]), i + 2 + der[i + 1]
+        return int.from_bytes(der[i + 2 : i + 2 + der[i + 1]]), i + 2 + der[i + 1]
 
     if len(der) < 8 or der[0] != 0x30 or der[1] != len(der) - 2:
         raise Invalid("bad signature")
@@ -136,7 +139,7 @@ def registration(client_data, auth_data, spki, alg, rp_id, origin):
     if not flags & AT or len(auth_data) < 55:
         raise Invalid("the passkey sent no key")
     size = int.from_bytes(auth_data[53:55])
-    cred = auth_data[55:55 + size]
+    cred = auth_data[55 : 55 + size]
     if not 1 <= size <= 1023 or len(cred) != size:
         raise Invalid("bad credential id")
     return challenge, cred, public_key(spki), count

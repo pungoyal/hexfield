@@ -1,11 +1,22 @@
 """Rule options: the large board for 5-6 players, the beginner map, balanced dice,
 the special building phase, play styles and counter-offers."""
+
 import unittest
 
 from hexfield.ai import STYLES, AIPlayer
 from hexfield.board import Board
-from hexfield.constants import (BEGINNER_TILES, CLAY, BADLANDS, RANGER, LARGE_NUMBER_BAG, LARGE_TILE_BAG, STONE,
-                                WOOL, GRAIN, TIMBER)
+from hexfield.constants import (
+    BADLANDS,
+    BEGINNER_TILES,
+    CLAY,
+    GRAIN,
+    LARGE_NUMBER_BAG,
+    LARGE_TILE_BAG,
+    RANGER,
+    STONE,
+    TIMBER,
+    WOOL,
+)
 from hexfield.game import MAIN, OVER, PRE_ROLL, SPECIAL, GameState, IllegalAction
 from hexfield.match import play_headless
 
@@ -46,8 +57,20 @@ class LargeBoardTests(unittest.TestCase):
         self.assertTrue(a._fair_numbers(a.hex_number))
         # each dock sits by its fixed hex, clockwise from the top left
         by = [(a.edge_hexes[e][0], kind) for e, kind in a.docks]
-        self.assertEqual(by, [(0, "any"), (1, GRAIN), (6, STONE), (11, "any"), (15, WOOL), (18, "any"),
-                              (16, "any"), (12, CLAY), (3, TIMBER)])
+        self.assertEqual(
+            by,
+            [
+                (0, "any"),
+                (1, GRAIN),
+                (6, STONE),
+                (11, "any"),
+                (15, WOOL),
+                (18, "any"),
+                (16, "any"),
+                (12, CLAY),
+                (3, TIMBER),
+            ],
+        )
 
 
 class DiceTests(unittest.TestCase):
@@ -95,8 +118,8 @@ class SixPlayerTests(unittest.TestCase):
     def test_special_building_phase(self):
         s = GameState(5, seed=6)
         s.phase, s.current, s.turn = MAIN, 0, 1
-        s.hands[2] = [0, 0, 1, 1, 1]      # player 2 can buy a venture
-        s.hands[3] = [3, 0, 0, 0, 0]      # player 3 can't build anything
+        s.hands[2] = [0, 0, 1, 1, 1]  # player 2 can buy a venture
+        s.hands[3] = [3, 0, 0, 0, 0]  # player 3 can't build anything
         s.apply(("end",))
         self.assertEqual(s.phase, SPECIAL)
         self.assertEqual(s.actor(), 2, "players who can't build are skipped")
@@ -127,7 +150,7 @@ class SixPlayerTests(unittest.TestCase):
             self.assertIn(edge, s.legal_trails(q))
         s.apply(("end",))
         self.assertEqual((s.phase, s.actor()), (SPECIAL, 0))
-        s.apply(("end",))                 # player 0 passes
+        s.apply(("end",))  # player 0 passes
         self.assertEqual((s.phase, s.actor()), (SPECIAL, 1))
         s.apply(("trail", s.legal_trails(1)[0]))
         self.assertEqual((s.phase, s.current), (PRE_ROLL, 0), "player 1 has nothing left: on to the next turn")
@@ -171,11 +194,11 @@ class CounterOfferTests(unittest.TestCase):
             s.phase, s.current = MAIN, 0
             s.hands[0] = [3, 3, 2, 0, 0]
             s.hands[1] = [0, 0, 0, 3, 3]
-            for viewer in range(3):       # everyone has seen these cards arrive
+            for viewer in range(3):  # everyone has seen these cards arrive
                 for q in range(3):
                     s.belief[viewer][q] = [float(x) for x in s.hands[q]]
             bot = AIPlayer(s.board, "hard", seed=seed)
-            give, get = (1, 0, 0, 0, 0), (0, 0, 0, 0, 2)   # one timber for two stone: cheeky
+            give, get = (1, 0, 0, 0, 0), (0, 0, 0, 0, 2)  # one timber for two stone: cheeky
             ok, _ = bot.evaluate_offer(s, 1, 0, give, get)
             c = bot.counter_offer(s, 1, 0, give, get)
             if ok or c is None:

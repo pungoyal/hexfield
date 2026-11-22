@@ -6,13 +6,25 @@ import re
 import shutil
 from itertools import zip_longest
 
-from .constants import (COSTS, VENTURE_NAMES, RANGER, HOARD, PIPS, RES_NAMES, PATHFINDER,
-                        LANDMARK, WINDFALL, MAX_TRAILS, MAX_VILLAGES, MAX_TOWNS)
+from .constants import (
+    COSTS,
+    HOARD,
+    LANDMARK,
+    MAX_TOWNS,
+    MAX_TRAILS,
+    MAX_VILLAGES,
+    PATHFINDER,
+    PIPS,
+    RANGER,
+    RES_NAMES,
+    VENTURE_NAMES,
+    WINDFALL,
+)
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 # 256-colour palette
-TERRAIN_BG = (28, 130, 107, 178, 245, 180)          # timber clay wool grain stone badlands
+TERRAIN_BG = (28, 130, 107, 178, 245, 180)  # timber clay wool grain stone badlands
 TERRAIN_FG = (157, 223, 230, 230, 255, 94)
 TERRAIN_TXT = ("TIMBER", "CLAY", "WOOL", "GRAIN", "STONE", "BADLANDS")
 RES_CHIP_BG = TERRAIN_BG[:5]
@@ -25,9 +37,19 @@ PLAYER_COLORS = (196, 39, 208, 255, 77, 170)
 PLAYER_COLOR_NAMES = ("Red", "Blue", "Orange", "White", "Green", "Purple")
 TOKEN_BG = 230
 DICE = "⚀⚁⚂⚃⚄⚅"
-RES_ABBR = [name[:2].title() for name in RES_NAMES]     # Ti Cl Wo Gr St
-EVENT_ICONS = {"build": "⌂", "roll": "⚄", "produce": "+", "bandit": "☗", "steal": "✋",
-               "venture": "★", "trade": "⇄", "award": "♛", "discard": "−", "win": "♛"}
+RES_ABBR = [name[:2].title() for name in RES_NAMES]  # Ti Cl Wo Gr St
+EVENT_ICONS = {
+    "build": "⌂",
+    "roll": "⚄",
+    "produce": "+",
+    "bandit": "☗",
+    "steal": "✋",
+    "venture": "★",
+    "trade": "⇄",
+    "award": "♛",
+    "discard": "−",
+    "win": "♛",
+}
 
 
 class Style:
@@ -57,7 +79,7 @@ def pad(s, width):
 
 def clip(text, width):
     """Shorten plain text to `width` characters with an ellipsis."""
-    return text if len(text) <= width else text[:max(0, width - 1)] + "…"
+    return text if len(text) <= width else text[: max(0, width - 1)] + "…"
 
 
 def term_width():
@@ -69,8 +91,12 @@ def plural(n, word, many=None):
 
 
 # what you can build, in the web's order: (label, cost, command)
-BUILDS = (("trail", COSTS["trail"], "tr"), ("village", COSTS["village"], "v"),
-          ("town", COSTS["town"], "tn"), ("venture", COSTS["venture"], "vn"))
+BUILDS = (
+    ("trail", COSTS["trail"], "tr"),
+    ("village", COSTS["village"], "v"),
+    ("town", COSTS["town"], "tn"),
+    ("venture", COSTS["venture"], "vn"),
+)
 
 
 def trades_short(hand, cost, ratios):
@@ -195,13 +221,13 @@ class Renderer:
             else:
                 label = f" {RES_ABBR[kind].upper()} 2:1 "
                 fg, bg = RES_CHIP_FG[kind], RES_CHIP_BG[kind]
-            lx = int(round(mx + ux * 7))
-            ly = int(round(my + uy * 2.6))
+            lx = round(mx + ux * 7)
+            ly = round(my + uy * 2.6)
             cv.ctext(lx, ly, label, fg=fg, bg=bg, bold=True)
             # little dock marks next to the two dock corners
             for vx, vy in ((x1, y1), (x2, y2)):
-                px = int(round(vx + ux * 2))
-                py = int(round(vy + uy * 1))
+                px = round(vx + ux * 2)
+                py = round(vy + uy * 1)
                 if cv.bg[py][px] == OCEAN_BG:
                     cv.put(px, py, "◦", 231, OCEAN_BG, bold=True)
         # vertices / buildings
@@ -264,8 +290,11 @@ class Renderer:
         if d1 is None:
             return f"{t}"
         col = 160 if t == 7 else 231
-        return self.st(f"{DICE[d1 - 1]} {DICE[d2 - 1]}", fg=231, bold=True) + "  = " + \
-            self.st(f"{t:>2}", fg=col, bold=True)
+        return (
+            self.st(f"{DICE[d1 - 1]} {DICE[d2 - 1]}", fg=231, bold=True)
+            + "  = "
+            + self.st(f"{t:>2}", fg=col, bold=True)
+        )
 
     def panel_lines(self, width=46, log_lines=10):
         s, st = self.s, self.st
@@ -286,9 +315,11 @@ class Renderer:
             if s.patrol == p:
                 awards.append(st("GREAT PATROL", fg=213, bold=True))
             marker = st("▶", fg=226, bold=True) if p == cur else " "
-            row = (f"{marker} {self.swatch(p)}{self.pname(p, 8)}"
-                   f"{st(f'{fame:>4}', bold=True)} {s.hand_size(p):>5} {s.venture_count(p):>3} "
-                   f"{s.rangers[p]:>3} {s.trail_len[p]:>5}  {' '.join(awards)}")
+            row = (
+                f"{marker} {self.swatch(p)}{self.pname(p, 8)}"
+                f"{st(f'{fame:>4}', bold=True)} {s.hand_size(p):>5} {s.venture_count(p):>3} "
+                f"{s.rangers[p]:>3} {s.trail_len[p]:>5}  {' '.join(awards)}"
+            )
             L.append(row)
             if p == self.human:
                 L.append("      " + " ".join(self.chip(r, s.hands[p][r]) for r in range(5)))
@@ -305,9 +336,11 @@ class Renderer:
                 cards.append(tag)
         L.append(st(" Your ventures: ", bold=True) + (", ".join(cards) if cards else st("none", dim=True)))
         hidden_fame = s.landmarks(h)
-        L.append(f" Pieces left: {MAX_VILLAGES - len(s.villages[h])} village, "
-                 f"{MAX_TOWNS - len(s.towns[h])} town, {MAX_TRAILS - len(s.trails[h])} trail"
-                 + (st(f"  (+{hidden_fame} hidden fame)", fg=213) if hidden_fame else ""))
+        L.append(
+            f" Pieces left: {MAX_VILLAGES - len(s.villages[h])} village, "
+            f"{MAX_TOWNS - len(s.towns[h])} town, {MAX_TRAILS - len(s.trails[h])} trail"
+            + (st(f"  (+{hidden_fame} hidden fame)", fg=213) if hidden_fame else "")
+        )
         rat = s.ratios(h)
         L.append(" Trade ratios: " + " ".join(f"{RES_ABBR[r]} {rat[r]}:1" for r in range(5)))
         bank = " ".join(f"{RES_ABBR[r]}{s.bank[r]}" for r in range(5))
@@ -320,7 +353,7 @@ class Renderer:
         return [self.fmt_event(p, kind, msg) for _, p, kind, msg in evs[-k:]]
 
     def visible_event(self, e):
-        turn, p, kind, msg = e
+        _turn, p, kind, _msg = e
         if kind == "private":
             return p == self.human
         if kind == "private_steal":
@@ -344,21 +377,26 @@ class Renderer:
         """Labels of the builds `hand` pays for and that have a legal spot."""
         s = self.s
         hand = s.hands[p] if hand is None else hand
-        return [name for name, cost, _ in BUILDS
-                if all(h >= c for h, c in zip(hand, cost)) and self._has_spot(p, name)]
+        return [name for name, cost, _ in BUILDS if all(h >= c for h, c in zip(hand, cost)) and self._has_spot(p, name)]
 
     def _has_spot(self, p, name):
         s = self.s
-        return bool({"trail": s.legal_trails, "village": s.legal_villages,
-                     "town": s.legal_towns}.get(name, lambda q: s.deck_size() > 0)(p))
+        return bool(
+            {"trail": s.legal_trails, "village": s.legal_villages, "town": s.legal_towns}.get(
+                name, lambda q: s.deck_size() > 0
+            )(p)
+        )
 
     def build_status(self, p):
         """'Can build: town [tn] · village 1 trade away [t]' for the main phase."""
         s, st = self.s, self.st
         ready = self.buildable(p)
         txt = "Can build: " + (", ".join(f"{n} [{c}]" for n, _, c in BUILDS if n in ready) or "nothing")
-        near = [(k, n) for n, cost, _ in BUILDS if n not in ready and self._has_spot(p, n)
-                and (k := trades_short(s.hands[p], cost, s.ratios(p)))]
+        near = [
+            (k, n)
+            for n, cost, _ in BUILDS
+            if n not in ready and self._has_spot(p, n) and (k := trades_short(s.hands[p], cost, s.ratios(p)))
+        ]
         if near:
             k, n = min(near, key=lambda x: x[0])
             txt += f" · {n} {plural(k, 'trade')} away [t]"
@@ -383,15 +421,29 @@ class Renderer:
         bw = self.b.width
         if term_w >= bw + panel_w + 2:
             board += [" " * bw] * (len(panel) - len(board))
-            return "\n".join(left + "  " + right for left, right in
-                             zip_longest(board, panel, fillvalue=""))
+            return "\n".join(left + "  " + right for left, right in zip_longest(board, panel, fillvalue=""))
         return "\n".join(board + [""] + panel)
 
 
-_VERBS = {"builds": "build", "rolls": "roll", "receives": "receive", "collects": "collect",
-          "trades": "trade", "steals": "steal", "plays": "play", "buys": "buy", "moves": "move",
-          "discards": "discard", "takes": "take", "loses": "lose", "upgrades": "upgrade",
-          "offers": "offer", "accepts": "accept", "declines": "decline", "WINS": "WIN"}
+_VERBS = {
+    "builds": "build",
+    "rolls": "roll",
+    "receives": "receive",
+    "collects": "collect",
+    "trades": "trade",
+    "steals": "steal",
+    "plays": "play",
+    "buys": "buy",
+    "moves": "move",
+    "discards": "discard",
+    "takes": "take",
+    "loses": "lose",
+    "upgrades": "upgrade",
+    "offers": "offer",
+    "accepts": "accept",
+    "declines": "decline",
+    "WINS": "WIN",
+}
 
 
 def second_person(msg, human_name):
