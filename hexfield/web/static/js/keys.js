@@ -111,7 +111,8 @@ export function renderKeys() {
     el.classList.toggle("best", !!top && (top.v !== undefined ? el.dataset.v === String(top.v)
       : top.e !== undefined ? el.dataset.e === String(top.e) : el.dataset.h === String(top.hex)));
   }
-  if (keyBuf && !keyMap.some((k) => k.code.startsWith(keyBuf))) keyBuf = "";
+  // nothing can be half typed on a board whose letters are hidden (a new decision starts raw)
+  if (keyBuf && (!G.aids || !keyMap.some((k) => k.code.startsWith(keyBuf)))) keyBuf = "";
   for (const k of keyMap) {
     const on = keyBuf && k.code.startsWith(keyBuf);
     const kg = svg("g", { class: `key-tag ${on ? "on" : keyBuf ? "dim" : ""} ${k.best ? "best" : ""}`, transform: `translate(${k.x.toFixed(1)} ${(k.v !== undefined ? k.y - 20 : k.y).toFixed(1)})` }, g);

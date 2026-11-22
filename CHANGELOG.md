@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-* The board starts raw: every open spot looks the same, with no letters, pip totals or
-  best spot. Press Space to show them for that decision; Space again builds on the best spot.
+* Picking a spot (setup, a build mode, the bandit) starts on a raw board: every open spot
+  looks the same, with no letters, pip totals or best spot. Press Space to show them for that
+  decision; Space again builds on the best spot. Phones keep showing pips.
 * The game shows who it is waiting for: their card pulses, the status line names them,
   and online the tab title says "Your move".
 * Online, a trade offer unanswered for 30 seconds counts as declined.
