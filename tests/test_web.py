@@ -9,11 +9,11 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
-from hexfield.ai import AIPlayer
-from hexfield.game import OVER
-from hexfield.web import server
-from hexfield.match import public_reason
 from hexfield import store
+from hexfield.ai import AIPlayer
+from hexfield.game import OVER, IllegalAction
+from hexfield.match import public_reason
+from hexfield.web import server
 from hexfield.web.session import Replay, WebGame
 
 
@@ -26,8 +26,9 @@ class Client:
         headers = {"Content-Type": "application/json"}
         if seat is not None:
             headers["Authorization"] = f"Bearer {seat}"
-        req = urllib.request.Request(self.base + route, data=data, method="POST" if body is not None else "GET",
-                                     headers=headers)
+        req = urllib.request.Request(
+            self.base + route, data=data, method="POST" if body is not None else "GET", headers=headers
+        )
         try:
             with urllib.request.urlopen(req) as r:
                 return json.loads(r.read())
@@ -111,8 +112,18 @@ class WebTests(unittest.TestCase):
     def test_malformed_input_is_rejected(self):
         c = self.c
         st = c.call("new", {"opponents": 2, "seed": 5, "seat": 1})
-        for action in (["end", 1], ["settle"], ["discard"], ["trade", 1], ["trail", "x"],
-                       ["discard", 5], ["discard", [0, 0, 0, 0, 0, 4]], ["roll", 7], "x", None):
+        for action in (
+            ["end", 1],
+            ["settle"],
+            ["discard"],
+            ["trade", 1],
+            ["trail", "x"],
+            ["discard", 5],
+            ["discard", [0, 0, 0, 0, 0, 4]],
+            ["roll", 7],
+            "x",
+            None,
+        ):
             r = c.call("act", {"action": action})
             self.assertEqual(r.get("status"), 400, action)
         for give, get in (([1], [0, 0, 0, 0, 1]), (5, 5), ([1, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1])):
@@ -126,7 +137,7 @@ class WebTests(unittest.TestCase):
         g.s.phase = "discard"
         g.s.hands[0] = [2, 2, 2, 2, 0]
         g.s.discards = {0: 4}
-        with self.assertRaises(Exception):
+        with self.assertRaises(IllegalAction):
             g.act(["discard", [0, 0, 0, 0, 0, 4]])
         g.act(["discard", [1, 1, 1, 1, 0]])
         self.assertEqual(g.s.hands[0], [1, 1, 1, 1, 0])
@@ -147,11 +158,20 @@ class WebTests(unittest.TestCase):
 
     def test_bot_answers_and_plans_stay_hidden(self):
         g = WebGame(2, "easy", seed=13, seat=1)
-        g.offer = {"from": 1, "give": (1, 0, 0, 0, 0), "get": (0, 1, 0, 0, 0), "answers": {0: None, 2: True},
-                   "counters": {}, "tries": {}, "notes": {}, "bot": True}
+        g.offer = {
+            "from": 1,
+            "give": (1, 0, 0, 0, 0),
+            "get": (0, 1, 0, 0, 0),
+            "answers": {0: None, 2: True},
+            "counters": {},
+            "tries": {},
+            "notes": {},
+            "bot": True,
+        }
         self.assertNotIn("answers", g.view()["pending_offer"])
-        self.assertEqual(public_reason("plan: buy venture -> play Ranger  (eval +0.40)"),
-                         "plan: buy venture  (eval +0.40)")
+        self.assertEqual(
+            public_reason("plan: buy venture -> play Ranger  (eval +0.40)"), "plan: buy venture  (eval +0.40)"
+        )
 
     def test_playtest_view_details(self):
         g = WebGame(3, "medium", seed=31, seat=1, name="Tester")
@@ -237,8 +257,11 @@ class SessionTests(unittest.TestCase):
         for key in ("phase", "turn", "hand", "v_owner", "e_owner", "bank", "bandit", "ev_total", "can_undo"):
             self.assertEqual(before[key], after[key], key)
         self.assertEqual([e["msg"] for e in before["events"]], [e["msg"] for e in after["events"]])
-        self.assertEqual([e.get("why") for e in before["events"]], [e.get("why") for e in after["events"]],
-                         "the bots' reasoning is part of the save")
+        self.assertEqual(
+            [e.get("why") for e in before["events"]],
+            [e.get("why") for e in after["events"]],
+            "the bots' reasoning is part of the save",
+        )
         self.assertEqual(len(before["reviews"]), len(after["reviews"]))
         self.assertEqual(len(r.history), len(g.history))
         # the seat key still works, and undo steps back through decisions made before the save
@@ -259,7 +282,7 @@ class SessionTests(unittest.TestCase):
         self.assertNotEqual(b.gid, g.gid)
         self.assertEqual(len(b.rec.entries), cut)
         self.assertEqual(b.rec.meta["branched_from"], g.gid)
-        play_until(b, lambda b: b.s.turn >= g.s.turn + 1)   # it is a live game
+        play_until(b, lambda b: b.s.turn >= g.s.turn + 1)  # it is a live game
         self.assertEqual(len(store.load(g.gid)[0].entries), len(g.rec.entries), "the original is untouched")
         for x in (g, b):
             x.close()
@@ -276,7 +299,7 @@ class SessionTests(unittest.TestCase):
         def sig(s):
             return (s.phase, s.turn, s.v_owner, s.e_owner, s.hands, s.bandit)
 
-        for k in (0, 1, 7, rp.total, 3, rp.total - 1, 45, 2):   # forward, back, forward again
+        for k in (0, 1, 7, rp.total, 3, rp.total - 1, 45, 2):  # forward, back, forward again
             k = min(k, rp.total)
             rp.seek(k)
             # position k: the first k actions, and the notes written before the next one
@@ -316,7 +339,7 @@ class SessionTests(unittest.TestCase):
         actor = g.s.actor()
         if actor in g.humans:
             other = b if actor == a else a
-            with self.assertRaises(Exception):
+            with self.assertRaises(IllegalAction):
                 g.act(list(g.s.legal_actions()[0]), other)
         g.close()
 
@@ -330,9 +353,9 @@ class SessionTests(unittest.TestCase):
         g.act(["end"], me)
         self.assertTrue(g.view(me)["can_undo"], "your last decision, and nobody has decided since")
         self.assertFalse(g.view(other)["can_undo"], "not somebody else's decision")
-        with self.assertRaises(Exception):
+        with self.assertRaises(IllegalAction):
             g.undo(other)
-        self.assertEqual(g.undo(me), "end turn")   # one screen: no vote
+        self.assertEqual(g.undo(me), "end turn")  # one screen: no vote
         self.assertIsNone(g.takeback)
         self.assertEqual((g.s.turn, g.s.phase, [list(h) for h in g.s.hands], len(g.s.events)), before)
         self.assertEqual(g.view(me)["epoch"], 1)
@@ -341,7 +364,7 @@ class SessionTests(unittest.TestCase):
     def test_online_take_back_needs_everyone(self):
         g = WebGame(1, "easy", seed=26, humans=["Ann", "Bo", "Cy"], mode="online")
         g.open.clear()
-        a, b, c = g.humans
+        _a, _b, _c = g.humans
         play_until(g, lambda g: g.s.turn >= 4 and g.s.phase == "main" and g.s.actor() in g.humans)
         me = g.s.actor()
         x, y = [q for q in g.humans if q != me]
@@ -361,15 +384,15 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(g.version, v, "the bots wait for the answer")
         actor = g.s.actor()
         if actor in g.humans:
-            with self.assertRaises(Exception):
+            with self.assertRaises(IllegalAction):
                 g.act(list(g.s.legal_actions()[0]), actor)
-        with self.assertRaises(Exception):
-            g.answer_takeback(True, me)            # you can't allow your own request
+        with self.assertRaises(IllegalAction):
+            g.answer_takeback(True, me)  # you can't allow your own request
         # one refusal ends it: the move stands
         g.answer_takeback(True, x)
         self.assertEqual(g.waiting_on(), [y])
-        with self.assertRaises(Exception):
-            g.answer_takeback(True, x)             # one answer each
+        with self.assertRaises(IllegalAction):
+            g.answer_takeback(True, x)  # one answer each
         g.answer_takeback(False, y)
         self.assertIsNone(g.takeback)
         self.assertEqual((g.s.turn, g.s.phase, len(g.s.events)), after)
@@ -377,7 +400,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(g.view(me)["takeback_result"]["by"], y)
         # one request per decision: nobody can hold the game up by asking over and over
         self.assertFalse(g.view(me)["can_undo"])
-        with self.assertRaises(Exception):
+        with self.assertRaises(IllegalAction):
             g.undo(me)
         # the next decision, allowed by all: back to before it
         play_until(g, lambda g: g.s.phase == "main" and g.s.actor() in g.humans)
@@ -435,20 +458,22 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(g.pending_for(b)["from"], a)
         self.assertIn(b, g.waiting_on())
         self.assertIn(a, g.waiting_on(), "the proposer isn't blocked while the offer is out")
-        with self.assertRaises(Exception):
-            g.act(["trade", b, [1, 0, 0, 0, 0], [0, 0, 0, 0, 1]], a)   # not agreed yet
+        with self.assertRaises(IllegalAction):
+            g.act(["trade", b, [1, 0, 0, 0, 0], [0, 0, 0, 0, 1]], a)  # not agreed yet
         # Bo answers with a counter-offer: two timber for the stone
         g.respond(False, b, counter={"give": [2, 0, 0, 0, 0], "get": [0, 0, 0, 0, 1]})
         reply = next(r for r in g.my_offer_for(a)["replies"] if r["p"] == b)
         self.assertEqual(reply["counter"], {"give": [2, 0, 0, 0, 0], "get": [0, 0, 0, 0, 1]})
-        g.act(["trade", b, [2, 0, 0, 0, 0], [0, 0, 0, 0, 1]], a)       # Ann takes the counter
+        g.act(["trade", b, [2, 0, 0, 0, 0], [0, 0, 0, 0, 1]], a)  # Ann takes the counter
         self.assertEqual((g.s.hands[a], g.s.hands[b]), ([0, 0, 0, 0, 1], [2, 0, 0, 0, 1]))
         self.assertIsNone(g.offer)
         g.close()
 
     def test_an_unanswered_offer_lapses_online(self):
         import time
+
         from hexfield.web.session import OFFER_SECONDS
+
         for mode, lapses in (("online", True), ("hotseat", False)):
             g = WebGame(1, "easy", seed=25, humans=["Ann", "Bo"], mode=mode, persist=False)
             a, b = g.humans
@@ -488,7 +513,9 @@ class SessionTests(unittest.TestCase):
         g._bot_propose(bot, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1), "offers")
         self.assertIsNone(g.offer)
         self.assertIsNone(g.pending_for(h))
-        self.assertFalse(any(e["msg"].startswith("You ") for e in g.view(h, since=n0)["events"]), "no answer in your name")
+        self.assertFalse(
+            any(e["msg"].startswith("You ") for e in g.view(h, since=n0)["events"]), "no answer in your name"
+        )
         # your own offers still go out, and unmuting brings theirs back
         g.s.current = h
         self.assertTrue(g.make_offer([1, 0, 0, 0, 0], [0, 0, 0, 0, 1], h)["replies"])
@@ -531,23 +558,27 @@ class SessionTests(unittest.TestCase):
         g._bot_propose(bot, (1, 0, 0, 0, 0), (0, 0, 0, 0, 1), "offers")
         po = g.view()["pending_offer"]
         self.assertEqual(po["counters_left"], 2)
-        for bad in ({"give": [1, 0, 0, 0, 0], "get": [0, 0, 0, 0, 1]},      # the same offer
-                    {"give": [1, 0, 0, 0, 0], "get": [0, 0, 0, 0, 9]},      # cards you don't have
-                    {"give": [1, 0, 0, 0, 0], "get": [1, 0, 0, 0, 0]},      # the same card both ways
-                    {"give": [0] * 5, "get": [0, 0, 0, 0, 1]}, "x", {"give": [1], "get": [1]}):
-            with self.assertRaises(Exception):
+        for bad in (
+            {"give": [1, 0, 0, 0, 0], "get": [0, 0, 0, 0, 1]},  # the same offer
+            {"give": [1, 0, 0, 0, 0], "get": [0, 0, 0, 0, 9]},  # cards you don't have
+            {"give": [1, 0, 0, 0, 0], "get": [1, 0, 0, 0, 0]},  # the same card both ways
+            {"give": [0] * 5, "get": [0, 0, 0, 0, 1]},
+            "x",
+            {"give": [1], "get": [1]},
+        ):
+            with self.assertRaises(IllegalAction):
                 g.respond(False, counter=bad)
         self.assertIsNotNone(g.offer, "a refused request leaves the offer on the table")
         # an absurd counter is turned down, and costs one of the two tries
         g.respond(False, counter={"give": [4, 0, 0, 0, 0], "get": [0, 0, 0, 0, 1]})
         po = g.view()["pending_offer"]
-        if po:   # the bot said no
+        if po:  # the bot said no
             self.assertEqual(po["counters_left"], 1)
             self.assertIn("turned", po["note"])
             self.assertEqual(g.s.hands[h], [0, 0, 0, 0, 3])
             g.respond(True)
             self.assertEqual(g.s.hands[h], [1, 0, 0, 0, 2])
-        else:    # it took four timber for one stone
+        else:  # it took four timber for one stone
             self.assertEqual(g.s.hands[h], [4, 0, 0, 0, 2])
         self.assertIsNone(g.offer)
         g.close()
@@ -572,7 +603,7 @@ class SessionTests(unittest.TestCase):
                     continue
                 hits += 1
                 self.assertFalse(r["ok"])
-                g.act(["trade", r["p"], c["give"], c["get"]])   # trading on the bot's terms is legal
+                g.act(["trade", r["p"], c["give"], c["get"]])  # trading on the bot's terms is legal
                 self.assertEqual(g.s.hands[0][4], c["get"][4])
                 break
             g.close()
@@ -585,6 +616,7 @@ class SessionTests(unittest.TestCase):
         def stop(g):
             seen.add(g.s.phase)
             return g.s.turn >= 14
+
         play_until(g, stop)
         v = g.view()
         self.assertEqual((v["n"], v["large"], v["special_build"]), (6, True, True))
@@ -612,7 +644,7 @@ class OnlineTests(unittest.TestCase):
         st = c.call("new", {"mode": "online", "humans": 2, "opponents": 1, "seed": 51, "name": "Host"})
         gid = st["gid"]
         self.assertTrue(st["lobby"])
-        (host_seat, host_key), = st["tokens"].items()
+        ((host_seat, host_key),) = st["tokens"].items()
         self.assertEqual(sum(pl["open"] for pl in st["players"]), 1)
         # nothing moves until everyone is in
         self.assertEqual(c.call(f"act?g={gid}", {"action": ["end"]}, seat=host_key)["status"], 400)
@@ -624,7 +656,7 @@ class OnlineTests(unittest.TestCase):
         self.assertNotIn("hand", peek)
         self.assertEqual(c.call(f"state?g={gid}", seat="wrong")["status"], 403)
         joined = c.call(f"join?g={gid}", {"name": "Guest"})
-        (guest_seat, guest_key), = joined["tokens"].items()
+        ((guest_seat, guest_key),) = joined["tokens"].items()
         self.assertNotEqual(guest_seat, host_seat)
         self.assertFalse(joined["lobby"])
         self.assertIn("board", joined)
@@ -655,7 +687,7 @@ class OnlineTests(unittest.TestCase):
         c = self.c
         st = c.call("new", {"mode": "online", "humans": 2, "opponents": 1, "seed": 54, "name": "Host"})
         gid, (host_seat, host_key) = st["gid"], next(iter(st["tokens"].items()))
-        (guest_seat, guest_key), = c.call(f"join?g={gid}", {"name": "Guest"})["tokens"].items()
+        ((guest_seat, guest_key),) = c.call(f"join?g={gid}", {"name": "Guest"})["tokens"].items()
         keys = {int(host_seat): host_key, int(guest_seat): guest_key}
         game = server.APP.games[gid]
         play_until(game, lambda g: g.s.turn >= 3 and g.s.phase == "main" and g.s.actor() in g.humans)
@@ -684,17 +716,17 @@ class OnlineTests(unittest.TestCase):
         v = st["version"]
         a = c.call("step", {"v": v})
         self.assertGreater(a["version"], v)
-        b = c.call("step", {"v": v})            # a second browser, a moment late
+        b = c.call("step", {"v": v})  # a second browser, a moment late
         self.assertEqual(b["version"], a["version"], "a stale step must not move the game")
         t0 = time.time()
-        w = c.call(f"wait?v={v}")               # already past v: answers at once
+        w = c.call(f"wait?v={v}")  # already past v: answers at once
         self.assertLess(time.time() - t0, 2)
         self.assertEqual(w["version"], a["version"])
 
     def test_start_with_bots_and_host_routes(self):
         c = self.c
         st = c.call("new", {"mode": "online", "humans": 3, "opponents": 0, "seed": 53})
-        gid, (seat, key) = st["gid"], next(iter(st["tokens"].items()))
+        gid, (_, key) = st["gid"], next(iter(st["tokens"].items()))
         started = c.call(f"start?g={gid}", {}, seat=key)
         self.assertFalse(started["lobby"])
         self.assertEqual(sum(pl["bot"] for pl in started["players"]), 2)
@@ -719,14 +751,16 @@ class OnlineTests(unittest.TestCase):
 
     def test_only_json_posts_are_accepted(self):
         # a form post from another web page must not be able to start or move a game
-        req = urllib.request.Request(self.c.base + "new", data=b"opponents=2", method="POST",
-                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
+        req = urllib.request.Request(
+            self.c.base + "new",
+            data=b"opponents=2",
+            method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             urllib.request.urlopen(req)
         self.assertEqual(ctx.exception.code, 400)
         ctx.exception.close()
-
-
 
 
 class HardeningTests(unittest.TestCase):
@@ -751,12 +785,17 @@ class HardeningTests(unittest.TestCase):
     def req(self, path, body=None, method=None, **headers):
         """-> (status, headers, body bytes); redirects are not followed."""
         import http.client
+
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         data = None if body is None else json.dumps(body).encode()
         if data is not None:
             headers.setdefault("Content-Type", "application/json")
-        c.request(method or ("POST" if data is not None else "GET"), path, body=data,
-                  headers={k.replace("_", "-"): v for k, v in headers.items()})
+        c.request(
+            method or ("POST" if data is not None else "GET"),
+            path,
+            body=data,
+            headers={k.replace("_", "-"): v for k, v in headers.items()},
+        )
         r = c.getresponse()
         out = r.status, r.headers, r.read()
         c.close()
@@ -792,6 +831,7 @@ class HardeningTests(unittest.TestCase):
         code, h2, gz = self.req("/app.css", Accept_Encoding="gzip, br")
         self.assertEqual(h2["Content-Encoding"], "gzip")
         import gzip
+
         self.assertEqual(gzip.decompress(gz), raw)
         self.assertLess(len(gz), len(raw) // 2)
         code, _, body = self.req("/app.css", If_None_Match=h["ETag"])
@@ -824,7 +864,7 @@ class HardeningTests(unittest.TestCase):
     def test_host_key_is_the_only_way_to_host_once_set(self):
         key = "k" * 24
         server.APP.set_host_key(key)
-        self.assertEqual(self.req("/api/games")[0], 403)          # this machine is no longer special
+        self.assertEqual(self.req("/api/games")[0], 403)  # this machine is no longer special
         self.assertEqual(self.req("/api/host", {"key": "wrong"})[0], 403)
         self.assertEqual(self.req("/api/host", {"key": 7})[0], 403)
         code, h, _ = self.req("/api/host", {"key": key}, X_Forwarded_Proto="https")
@@ -842,7 +882,7 @@ class HardeningTests(unittest.TestCase):
         # a cross-site page can't log a visitor in (or out) as the host
         self.assertEqual(self.req("/api/host", {"key": key}, Origin="https://evil.example")[0], 403)
         server.APP.set_host_key(None)
-        self.assertEqual(self.req("/api/host", {"key": key})[0], 403)   # no key set: nothing to log in to
+        self.assertEqual(self.req("/api/host", {"key": key})[0], 403)  # no key set: nothing to log in to
 
     def test_the_seat_key_travels_in_a_header_never_the_url(self):
         c = Client(self.port)
@@ -856,20 +896,22 @@ class HardeningTests(unittest.TestCase):
             # the old query parameter is ignored: that request is a stranger at the lobby
             self.assertTrue(json.loads(self.req(f"/api/state?g={gid}&t={key}", **away)[2])["join"])
             self.assertEqual(self.req(f"/api/state?g={gid}", Authorization="Bearer wrong", **away)[0], 403)
-            self.assertTrue(json.loads(self.req(f"/api/state?g={gid}", Authorization=f"Basic {key}", **away)[2])["join"])
+            self.assertTrue(
+                json.loads(self.req(f"/api/state?g={gid}", Authorization=f"Basic {key}", **away)[2])["join"]
+            )
         finally:
             c.call("delete", {"id": gid})
 
     def test_remote_addresses_are_rate_limited(self):
         self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.7")[0], 200)
-        server.APP.buckets["203.0.113.7"] = [-60 * server.RATE, time.monotonic()]   # a minute in debt
+        server.APP.buckets["203.0.113.7"] = [-60 * server.RATE, time.monotonic()]  # a minute in debt
         self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.7")[0], 429)
-        self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.8")[0], 200)   # others unaffected
-        self.assertEqual({self.req("/healthz")[0] for _ in range(20)}, {200})          # nor this machine
+        self.assertEqual(self.req("/healthz", X_Forwarded_For="203.0.113.8")[0], 200)  # others unaffected
+        self.assertEqual({self.req("/healthz")[0] for _ in range(20)}, {200})  # nor this machine
         app = server.App()
         self.assertTrue(all(app.allow("a", now=0.0) for _ in range(int(server.BURST))))
         self.assertFalse(app.allow("a", now=0.0))
-        self.assertTrue(app.allow("a", now=1.0))                   # it refills
+        self.assertTrue(app.allow("a", now=1.0))  # it refills
 
     def test_errors_hide_details_from_remote_callers(self):
         c = Client(self.port)
@@ -894,14 +936,16 @@ class HardeningTests(unittest.TestCase):
     def test_command_line_guards(self):
         import contextlib
         import io
+
         err = io.StringIO()
         with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
             server.main(["--host-key", "short", "--no-browser", "--no-save"])
         self.assertIn("at least", err.getvalue())
         with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as ex:
-            server.main(["--port", str(self.port), "--no-browser", "--no-save"])   # already taken
+            server.main(["--port", str(self.port), "--no-browser", "--no-save"])  # already taken
         self.assertEqual(ex.exception.code, 1)
         self.assertIn("can't listen", err.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

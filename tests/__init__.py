@@ -1,4 +1,5 @@
 """Tests never touch your saved games: they get a folder of their own."""
+
 import os
 import tempfile
 

@@ -19,14 +19,37 @@ Options (all off by default, so a seed replays the classic game):
 import random
 
 from .board import Board
-from .constants import (BANK_START, COSTS, BADLANDS, VENTURE_DECK_COUNTS, RANGER, LARGE_BANK_START,
-                        LARGE_VENTURE_DECK_COUNTS, LARGE_FROM, MAX_TOWNS, MAX_TRAILS, MAX_VILLAGES,
-                        HOARD, RES_NAMES, PATHFINDER, UNKNOWN_VENTURE, LANDMARK, WIN_FAME,
-                        WINDFALL, VENTURE_NAMES)
+from .constants import (
+    BADLANDS,
+    BANK_START,
+    COSTS,
+    HOARD,
+    LANDMARK,
+    LARGE_BANK_START,
+    LARGE_FROM,
+    LARGE_VENTURE_DECK_COUNTS,
+    MAX_TOWNS,
+    MAX_TRAILS,
+    MAX_VILLAGES,
+    PATHFINDER,
+    RANGER,
+    RES_NAMES,
+    UNKNOWN_VENTURE,
+    VENTURE_DECK_COUNTS,
+    VENTURE_NAMES,
+    WIN_FAME,
+    WINDFALL,
+)
 
 SETUP_SETTLE, SETUP_TRAIL = "setup_village", "setup_trail"
 PRE_ROLL, MAIN, DISCARD, BANDIT, FREE_TRAILS, OVER = (
-    "pre_roll", "main", "discard", "move_bandit", "free_trails", "game_over")
+    "pre_roll",
+    "main",
+    "discard",
+    "move_bandit",
+    "free_trails",
+    "game_over",
+)
 SPECIAL = "special_build"  # 5-6 players: after each turn the others may build (no trading)
 
 DICE_MODES = ("random", "balanced")
@@ -41,8 +64,9 @@ class IllegalAction(Exception):
 
 
 class GameState:
-    def __init__(self, n_players=4, seed=None, board=None, names=None, dice="random",
-                 layout="random", special_build=None):
+    def __init__(
+        self, n_players=4, seed=None, board=None, names=None, dice="random", layout="random", special_build=None
+    ):
         if not 2 <= n_players <= 6:
             raise ValueError("2 to 6 players")
         if dice not in DICE_MODES or layout not in LAYOUTS:
@@ -70,7 +94,7 @@ class GameState:
         deck_rng.shuffle(self.deck)
 
         self.hands = [[0] * 5 for _ in range(n_players)]
-        self.ventures = [[0] * 6 for _ in range(n_players)]      # playable (owned before this turn)
+        self.ventures = [[0] * 6 for _ in range(n_players)]  # playable (owned before this turn)
         self.new_ventures = [[0] * 6 for _ in range(n_players)]  # bought this turn
         self.rangers = [0] * n_players
         self.v_owner = [-1] * b.V
@@ -90,15 +114,15 @@ class GameState:
         self.last_village = -1
         self.current = 0
         self.phase = SETUP_SETTLE
-        self.turn = 0              # increments every time a turn ends
+        self.turn = 0  # increments every time a turn ends
         self.venture_played = False
-        self.discards = {}         # player -> cards owed
+        self.discards = {}  # player -> cards owed
         self.bandit_return = MAIN
         self.free_trails = 0
         self.last_roll = None
         self.winner = -1
-        self.sim = False           # True inside AI simulations (hides deck)
-        self.events = []           # human readable log for the UI
+        self.sim = False  # True inside AI simulations (hides deck)
+        self.events = []  # human readable log for the UI
         self.roll_hist = [0] * 13
         # belief[viewer][target]: what `viewer` can know about `target`'s hand from
         # public information (production, builds, trades, discards). Steals between
@@ -213,8 +237,7 @@ class GameState:
     # ------------------------------------------------------- placement rules
     def vertex_free(self, v):
         """Unoccupied and satisfies the distance rule."""
-        return self.v_owner[v] == -1 and all(self.v_owner[w] == -1
-                                             for w in self.board.vertex_neighbors[v])
+        return self.v_owner[v] == -1 and all(self.v_owner[w] == -1 for w in self.board.vertex_neighbors[v])
 
     def touches_own_trail(self, p, v):
         return any(self.e_owner[e] == p for e in self.board.vertex_edges[v])
@@ -329,8 +352,7 @@ class GameState:
         if d[HOARD]:
             acts += [("play_hoard", r) for r in range(5)]
         if d[WINDFALL]:
-            acts += [("play_windfall", a, b) for a in range(5) for b in range(a, 5)
-                     if self._bank_has_pair(a, b)]
+            acts += [("play_windfall", a, b) for a in range(5) for b in range(a, 5) if self._bank_has_pair(a, b)]
         return acts
 
     # --------------------------------------------------------------- apply
@@ -660,10 +682,14 @@ class GameState:
                 total += self.hands[q][r]
                 self.hands[q][r] = 0
         if self.sim:
-            total = int(round(total))  # simulations run on estimated (fractional) hands
+            total = round(total)  # simulations run on estimated (fractional) hands
         self.hands[p][r] += total
-        self.log(f"{self.names[p]} plays Hoard on {RES_NAMES[r]} and takes {total}"
-                 + (f" ({', '.join(took)})" if took else ""), "venture", p)
+        self.log(
+            f"{self.names[p]} plays Hoard on {RES_NAMES[r]} and takes {total}"
+            + (f" ({', '.join(took)})" if took else ""),
+            "venture",
+            p,
+        )
 
     def _do_play_windfall(self, p, r1, r2):
         if not self._bank_has_pair(r1, r2):
@@ -706,7 +732,9 @@ class GameState:
             self.hands[p][i] += get[i] - give[i]
             self.hands[partner][i] += give[i] - get[i]
         self.trades_this_turn += 1
-        self.log(f"{self.names[p]} trades {fmt_cards(give)} for {fmt_cards(get)} with {self.names[partner]}", "trade", p)
+        self.log(
+            f"{self.names[p]} trades {fmt_cards(give)} for {fmt_cards(get)} with {self.names[partner]}", "trade", p
+        )
 
     def _do_end(self, p):
         if self.phase == SPECIAL:  # p is done building
@@ -731,10 +759,12 @@ class GameState:
 
     def can_special_build(self, p):
         """Does p hold the cards for anything it has room to build?"""
-        return ((self.can_afford(p, COSTS["trail"]) and bool(self.legal_trails(p)))
-                or (self.can_afford(p, COSTS["village"]) and bool(self.legal_villages(p)))
-                or (self.can_afford(p, COSTS["town"]) and bool(self.legal_towns(p)))
-                or (self.can_afford(p, COSTS["venture"]) and self.deck_size() > 0))
+        return (
+            (self.can_afford(p, COSTS["trail"]) and bool(self.legal_trails(p)))
+            or (self.can_afford(p, COSTS["village"]) and bool(self.legal_villages(p)))
+            or (self.can_afford(p, COSTS["town"]) and bool(self.legal_towns(p)))
+            or (self.can_afford(p, COSTS["venture"]) and self.deck_size() > 0)
+        )
 
     def _special_next(self):
         """Move on to the next player who can build something; then to the next turn."""
@@ -797,8 +827,7 @@ def great_trail(s, p):
 
     def dfs(v, used, length):
         nonlocal best
-        if length > best:
-            best = length
+        best = max(best, length)
         if length and owner[v] != -1 and owner[v] != p:
             return
         for i, w in adj[v]:

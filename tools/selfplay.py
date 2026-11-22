@@ -20,8 +20,8 @@ from concurrent.futures import ProcessPoolExecutor
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from hexfield.ai import LEVELS, STYLES  # noqa: E402
-from hexfield.match import play_headless  # noqa: E402
+from hexfield.ai import LEVELS, STYLES
+from hexfield.match import play_headless
 
 
 def wilson(wins, n, z=1.96):
@@ -38,7 +38,7 @@ def wilson(wins, n, z=1.96):
 def one_game(job):
     """(seed, perm, levels, styles, params, options) -> (winner entry or -1, turns, fame by entry, secs)."""
     seed, perm, levels, styles, params, options = job
-    seat = lambda xs: [xs[i] for i in perm] if xs else None  # noqa: E731
+    seat = lambda xs: [xs[i] for i in perm] if xs else None
     s, dt = play_headless(seed, seat(levels), styles=seat(styles), params=seat(params), **options)
     fame = [0] * len(perm)
     for q, entry in enumerate(perm):
@@ -75,8 +75,11 @@ def run_match(levels, games, seed=1000, styles=None, params=None, options=None, 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--levels", default="hard,medium,easy",
-                    help=f"comma-separated bot levels, one per seat (3 to 6): {', '.join(LEVELS)}")
+    ap.add_argument(
+        "--levels",
+        default="hard,medium,easy",
+        help=f"comma-separated bot levels, one per seat (3 to 6): {', '.join(LEVELS)}",
+    )
     ap.add_argument("--styles", help=f"play styles, one per seat: {', '.join(STYLES)} (default: balanced)")
     ap.add_argument("--games", type=int, default=30)
     ap.add_argument("--seed", type=int, default=1000, help="seed of the first game")
@@ -99,17 +102,27 @@ def main():
             print(f"game {g:3d}  seed {job[0]}  turns {t:3d}  won by {who:<10} fame {fame}  ({dt:.1f}s)")
 
     t0 = time.time()
-    wins, turns, vps, unfinished = run_match(levels, args.games, args.seed, styles,
-                                             options={"dice": args.dice, "layout": args.layout},
-                                             jobs=args.jobs, on_game=show)
+    wins, turns, vps, unfinished = run_match(
+        levels,
+        args.games,
+        args.seed,
+        styles,
+        options={"dice": args.dice, "layout": args.layout},
+        jobs=args.jobs,
+        on_game=show,
+    )
     fair = 1 / len(levels)
-    print(f"\n{args.games} games, {len(levels)} players, avg {turns:.1f} turns, {time.time() - t0:.0f}s"
-          + (f", {unfinished} unfinished" if unfinished else ""))
+    print(
+        f"\n{args.games} games, {len(levels)} players, avg {turns:.1f} turns, {time.time() - t0:.0f}s"
+        + (f", {unfinished} unfinished" if unfinished else "")
+    )
     for i, lv in enumerate(levels):
         lo, hi = wilson(wins[i], args.games)
         name = f"{lv}#{i}" + (f" {styles[i]}" if styles else "")
-        print(f"  {name:<18} won {wins[i]:3d}/{args.games:<3d}  {wins[i] / args.games:6.1%}  "
-              f"(95% {lo:.0%}-{hi:.0%})   avg {vps[i]:.1f} fame   fair share {fair:.1%}")
+        print(
+            f"  {name:<18} won {wins[i]:3d}/{args.games:<3d}  {wins[i] / args.games:6.1%}  "
+            f"(95% {lo:.0%}-{hi:.0%})   avg {vps[i]:.1f} fame   fair share {fair:.1%}"
+        )
 
 
 if __name__ == "__main__":

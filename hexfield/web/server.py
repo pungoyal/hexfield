@@ -54,19 +54,19 @@ from .session import MODES, Replay, WebGame
 
 MAX_BODY = 64 * 1024
 MAX_IMPORT = 4 * 1024 * 1024
-MAX_LIVE = 24           # live games kept in memory; the rest wait on disk
-MAX_LIVE_EACH = 4       # of them, an account's own: one host can't push everyone else's out
+MAX_LIVE = 24  # live games kept in memory; the rest wait on disk
+MAX_LIVE_EACH = 4  # of them, an account's own: one host can't push everyone else's out
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 LOCAL = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
-MAX_CONN = 200          # requests in flight; more are turned away instead of piling up threads
-RATE, BURST = 100.0, 300.0   # requests a second one remote address may make, and its allowance
+MAX_CONN = 200  # requests in flight; more are turned away instead of piling up threads
+RATE, BURST = 100.0, 300.0  # requests a second one remote address may make, and its allowance
 MIN_HOST_KEY = 16
 COOKIE = "hexfield_host"
 SESSION = "hexfield_session"
-USER_GAMES = 50         # saved games an account keeps; the oldest finished ones go first
+USER_GAMES = 50  # saved games an account keeps; the oldest finished ones go first
 MAX_USERS = 5000
-SIGNUP_RATE, SIGNUP_BURST = 5 / 3600, 5.0   # new accounts one remote address may make: 5 an hour
-CHALLENGE_TTL = 300     # seconds a passkey prompt stays good for
+SIGNUP_RATE, SIGNUP_BURST = 5 / 3600, 5.0  # new accounts one remote address may make: 5 an hour
+CHALLENGE_TTL = 300  # seconds a passkey prompt stays good for
 MAX_CHALLENGES = 10000
 MAX_CHALLENGES_EACH = 20  # open passkey prompts one remote address may hold
 PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP")
@@ -79,9 +79,13 @@ SECURITY_HEADERS = (
     ("Cross-Origin-Opener-Policy", "same-origin"),
     ("Cross-Origin-Resource-Policy", "same-origin"),
     ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"),
-    ("Content-Security-Policy",
-     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
-     "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"),
+    (
+        "Content-Security-Policy",
+        (
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+            "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        ),
+    ),
 )
 log = logging.getLogger("hexfield.web")
 HOST_ONLY = {"new", "games", "resume", "delete", "stats", "replay", "replay_hint", "export", "import", "branch"}
@@ -96,18 +100,18 @@ class App:
     """The games this server is hosting."""
 
     def __init__(self):
-        self.games = {}     # gid -> WebGame
-        self.replays = {}   # (owner, gid) -> Replay
-        self.latest = {}    # owner -> their newest game: what a request without ?g= means
+        self.games = {}  # gid -> WebGame
+        self.replays = {}  # (owner, gid) -> Replay
+        self.latest = {}  # owner -> their newest game: what a request without ?g= means
         self.lock = threading.Lock()
         self.persist = True
-        self.lan = None     # this machine's network address when others can reach the server
+        self.lan = None  # this machine's network address when others can reach the server
         self.host_key = None  # sha256 of the host key; when set, it is the only way to be the host
         self.hosts = {"localhost", socket.gethostname().lower()}  # names this server answers to
-        self.buckets = {}   # remote address -> [allowance, last seen]
+        self.buckets = {}  # remote address -> [allowance, last seen]
         self.behind_proxy = False  # every request comes through a reverse proxy: trust its X-Forwarded-For
-        self.accounts = None       # Accounts, on a server with --accounts
-        self.challenges = {}       # passkey challenge -> (what for, expiry, details, remote address)
+        self.accounts = None  # Accounts, on a server with --accounts
+        self.challenges = {}  # passkey challenge -> (what for, expiry, details, remote address)
         atexit.register(self.close)
 
     @property
@@ -124,7 +128,9 @@ class App:
         with self.lock:
             if len(self.buckets) > 4096:
                 # an idle allowance is full again after a minute; a sign-up allowance after an hour
-                self.buckets = {a: b for a, b in self.buckets.items() if now - b[1] < (3600 if isinstance(a, tuple) else 60)}
+                self.buckets = {
+                    a: b for a, b in self.buckets.items() if now - b[1] < (3600 if isinstance(a, tuple) else 60)
+                }
             b = self.buckets.setdefault(addr, [burst, now])
             b[0] = min(burst, b[0] + (now - b[1]) * rate) - 1
             b[1] = now
@@ -138,8 +144,10 @@ class App:
         now = time.monotonic()
         with self.lock:
             self.challenges = {c: v for c, v in self.challenges.items() if v[1] > now}
-            if len(self.challenges) >= MAX_CHALLENGES or \
-                    sum(v[3] == addr for v in self.challenges.values()) >= MAX_CHALLENGES_EACH:
+            if (
+                len(self.challenges) >= MAX_CHALLENGES
+                or sum(v[3] == addr for v in self.challenges.values()) >= MAX_CHALLENGES_EACH
+            ):
                 raise Forbidden("too many sign-ins at once, try again in a few minutes")
             c = passkey.b64u(secrets.token_bytes(32))
             self.challenges[c] = (kind, now + CHALLENGE_TTL, details, addr)
@@ -163,9 +171,9 @@ class App:
             self.latest[game.owner] = game
             idle = sorted(self.games.values(), key=lambda g: g.touched)
             mine = [g for g in idle if g.owner == game.owner] if game.owner else []
-            drop = mine[:max(0, len(mine) - MAX_LIVE_EACH)]
+            drop = mine[: max(0, len(mine) - MAX_LIVE_EACH)]
             idle = [g for g in idle if g not in drop]
-            drop += idle[:max(0, len(idle) - MAX_LIVE)]
+            drop += idle[: max(0, len(idle) - MAX_LIVE)]
             for g in drop:
                 del self.games[g.gid]
                 if self.latest.get(g.owner) is g:
@@ -225,18 +233,33 @@ class App:
             if not 2 <= count <= 6:
                 raise IllegalAction("2 to 6 human players")
             names = names if isinstance(names, list) else []
-            humans = [str(names[i]) if i < len(names) and names[i] else
-                      (body.get("name") or "Host" if i == 0 else f"Player {i + 1}") for i in range(count)]
+            humans = [
+                str(names[i])
+                if i < len(names) and names[i]
+                else (body.get("name") or "Host" if i == 0 else f"Player {i + 1}")
+                for i in range(count)
+            ]
             seat = None
         if not 0 <= opp <= 5 or not 3 <= opp + len(humans or [1]) <= 6:
             raise IllegalAction("a game has 3 to 6 players")
         seat = seat or None
         if seat is not None and not 1 <= seat <= opp + 1:
             raise IllegalAction("seat out of range")
-        game = WebGame(opp, body.get("level", "hard"), seed, seat, body.get("name") or "You",
-                       review=bool(body.get("review", True)), styles=body.get("styles", "mixed"),
-                       dice=body.get("dice", "random"), layout=body.get("layout", "random"),
-                       humans=humans, mode=mode, persist=self.persist, owner=owner)
+        game = WebGame(
+            opp,
+            body.get("level", "hard"),
+            seed,
+            seat,
+            body.get("name") or "You",
+            review=bool(body.get("review", True)),
+            styles=body.get("styles", "mixed"),
+            dice=body.get("dice", "random"),
+            layout=body.get("layout", "random"),
+            humans=humans,
+            mode=mode,
+            persist=self.persist,
+            owner=owner,
+        )
         if owner and self.persist:
             store.prune(USER_GAMES, owner)
         if mode == "online":
@@ -280,8 +303,13 @@ def static_file(full):
         ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
         text = ctype.startswith("text/") or ctype.endswith(("javascript", "json", "xml"))
         gz = gzip.compress(raw, 6, mtime=0) if text and len(raw) > 1024 else None
-        hit = _static[full] = (stamp, '"' + hashlib.sha256(raw).hexdigest()[:24] + '"', raw, gz,
-                               ctype + ("; charset=utf-8" if text else ""))
+        hit = _static[full] = (
+            stamp,
+            '"' + hashlib.sha256(raw).hexdigest()[:24] + '"',
+            raw,
+            gz,
+            ctype + ("; charset=utf-8" if text else ""),
+        )
     return hit[1:]
 
 
@@ -289,7 +317,7 @@ def host_name(value):
     """The name part of a Host header or an Origin: 'Example.com:8765' -> 'example.com'."""
     value = (value or "").strip().lower()
     if value.startswith("["):
-        return value[1:value.find("]")] if "]" in value else ""
+        return value[1 : value.find("]")] if "]" in value else ""
     return value.rsplit(":", 1)[0] if ":" in value else value
 
 
@@ -333,7 +361,7 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("send JSON")
         body = json.loads(self.rfile.read(n) or b"{}")
         if not isinstance(body, dict):
-            raise ValueError("body must be a JSON object")
+            raise ValueError("body must be a JSON object")  # noqa: TRY004 - answered as a 400 with the other bad bodies
         return body
 
     def proxied(self):
@@ -437,15 +465,23 @@ class Handler(BaseHTTPRequestHandler):
         """POST /api/host {"key": ...}: make this browser the host. The page sends it from
         /#host=<key>, whose fragment no server or proxy ever sees."""
         key = body.get("key")
-        if not APP.host_key or not isinstance(key, str) or not hmac.compare_digest(
-                hashlib.sha256(key.encode()).hexdigest().encode(), APP.host_key.encode()):
+        if (
+            not APP.host_key
+            or not isinstance(key, str)
+            or not hmac.compare_digest(hashlib.sha256(key.encode()).hexdigest().encode(), APP.host_key.encode())
+        ):
             return self._send(403, {"error": "wrong host key"})
         return self._send(200, {"ok": True}, headers=[self._cookie_header(COOKIE, APP.host_key, 30)])
 
     def _me(self):
         u = self.account()
-        return {"accounts": APP.accounts is not None, "admin": APP.accounts is not None and self.local(), "lan": APP.lan,
-                "host": self.owner() is not None, "user": u and {"name": u["name"], "host": u["host"]}}
+        return {
+            "accounts": APP.accounts is not None,
+            "admin": APP.accounts is not None and self.local(),
+            "lan": APP.lan,
+            "host": self.owner() is not None,
+            "user": u and {"name": u["name"], "host": u["host"]},
+        }
 
     def _auth(self, route, body):
         """Accounts: passkey sign-up and sign-in, signing out, and the admin's list."""
@@ -480,16 +516,28 @@ class Handler(BaseHTTPRequestHandler):
                 if acc.count() >= MAX_USERS:
                     raise Forbidden("this server isn't taking new accounts")
                 handle = secrets.token_bytes(16)
-                return self._send(200, {
-                    "challenge": APP.challenge("signup", self.client(), name=name, id=handle.hex()),
-                    "rp": {"id": rp, "name": "Hexfield"},
-                    "user": {"id": passkey.b64u(handle), "name": name, "displayName": name},
-                    "pubKeyCredParams": [{"type": "public-key", "alg": passkey.ES256}],
-                    "authenticatorSelection": {"residentKey": "required", "userVerification": "preferred"},
-                    "attestation": "none", "timeout": CHALLENGE_TTL * 1000})
+                return self._send(
+                    200,
+                    {
+                        "challenge": APP.challenge("signup", self.client(), name=name, id=handle.hex()),
+                        "rp": {"id": rp, "name": "Hexfield"},
+                        "user": {"id": passkey.b64u(handle), "name": name, "displayName": name},
+                        "pubKeyCredParams": [{"type": "public-key", "alg": passkey.ES256}],
+                        "authenticatorSelection": {"residentKey": "required", "userVerification": "preferred"},
+                        "attestation": "none",
+                        "timeout": CHALLENGE_TTL * 1000,
+                    },
+                )
             if route == "signin-options":
-                return self._send(200, {"challenge": APP.challenge("signin", self.client()), "rpId": rp,
-                                        "userVerification": "preferred", "timeout": CHALLENGE_TTL * 1000})
+                return self._send(
+                    200,
+                    {
+                        "challenge": APP.challenge("signin", self.client()),
+                        "rpId": rp,
+                        "userVerification": "preferred",
+                        "timeout": CHALLENGE_TTL * 1000,
+                    },
+                )
             if route == "signout":
                 token = self.cookie(SESSION)
                 if token:
@@ -499,7 +547,8 @@ class Handler(BaseHTTPRequestHandler):
             auth_data = passkey.unb64u(body.get("authData", ""))
             if route == "signup":
                 challenge, cred, key, count = passkey.registration(
-                    client_data, auth_data, passkey.unb64u(body.get("publicKey", "")), body.get("alg"), rp, origin)
+                    client_data, auth_data, passkey.unb64u(body.get("publicKey", "")), body.get("alg"), rp, origin
+                )
                 want = APP.answer("signup", challenge)
                 # spent only by a sign-up that would succeed, so a failed prompt costs nothing
                 if not APP.allow(("signup", self.client()), rate=SIGNUP_RATE, burst=SIGNUP_BURST):
@@ -515,8 +564,9 @@ class Handler(BaseHTTPRequestHandler):
                 if known is None:
                     raise Forbidden("this server doesn't know that passkey (was its account deleted?)")
                 uid, key, last = known
-                challenge, count = passkey.assertion(client_data, auth_data, passkey.unb64u(body.get("signature", "")),
-                                                     key, rp, origin)
+                challenge, count = passkey.assertion(
+                    client_data, auth_data, passkey.unb64u(body.get("signature", "")), key, rp, origin
+                )
                 APP.answer("signin", challenge)
                 if count and count <= last:
                     raise Forbidden("that passkey looks copied; sign in with another")
@@ -588,9 +638,13 @@ class Handler(BaseHTTPRequestHandler):
                 raise IllegalAction("since must be a number")
             owner = self.owner()
             if route in HOST_ONLY and owner is None:
-                raise Forbidden("only the host can do that" if APP.accounts is None
-                                else "hosting games needs the admin's approval" if self.account()
-                                else "sign in to host games")
+                raise Forbidden(
+                    "only the host can do that"
+                    if APP.accounts is None
+                    else "hosting games needs the admin's approval"
+                    if self.account()
+                    else "sign in to host games"
+                )
             if route in HOST_ONLY and route != "new":
                 return self._host(route, post, q, body, owner)
             new = route == "new" and post
@@ -699,8 +753,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def _lobby(self, g):
         """What someone without a seat may know: who is playing and whether a seat is free."""
-        return {"gid": g.gid, "join": True, "full": not g.open, "mode": g.mode,
-                "players": [{"name": g.s.names[p], "bot": g.is_bot(p), "open": p in g.open} for p in range(g.s.n)]}
+        return {
+            "gid": g.gid,
+            "join": True,
+            "full": not g.open,
+            "mode": g.mode,
+            "players": [{"name": g.s.names[p], "bot": g.is_bot(p), "open": p in g.open} for p in range(g.s.n)],
+        }
 
     def _host(self, route, post, q, body, owner):
         """Saved games, replays and statistics: the host's own (an account's own)."""
@@ -738,8 +797,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"id": gid})
             if route == "export":
                 rec, _ = store.load(gid, owner)
-                return self._send(200, rec.dumps().encode(), headers=[
-                    ("Content-Disposition", f'attachment; filename="hexfield-{gid}.json"')])
+                return self._send(
+                    200,
+                    rec.dumps().encode(),
+                    headers=[("Content-Disposition", f'attachment; filename="hexfield-{gid}.json"')],
+                )
             if route in ("resume", "branch") and post:
                 if route == "branch":
                     entry = body.get("entry")
@@ -755,8 +817,7 @@ class Handler(BaseHTTPRequestHandler):
                         APP.latest[owner] = g
                 with g.lock:
                     seat = g.humans[0]
-                    return self._send(200, {**g.view(seat, 0), "board": g.geometry,
-                                            "tokens": g.tokens_of(g.humans)})
+                    return self._send(200, {**g.view(seat, 0), "board": g.geometry, "tokens": g.tokens_of(g.humans)})
             if route in ("replay", "replay_hint"):
                 r = APP.replay(gid, owner)
                 with r.lock:
@@ -790,6 +851,7 @@ def lan_address():
 
 class Server(ThreadingHTTPServer):
     """One thread per request, but only so many at once."""
+
     daemon_threads = True
     request_queue_size = 64
 
@@ -813,7 +875,7 @@ class Server(ThreadingHTTPServer):
             self.slots.release()
 
     def handle_error(self, request, client_address):  # a dropped connection is not news
-        log.debug("request from %s failed", client_address[0], exc_info=True)
+        log.debug("request from %s failed", client_address[0], exc_info=True)  # noqa: LOG014 - socketserver calls this inside its except
 
 
 def _stop(*_):
@@ -824,38 +886,61 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="hexfield.web", description="Hexfield in the browser")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--lan", action="store_true",
-                    help="listen on every interface so other devices on your network can join online games")
+    ap.add_argument(
+        "--lan",
+        action="store_true",
+        help="listen on every interface so other devices on your network can join online games",
+    )
     ap.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     ap.add_argument("--no-save", action="store_true", help="don't write games to disk")
-    ap.add_argument("--host-key", default=os.environ.get("HEXFIELD_HOST_KEY"), metavar="KEY",
-                    help="for a server you can't sit at: whoever opens /#host=KEY is the host, and requests "
-                         "from this machine no longer are (or set HEXFIELD_HOST_KEY)")
-    ap.add_argument("--accounts", action="store_true",
-                    help="a public server: anyone can make an account with a passkey and join games; the "
-                         "admin (whoever holds the host key) chooses who may host. Needs --host-key and HTTPS")
-    ap.add_argument("--behind-proxy", action="store_true",
-                    help="every request comes through a reverse proxy, and nothing else can reach the server "
-                         "(any peer's X-Forwarded-For is believed): rate limits go by the client address in it")
-    ap.add_argument("--allow-host", action="append", default=[], metavar="NAME",
-                    help="a domain name this server is reached by (repeatable); addresses, localhost "
-                         "and .local names always work")
+    ap.add_argument(
+        "--host-key",
+        default=os.environ.get("HEXFIELD_HOST_KEY"),
+        metavar="KEY",
+        help="for a server you can't sit at: whoever opens /#host=KEY is the host, and requests "
+        "from this machine no longer are (or set HEXFIELD_HOST_KEY)",
+    )
+    ap.add_argument(
+        "--accounts",
+        action="store_true",
+        help="a public server: anyone can make an account with a passkey and join games; the "
+        "admin (whoever holds the host key) chooses who may host. Needs --host-key and HTTPS",
+    )
+    ap.add_argument(
+        "--behind-proxy",
+        action="store_true",
+        help="every request comes through a reverse proxy, and nothing else can reach the server "
+        "(any peer's X-Forwarded-For is believed): rate limits go by the client address in it",
+    )
+    ap.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="a domain name this server is reached by (repeatable); addresses, localhost and .local names always work",
+    )
     ap.add_argument("-v", "--verbose", action="store_true", help="log every request")
     ap.add_argument("--version", action="version", version=f"hexfield {__version__}")
     args = ap.parse_args(argv)
     if args.host_key and len(args.host_key) < MIN_HOST_KEY:
-        ap.error(f"the host key must be at least {MIN_HOST_KEY} characters; make one with:  "
-                 'python3 -c "import secrets; print(secrets.token_urlsafe(24))"')
+        ap.error(
+            f"the host key must be at least {MIN_HOST_KEY} characters; make one with:  "
+            'python3 -c "import secrets; print(secrets.token_urlsafe(24))"'
+        )
     if args.accounts and not args.host_key:
         ap.error("--accounts needs a host key: whoever holds it is the admin")
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
-                        format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING, format="%(asctime)s %(levelname)s %(message)s"
+    )
     host = "0.0.0.0" if args.lan else args.host
     try:
         httpd = Server((host, args.port), Handler)
     except OSError as ex:
-        ap.exit(1, f"hexfield.web: can't listen on {host}:{args.port}: {ex.strerror or ex}\n"
-                   "  (is another copy running? try --port)\n")
+        ap.exit(
+            1,
+            f"hexfield.web: can't listen on {host}:{args.port}: {ex.strerror or ex}\n"
+            "  (is another copy running? try --port)\n",
+        )
     APP.persist = not args.no_save
     APP.set_host_key(args.host_key)
     APP.hosts.update(h.lower() for h in args.allow_host)
@@ -872,8 +957,10 @@ def main(argv=None):
     print(f"  Hexfield web UI running at {url}  (Ctrl+C to stop)")
     if args.lan:
         addr = APP.lan = lan_address()
-        print(f"  Others on your network can join an online game at http://{addr or '<this machine>'}:{args.port}/"
-              "  (they need the invite link from the game)")
+        print(
+            f"  Others on your network can join an online game at http://{addr or '<this machine>'}:{args.port}/"
+            "  (they need the invite link from the game)"
+        )
     if args.host_key:
         url += "#" + urlencode({"host": args.host_key})
         print("  Host key set: open  /#host=<your key>  once in the browser that runs the games")

@@ -31,11 +31,21 @@ import math
 import random
 from collections import deque
 
-from .constants import (COSTS, BADLANDS, RANGER, MAX_TOWNS, MAX_VILLAGES, HOARD,
-                        RES_NAMES, PATHFINDER, UNKNOWN_VENTURE, LANDMARK, WIN_FAME,
-                        WINDFALL)
-from .game import (DISCARD, MAIN, PRE_ROLL, FREE_TRAILS, BANDIT, SETUP_TRAIL,
-                   SETUP_SETTLE, SPECIAL, fmt_cards)
+from .constants import (
+    BADLANDS,
+    COSTS,
+    HOARD,
+    LANDMARK,
+    MAX_TOWNS,
+    MAX_VILLAGES,
+    PATHFINDER,
+    RANGER,
+    RES_NAMES,
+    UNKNOWN_VENTURE,
+    WIN_FAME,
+    WINDFALL,
+)
+from .game import BANDIT, DISCARD, FREE_TRAILS, MAIN, PRE_ROLL, SETUP_SETTLE, SETUP_TRAIL, SPECIAL, fmt_cards
 
 SETUP_W = (1.10, 1.10, 0.80, 1.00, 0.87)
 DIST_DISC = (0.55, 0.38, 0.22)
@@ -44,39 +54,85 @@ TRAIL_SETTLE = (2, 2, 1, 1, 0)
 # Every weight of the evaluation, in one place: tools/tune.py searches over these and the
 # play styles below are small changes to them. Values are fame-equivalents unless noted.
 PARAMS = {
-    "pip_value": 0.105,          # one pip of production (a card per 36 rolls)
-    "w_timber_early": 1.15, "w_clay_early": 1.15, "w_wool_early": 0.80, "w_grain_early": 1.00, "w_stone_early": 0.80,
-    "w_timber_late": 0.70, "w_clay_late": 0.70, "w_wool_late": 0.70, "w_grain_late": 1.15, "w_stone_late": 1.25,
-    "missing_res": 3.2,          # pips docked for a resource you don't produce
-    "expansion": 1.0,            # scale of the open-spots term
-    "dock_any": 1.2,             # a 3:1 dock on an open spot (pips)
-    "hand_card": 0.09,           # a loose card, divided by its trade ratio
-    "hand_build": 0.40,          # scale of the "close to a build" bonus
-    "util_village": 1.5, "util_trail_settle": 1.25, "util_town": 1.45, "util_venture": 0.5, "util_trail": 0.3,
-    "seven_risk": 0.13,          # per card a 7 would cost, times the chance of a 7
-    "venture_ranger": 0.33, "venture_trail": 0.42, "venture_hoard": 0.45, "venture_windfall": 0.55,
-    "venture_hidden": 0.30,          # an opponent's face-down card
-    "patrol_ranger": 0.1, "patrol_reach": 0.55, "patrol_near": 0.2, "award_threat": 0.3,
+    "pip_value": 0.105,  # one pip of production (a card per 36 rolls)
+    "w_timber_early": 1.15,
+    "w_clay_early": 1.15,
+    "w_wool_early": 0.80,
+    "w_grain_early": 1.00,
+    "w_stone_early": 0.80,
+    "w_timber_late": 0.70,
+    "w_clay_late": 0.70,
+    "w_wool_late": 0.70,
+    "w_grain_late": 1.15,
+    "w_stone_late": 1.25,
+    "missing_res": 3.2,  # pips docked for a resource you don't produce
+    "expansion": 1.0,  # scale of the open-spots term
+    "dock_any": 1.2,  # a 3:1 dock on an open spot (pips)
+    "hand_card": 0.09,  # a loose card, divided by its trade ratio
+    "hand_build": 0.40,  # scale of the "close to a build" bonus
+    "util_village": 1.5,
+    "util_trail_settle": 1.25,
+    "util_town": 1.45,
+    "util_venture": 0.5,
+    "util_trail": 0.3,
+    "seven_risk": 0.13,  # per card a 7 would cost, times the chance of a 7
+    "venture_ranger": 0.33,
+    "venture_trail": 0.42,
+    "venture_hoard": 0.45,
+    "venture_windfall": 0.55,
+    "venture_hidden": 0.30,  # an opponent's face-down card
+    "patrol_ranger": 0.1,
+    "patrol_reach": 0.55,
+    "patrol_near": 0.2,
+    "award_threat": 0.3,
     "trail_race": 0.75,
-    "opp_base": 0.28, "opp_lead": 0.25, "opp_8": 0.35, "opp_9": 0.4,   # how much rivals' values count against you
-    "trade_margin": 0.05,        # a trade must gain the responder this much
-    "propose_gain": 0.25,        # a trade must gain the proposer this much to be offered
+    "opp_base": 0.28,
+    "opp_lead": 0.25,
+    "opp_8": 0.35,
+    "opp_9": 0.4,  # how much rivals' values count against you
+    "trade_margin": 0.05,  # a trade must gain the responder this much
+    "propose_gain": 0.25,  # a trade must gain the proposer this much to be offered
 }
 
 # Play styles: the same engine with different tastes. Factors multiply PARAMS.
 STYLES = {
     "balanced": {},
-    "builder": {    # trails and villages, the Great Trail
-        "w_timber_early": 1.12, "w_clay_early": 1.12, "w_timber_late": 1.2, "w_clay_late": 1.2,
-        "expansion": 1.35, "trail_race": 1.6, "util_village": 1.15, "util_trail": 1.6},
-    "citizen": {    # grain and stone: towns first
-        "w_grain_early": 1.15, "w_stone_early": 1.25, "w_grain_late": 1.08, "w_stone_late": 1.08,
-        "util_town": 1.25, "expansion": 0.85},
-    "general": {    # ventures and the Great Patrol
-        "w_wool_early": 1.15, "w_wool_late": 1.25, "util_venture": 2.0, "venture_ranger": 1.3, "venture_hoard": 1.2,
-        "venture_windfall": 1.2, "patrol_ranger": 1.6, "patrol_reach": 1.5, "patrol_near": 1.5},
-    "trader": {     # docks and deals
-        "dock_any": 2.2, "hand_card": 1.25, "trade_margin": 0.4, "propose_gain": 0.5, "missing_res": 0.8},
+    "builder": {  # trails and villages, the Great Trail
+        "w_timber_early": 1.12,
+        "w_clay_early": 1.12,
+        "w_timber_late": 1.2,
+        "w_clay_late": 1.2,
+        "expansion": 1.35,
+        "trail_race": 1.6,
+        "util_village": 1.15,
+        "util_trail": 1.6,
+    },
+    "citizen": {  # grain and stone: towns first
+        "w_grain_early": 1.15,
+        "w_stone_early": 1.25,
+        "w_grain_late": 1.08,
+        "w_stone_late": 1.08,
+        "util_town": 1.25,
+        "expansion": 0.85,
+    },
+    "general": {  # ventures and the Great Patrol
+        "w_wool_early": 1.15,
+        "w_wool_late": 1.25,
+        "util_venture": 2.0,
+        "venture_ranger": 1.3,
+        "venture_hoard": 1.2,
+        "venture_windfall": 1.2,
+        "patrol_ranger": 1.6,
+        "patrol_reach": 1.5,
+        "patrol_near": 1.5,
+    },
+    "trader": {  # docks and deals
+        "dock_any": 2.2,
+        "hand_card": 1.25,
+        "trade_margin": 0.4,
+        "propose_gain": 0.5,
+        "missing_res": 0.8,
+    },
 }
 STYLE_NOTES = {
     "balanced": "plays the position",
@@ -103,14 +159,14 @@ BUILD_ACTION = {"town": "town", "village": "settle", "trail": "trail", "venture"
 
 LEVELS = {
     # beam width, depth, score noise, setup lookahead
-    "easy": dict(beam=1, depth=1, noise=0.9, lookahead=False),
-    "medium": dict(beam=2, depth=2, noise=0.35, lookahead=False),
-    "hard": dict(beam=5, depth=4, noise=0.0, lookahead=True),
+    "easy": {"beam": 1, "depth": 1, "noise": 0.9, "lookahead": False},
+    "medium": {"beam": 2, "depth": 2, "noise": 0.35, "lookahead": False},
+    "hard": {"beam": 5, "depth": 4, "noise": 0.0, "lookahead": True},
 }
 
 
 def clamp(x, lo, hi):
-    return lo if x < lo else hi if x > hi else x
+    return lo if x < lo else min(x, hi)
 
 
 class Evaluator:
@@ -119,8 +175,12 @@ class Evaluator:
         self.P = P = params or PARAMS
         self.w_early = tuple(P[f"w_{r}_early"] for r in RES_NAMES)
         self.w_late = tuple(P[f"w_{r}_late"] for r in RES_NAMES)
-        self.venture_value = {RANGER: P["venture_ranger"], PATHFINDER: P["venture_trail"],
-                          HOARD: P["venture_hoard"], WINDFALL: P["venture_windfall"]}
+        self.venture_value = {
+            RANGER: P["venture_ranger"],
+            PATHFINDER: P["venture_trail"],
+            HOARD: P["venture_hoard"],
+            WINDFALL: P["venture_windfall"],
+        }
 
     # ------------------------------------------------------------- helpers
     def production(self, s, q):
@@ -211,9 +271,13 @@ class Evaluator:
         counts = s.venture_counts
         left = sum(counts) - counts[LANDMARK]
         # an unseen card: a landmark or, in proportion, a ranger or a progress card
-        unknown_venture = (counts[LANDMARK] * 1.0 + counts[RANGER] * VENTURE_VALUE[RANGER]
-                       + counts[PATHFINDER] * VENTURE_VALUE[PATHFINDER] + counts[HOARD] * VENTURE_VALUE[HOARD]
-                       + counts[WINDFALL] * VENTURE_VALUE[WINDFALL]) / sum(counts)
+        unknown_venture = (
+            counts[LANDMARK] * 1.0
+            + counts[RANGER] * VENTURE_VALUE[RANGER]
+            + counts[PATHFINDER] * VENTURE_VALUE[PATHFINDER]
+            + counts[HOARD] * VENTURE_VALUE[HOARD]
+            + counts[WINDFALL] * VENTURE_VALUE[WINDFALL]
+        ) / sum(counts)
         p_ranger = counts[RANGER] / float(left + counts[LANDMARK])
         if s.winner != -1:
             return [1000.0 if q == s.winner else 0.0 for q in range(n)]
@@ -263,7 +327,7 @@ class Evaluator:
                                     disc *= 0.75
                         spots.append((qv * disc, dist[v]))
                 spots.sort(reverse=True)
-            exp_val = P["expansion"] * PIP_VALUE * horizon * sum(x for x, _ in spots[:min(2, sett_left)])
+            exp_val = P["expansion"] * PIP_VALUE * horizon * sum(x for x, _ in spots[: min(2, sett_left)])
             has_spot0 = any(d == 0 for _, d in spots[:3])
             has_spot = bool(spots)
             if not has_spot:
@@ -569,7 +633,7 @@ class AIPlayer:
     # Opening scores are computed in pip units and scaled to fame-equivalents so the review
     # verdicts mean the same as later in the game. The factors are fitted to how much
     # Evaluator.score changes after the placement (tools: regress score deltas on raw deltas).
-    SETTLE_SCALE = 0.1     # second village
+    SETTLE_SCALE = 0.1  # second village
     SETTLE_SCALE_1 = 0.066  # first village (the lookahead total also counts the pairing)
     TRAIL_SCALE = 0.03
 
@@ -617,6 +681,7 @@ class AIPlayer:
 
     def _lookahead_first(self, s, p, v):
         """Place v, simulate everyone's greedy picks until our second pick."""
+
         def place(q, x):
             t.v_owner[x] = q
             t.v_level[x] = 1
@@ -668,8 +733,9 @@ class AIPlayer:
                 if x == v or not s.vertex_free(x):
                     continue
                 q = self._spot_value(s, p, x, list(s.villages[p]))
-                contested = sum(1 for y in b.vertex_neighbors[x] for z in b.vertex_neighbors[y]
-                                if s.v_owner[z] not in (-1, p))
+                contested = sum(
+                    1 for y in b.vertex_neighbors[x] for z in b.vertex_neighbors[y] if s.v_owner[z] not in (-1, p)
+                )
                 q *= 1.0 / (1 + 0.25 * contested)
                 if q > best:
                     best, target = q, x
@@ -759,7 +825,7 @@ class AIPlayer:
         return out
 
     # ================================================================ turns
-    CARD_VALUE = 0.2   # fame-eq of one resource card, for this-roll production estimates
+    CARD_VALUE = 0.2  # fame-eq of one resource card, for this-roll production estimates
     SEVEN_RISK = 0.02  # small edge lost by waiting with a ranger until after the roll
 
     def rank_preroll(self, s, p):
@@ -802,8 +868,11 @@ class AIPlayer:
 
     def _candidates(self, s, p):
         h = s.hands[p]
-        out = [a for a in s.legal_actions(include_trades=True)
-               if a[0] != "end" and not (a[0] == "bank" and h[a[2]] >= self.MAX_NEED[a[2]])]
+        out = [
+            a
+            for a in s.legal_actions(include_trades=True)
+            if a[0] != "end" and not (a[0] == "bank" and h[a[2]] >= self.MAX_NEED[a[2]])
+        ]
         if s.phase == MAIN:
             out += self._macros(s, p)
         return out
@@ -858,9 +927,17 @@ class AIPlayer:
             s.apply(max(s.legal_actions(), key=lambda b: self._score_after(s, b, p)))
 
     def _sig(self, s, p):
-        return (tuple(s.hands[p]), tuple(sorted(s.trails[p])), tuple(sorted(s.villages[p])),
-                tuple(sorted(s.towns[p])), tuple(s.ventures[p]), tuple(s.new_ventures[p]), s.bandit,
-                s.venture_played, tuple(s.rangers))
+        return (
+            tuple(s.hands[p]),
+            tuple(sorted(s.trails[p])),
+            tuple(sorted(s.villages[p])),
+            tuple(sorted(s.towns[p])),
+            tuple(s.ventures[p]),
+            tuple(s.new_ventures[p]),
+            s.bandit,
+            s.venture_played,
+            tuple(s.rangers),
+        )
 
     # ======================================================== win-now search
     def _winning_ventures(self, s, p):
@@ -877,8 +954,7 @@ class AIPlayer:
         if d[WINDFALL]:
             opts.append((False, 2, 0))
         if d[HOARD]:
-            opts.append((False, max(sum(int(s.hands[q][r]) for q in range(s.n) if q != p)
-                                    for r in range(5)), 0))
+            opts.append((False, max(sum(int(s.hands[q][r]) for q in range(s.n) if q != p) for r in range(5)), 0))
         if d[PATHFINDER]:
             opts.append((False, 0, 2))
         return opts
@@ -914,7 +990,7 @@ class AIPlayer:
             if k <= trail_left:
                 lr_trails = k
         for patrol, wild, free in self._winning_ventures(s, p):
-            for lr in ((0, 1) if lr_trails is not None else (0,)):
+            for lr in (0, 1) if lr_trails is not None else (0,):
                 for ns in range(min(sett_left, len(spots), need) + 1):
                     for nc in range(min(town_left, len(s.villages[p]) + ns) + 1):
                         if ns + nc + 2 * (patrol + lr) < need:
@@ -923,8 +999,10 @@ class AIPlayer:
                         if trails > trail_left:
                             continue
                         paid = max(0, trails - free)
-                        cost = [ns * COSTS["village"][r] + nc * COSTS["town"][r] + paid * COSTS["trail"][r]
-                                for r in range(5)]
+                        cost = [
+                            ns * COSTS["village"][r] + nc * COSTS["town"][r] + paid * COSTS["trail"][r]
+                            for r in range(5)
+                        ]
                         short = sum(max(0, cost[r] - h[r]) for r in range(5))
                         spare = sum(int(max(0, h[r] - cost[r]) // ratios[r]) for r in range(5))
                         if short <= wild + spare:

@@ -9,7 +9,7 @@ import unittest
 from hexfield import cli
 from hexfield.ai import AIPlayer
 from hexfield.constants import RES_NAMES
-from hexfield.game import DISCARD, MAIN, OVER, FREE_TRAILS, BANDIT, SETUP_TRAIL, SETUP_SETTLE, IllegalAction
+from hexfield.game import BANDIT, DISCARD, FREE_TRAILS, MAIN, OVER, SETUP_SETTLE, SETUP_TRAIL, IllegalAction
 
 
 def to_command(game, a):
@@ -22,8 +22,15 @@ def to_command(game, a):
         return str(a[1]) if bare else f"v {a[1]}"
     if k == "trail":
         return str(a[1]) if bare else f"tr {a[1]}"
-    simple = {"town": f"tn {a[1] if len(a) > 1 else ''}", "buy_venture": "vn", "play_ranger": "rg",
-              "play_pathfinder": "pf", "roll": "r", "end": "e", "end_free_trails": "e"}
+    simple = {
+        "town": f"tn {a[1] if len(a) > 1 else ''}",
+        "buy_venture": "vn",
+        "play_ranger": "rg",
+        "play_pathfinder": "pf",
+        "roll": "r",
+        "end": "e",
+        "end_free_trails": "e",
+    }
     if k in simple:
         return simple[k]
     if k == "play_hoard":
@@ -40,9 +47,19 @@ def to_command(game, a):
 
 
 def scripted_game(seed, opponents=2, color=False):
-    args = argparse.Namespace(opponents=opponents, level="hard", seed=seed, seat=None, name="You",
-                              no_color=not color, no_review=False, no_reasoning=False, fast=True,
-                              delay=0, autoroll=seed % 2 == 0)
+    args = argparse.Namespace(
+        opponents=opponents,
+        level="hard",
+        seed=seed,
+        seat=None,
+        name="You",
+        no_color=not color,
+        no_review=False,
+        no_reasoning=False,
+        fast=True,
+        delay=0,
+        autoroll=seed % 2 == 0,
+    )
     game = cli.Game(args)
     pilot = AIPlayer(game.s.board, "medium", seed=seed)
     rnd = random.Random(seed)
@@ -92,9 +109,19 @@ class CLITests(unittest.TestCase):
 
 
 def make_game(seed=7, seat=3):
-    args = argparse.Namespace(opponents=3, level="hard", seed=seed, seat=seat, name="You",
-                              no_color=True, no_review=False, no_reasoning=False, fast=True,
-                              delay=0, autoroll=True)
+    args = argparse.Namespace(
+        opponents=3,
+        level="hard",
+        seed=seed,
+        seat=seat,
+        name="You",
+        no_color=True,
+        no_review=False,
+        no_reasoning=False,
+        fast=True,
+        delay=0,
+        autoroll=True,
+    )
     return cli.Game(args)
 
 
@@ -106,6 +133,7 @@ def scripted(game, answers):
         if not answers:
             raise AssertionError(f"unexpected prompt: {prompt}")
         return answers.pop(0)
+
     game.read_line = ask
     return answers
 
@@ -195,11 +223,10 @@ class CLIInputTests(unittest.TestCase):
         self.assertIn(f"steals a card from {second}", s.events[-2][3])
 
     def test_steal_prompt_accepts_undo(self):
-        game, s = self.bandit_game()
+        game, _s = self.bandit_game()
         scripted(game, ["U", "undo"])
         with self.assertRaises(cli.Undo):
             run_quiet(game.human_bandit)
-
 
     def bot_offer_game(self):
         """You end your turn; the next bot offers you 1 timber for your 1 clay."""
@@ -219,7 +246,7 @@ class CLIInputTests(unittest.TestCase):
         return game, me, bot
 
     def test_undo_while_answering_a_bot_offer(self):
-        game, me, bot = self.bot_offer_game()
+        game, me, _bot = self.bot_offer_game()
         scripted(game, ["undo"])
         text = run_quiet(game.step)
         self.assertNotIn("can't undo", text)
@@ -228,7 +255,7 @@ class CLIInputTests(unittest.TestCase):
         self.assertEqual(s.hands[me], [0, 1, 0, 0, 0])
 
     def test_undo_comes_back_to_a_bot_offer(self):
-        game, me, bot = self.bot_offer_game()
+        game, me, _bot = self.bot_offer_game()
         scripted(game, ["y"])
         run_quiet(game.step)
         self.assertEqual(game.s.hands[me], [1, 0, 0, 0, 0])
@@ -267,8 +294,9 @@ class CLIInputTests(unittest.TestCase):
             run_quiet(game.human_main)
 
     def test_autoroll_waits_only_for_a_ranger(self):
-        from hexfield.constants import RANGER, HOARD
+        from hexfield.constants import HOARD, RANGER
         from hexfield.game import PRE_ROLL
+
         for card, waits in ((HOARD, False), (RANGER, True)):
             game = make_game()
             to_my_main(game)

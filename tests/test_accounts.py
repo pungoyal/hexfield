@@ -16,10 +16,14 @@ from hexfield.web.accounts import Accounts
 from hexfield.web.passkey import b64u
 
 # made with: openssl ecparam -name prime256v1 -genkey | openssl dgst -sha256 -sign
-SPKI = bytes.fromhex("3059301306072a8648ce3d020106082a8648ce3d0301070342000496cb6f9dd0fb7c11299cfcca97732b7bcc279cde"
-                     "243f322b7637c95ac93bf2ed83ca0b6d220efef2d57125824f8fcd2becfa24b1b4b41592aeefeb6feadeda7b")
-SIG = bytes.fromhex("3045022100f0ecee0b5b9bcb748962f639bca77eee30921c8cf060bb42f12fd3c1cabdb37d022047b21a36a03962"
-                    "6ab45e5d951ffce5ae1d58876823bc51170fd43399555e6938")
+SPKI = bytes.fromhex(
+    "3059301306072a8648ce3d020106082a8648ce3d0301070342000496cb6f9dd0fb7c11299cfcca97732b7bcc279cde"
+    "243f322b7637c95ac93bf2ed83ca0b6d220efef2d57125824f8fcd2becfa24b1b4b41592aeefeb6feadeda7b"
+)
+SIG = bytes.fromhex(
+    "3045022100f0ecee0b5b9bcb748962f639bca77eee30921c8cf060bb42f12fd3c1cabdb37d022047b21a36a03962"
+    "6ab45e5d951ffce5ae1d58876823bc51170fd43399555e6938"
+)
 MSG = b"hexfield passkey test vector"
 HOST_KEY = "h" * 24
 
@@ -58,13 +62,22 @@ class Authenticator:
 
     def create(self, options, origin):
         cd = json.dumps({"type": "webauthn.create", "challenge": options["challenge"], "origin": origin}).encode()
-        return {"clientData": b64u(cd), "authData": b64u(self._auth_data(True)), "publicKey": b64u(self.spki), "alg": -7}
+        return {
+            "clientData": b64u(cd),
+            "authData": b64u(self._auth_data(True)),
+            "publicKey": b64u(self.spki),
+            "alg": -7,
+        }
 
     def get(self, options, origin):
         cd = json.dumps({"type": "webauthn.get", "challenge": options["challenge"], "origin": origin}).encode()
         ad = self._auth_data(False)
-        return {"id": b64u(self.id), "clientData": b64u(cd), "authData": b64u(ad),
-                "signature": b64u(self.sign(ad + hashlib.sha256(cd).digest()))}
+        return {
+            "id": b64u(self.id),
+            "clientData": b64u(cd),
+            "authData": b64u(ad),
+            "signature": b64u(self.sign(ad + hashlib.sha256(cd).digest())),
+        }
 
 
 class SignatureTests(unittest.TestCase):
@@ -101,10 +114,18 @@ class Browser:
 
     def call(self, route, body=None, **headers):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
-        headers = {"Host": f"localhost:{self.port}", "Content-Type": "application/json",
-                   "Cookie": "; ".join(f"{k}={v}" for k, v in self.cookies.items()), **headers}
-        c.request("GET" if body is None else "POST", "/api/" + route,
-                  body=None if body is None else json.dumps(body).encode(), headers=headers)
+        headers = {
+            "Host": f"localhost:{self.port}",
+            "Content-Type": "application/json",
+            "Cookie": "; ".join(f"{k}={v}" for k, v in self.cookies.items()),
+            **headers,
+        }
+        c.request(
+            "GET" if body is None else "POST",
+            "/api/" + route,
+            body=None if body is None else json.dumps(body).encode(),
+            headers=headers,
+        )
         r = c.getresponse()
         for h in r.headers.get_all("Set-Cookie") or []:
             k, _, v = h.split(";")[0].partition("=")
@@ -165,7 +186,9 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(b.call("signup-options", {"name": "  "})["status"], 400)
         self.assertEqual(b.sign_up("  Ada   Lovelace of London ", a)["status"], 200)
         me = b.call("me")
-        self.assertEqual((me["user"], me["host"], me["admin"]), ({"name": "Ada Lovelace o", "host": False}, False, False))
+        self.assertEqual(
+            (me["user"], me["host"], me["admin"]), ({"name": "Ada Lovelace o", "host": False}, False, False)
+        )
         self.assertEqual(b.call("new", {"seed": 1})["error"], "hosting games needs the admin's approval")
         self.assertEqual(b.call("signout", {})["status"], 200)
         self.assertEqual(b.call("me")["user"], None)
@@ -179,7 +202,7 @@ class AccountTests(unittest.TestCase):
         opts = b.call("signin-options", {})
         body = a.get(opts, b.origin)
         self.assertEqual(b.call("signin", body)["status"], 200)
-        self.assertEqual(b.call("signin", body)["status"], 403)                      # a challenge works once
+        self.assertEqual(b.call("signin", body)["status"], 403)  # a challenge works once
         self.assertEqual(b.call("signin", a.get(b.call("signin-options", {}), "https://evil.example"))["status"], 400)
         self.assertEqual(b.call("signin", a.get({"challenge": b64u(b"made up")}, b.origin))["status"], 403)
         stranger = Authenticator()
@@ -213,7 +236,7 @@ class AccountTests(unittest.TestCase):
         self.admin.call("accounts", {"id": users[0]["id"], "host": True})
         self.assertTrue(b.call("me")["host"])
         gid = b.call("new", {"opponents": 2, "seed": 3})["gid"]
-        self.assertEqual(b.call("state")["gid"], gid)     # their newest game, without naming it
+        self.assertEqual(b.call("state")["gid"], gid)  # their newest game, without naming it
         self.admin.call("accounts", {"id": users[0]["id"], "host": False})
         self.assertEqual(b.call("games")["status"], 403)
 
@@ -225,14 +248,14 @@ class AccountTests(unittest.TestCase):
         self.assertEqual([g["id"] for g in ada.call("games")["games"]], [gid])
         self.assertEqual(bob.call("games")["games"], [])
         self.assertNotIn(gid, [g["id"] for g in self.admin.call("games")["games"]])
-        self.assertNotIn("gid", bob.call("state"))                   # no game of Bob's own
-        self.assertTrue(bob.call(f"state?g={gid}")["join"])          # someone else's: the lobby
+        self.assertNotIn("gid", bob.call("state"))  # no game of Bob's own
+        self.assertTrue(bob.call(f"state?g={gid}")["join"])  # someone else's: the lobby
         self.assertEqual(bob.call("resume", {"id": gid})["status"], 400)
         self.assertEqual(bob.call("delete", {"id": gid})["deleted"], False)
         self.assertEqual(bob.call(f"export?id={gid}")["status"], 400)
         self.assertEqual(bob.call(f"replay?id={gid}")["status"], 400)
         self.assertIn(gid, server.APP.games)
-        server.APP.games.pop(gid).close()                            # off to disk: still Ada's alone
+        server.APP.games.pop(gid).close()  # off to disk: still Ada's alone
         self.assertEqual(bob.call(f"state?g={gid}"), {"status": 200, "nogame": True})
         self.assertEqual(ada.call(f"state?g={gid}")["gid"], gid)
         self.assertEqual(ada.call("delete", {"id": gid})["deleted"], True)
@@ -275,12 +298,15 @@ class AccountTests(unittest.TestCase):
         for _ in range(server.MAX_CHALLENGES_EACH):
             self.assertEqual(b.call("signin-options", {})["status"], 200)
         self.assertEqual(b.call("signin-options", {})["status"], 403)
-        server.APP.challenge("signin", "198.51.100.1")   # others still can
+        server.APP.challenge("signin", "198.51.100.1")  # others still can
 
     def test_a_failed_sign_up_costs_no_allowance(self):
         b, a = Browser(self.port), Authenticator()
         for _ in range(int(server.SIGNUP_BURST) + 2):
-            self.assertEqual(b.call("signup", a.create(b.call("signup-options", {"name": "Ada"}), "https://evil.example"))["status"], 400)
+            self.assertEqual(
+                b.call("signup", a.create(b.call("signup-options", {"name": "Ada"}), "https://evil.example"))["status"],
+                400,
+            )
         self.assertEqual(b.sign_up("Ada", a)["status"], 200)
 
     def test_the_admin_can_delete_an_account(self):
@@ -290,8 +316,8 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(self.admin.call("accounts", {"id": uid, "delete": True})["users"], [])
         self.assertNotIn(gid, server.APP.games)
         self.assertFalse(os.path.exists(os.path.join(os.environ["HEXFIELD_HOME"], "games", "users", uid)))
-        self.assertIsNone(ada.call("me")["user"])                    # its session went too
-        self.assertEqual(ada.sign_in(a)["status"], 403)               # and its passkey
+        self.assertIsNone(ada.call("me")["user"])  # its session went too
+        self.assertEqual(ada.sign_in(a)["status"], 403)  # and its passkey
         self.assertEqual(self.admin.call("accounts", {"id": uid, "delete": True})["status"], 400)
 
     def test_one_host_cant_push_the_others_games_out(self):
@@ -302,7 +328,9 @@ class AccountTests(unittest.TestCase):
         made = [ada.call("new", {"opponents": 2, "seed": i})["gid"] for i in range(server.MAX_LIVE_EACH + 3)]
         try:
             self.assertIn(mine["gid"], server.APP.games)
-            self.assertEqual(sum(g.owner != "" and g.gid in made for g in server.APP.games.values()), server.MAX_LIVE_EACH)
+            self.assertEqual(
+                sum(g.owner != "" and g.gid in made for g in server.APP.games.values()), server.MAX_LIVE_EACH
+            )
             self.assertFalse(bob.call(f"state?g={made[-1]}").get("own"))
         finally:
             for gid in made + [mine["gid"]]:
@@ -322,7 +350,7 @@ class ProxyTests(unittest.TestCase):
 
     def test_the_client_address_comes_from_a_trusted_proxy_only(self):
         fwd = {"X_Forwarded_For": "198.51.100.4"}
-        self.assertEqual(self.remote("172.18.0.2", **fwd), "172.18.0.2")   # anyone can send the header
+        self.assertEqual(self.remote("172.18.0.2", **fwd), "172.18.0.2")  # anyone can send the header
         self.assertEqual(self.remote("127.0.0.1", **fwd), "198.51.100.4")  # a proxy on this machine
         server.APP.behind_proxy = True
         try:
@@ -331,7 +359,7 @@ class ProxyTests(unittest.TestCase):
             self.assertEqual(self.remote("172.18.0.2"), "172.18.0.2")
             h = server.Handler.__new__(server.Handler)
             h.client_address, h.headers = ("172.18.0.2", 4000), {"X-Forwarded-For": "2001:db8:1:2:3:4:5:6"}
-            self.assertEqual(h.client(), "2001:db8:1:2::/64")   # one network, however many addresses
+            self.assertEqual(h.client(), "2001:db8:1:2::/64")  # one network, however many addresses
         finally:
             server.APP.behind_proxy = False
 
