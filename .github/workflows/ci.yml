@@ -139,7 +139,7 @@ jobs:
       group: deploy-oracle-cloud
       cancel-in-progress: false
     runs-on: ubuntu-26.04-arm
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       DEPLOY_DIR: /opt/hexfield
       APP_IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
@@ -178,13 +178,14 @@ jobs:
         run: |
           umask 077
           for k in $(grep -oE '^[A-Z][A-Z0-9_]*' .env.example); do
-            v=${!k}
-            if [[ -z $v || $v == *"'"* || $v == *$'\n'* ]]; then
-              echo "::error::$k is empty or contains a quote or newline" >&2
+            v=${!k-}
+            if [[ $v == *"'"* || $v == *$'\n'* ]]; then
+              echo "::error::$k contains a quote or a newline" >&2
               exit 1
             fi
             printf "%s='%s'\n" "$k" "$v"
           done > .env
+          docker compose -f compose.yaml config -q
           if (( ${#HEXFIELD_HOST_KEY} < 16 )); then
             echo "::error::HEXFIELD_HOST_KEY must be at least 16 characters" >&2
             exit 1
@@ -193,8 +194,14 @@ jobs:
         run: |
           on_server() { ssh server "cd $DEPLOY_DIR && $1"; }
           up() {
-            on_server 'chmod 600 .env && nohup docker compose up -d --no-build --wait --wait-timeout 300 --remove-orphans hexfield > deploy.log 2>&1 < /dev/null' \
-              || { on_server 'cat deploy.log; docker compose logs --tail=50 backup hexfield' >&2; return 1; }
+            local status=0
+            on_server 'chmod 600 .env && nohup timeout 420 docker compose up -d --no-build --wait --wait-timeout 300 --remove-orphans hexfield > deploy.log 2>&1 < /dev/null' || status=$?
+            case $status in
+              0) return 0 ;;
+              255) echo "::error::Lost the server mid-deploy; /opt/hexfield/deploy.log there says how it ended." >&2; exit 1 ;;
+            esac
+            on_server 'cat deploy.log; docker compose logs --tail=50 backup hexfield' >&2 || true
+            return 1
           }
           on_server 'cp -p compose.yaml compose.yaml.previous && cp -p .env .env.previous'
           scp compose.yaml .env "server:$DEPLOY_DIR/"
