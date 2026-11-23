@@ -8,7 +8,8 @@
 //   page.errors                                  // uncaught exceptions and console.error lines
 //   await page.close();
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,27 +25,85 @@ export function findChrome() {
   return CANDIDATES.find((p) => p && existsSync(p)) || null;
 }
 
+// Browsers still running, stopped when the process exits or a signal ends it.
+const live = new Set();
+
+function stop(browser) {
+  live.delete(browser);
+  browser.proc.kill("SIGKILL");
+  try { rmSync(browser.profile, { recursive: true, force: true, maxRetries: 3 }); } catch { /* temp dir */ }
+}
+
+process.on("exit", () => live.forEach(stop));
+const OURS = Symbol.for("hexfield.browser"); // global, so copies of this module don't defer to each other
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  const onSignal = () => {
+    // A script that handles the signal itself decides when to stop.
+    if (process.listeners(sig).some((l) => !l[OURS])) return;
+    live.forEach(stop);
+    process.removeListener(sig, onSignal);
+    process.kill(process.pid, sig); // die of it, as without a handler
+  };
+  onSignal[OURS] = true;
+  process.prependListener(sig, onSignal); // runs before a script's once() handler removes itself
+}
+
+// Linux: the kernel kills Chrome even if this process dies by SIGKILL. util-linux < 2.33 lacks it.
+// setpriv execs Chrome, so proc is still Chrome.
+let setpriv;
+function findSetpriv() {
+  const works = (p) => existsSync(p) && spawnSync(p, ["--pdeathsig", "KILL", "--version"]).status === 0;
+  if (setpriv === undefined) setpriv = process.platform === "linux" && ["/usr/bin/setpriv", "/bin/setpriv"].find(works) || null;
+  return setpriv;
+}
+
 export async function launch(url, { width = 1440, height = 900, mobile = false } = {}) {
   const bin = findChrome();
   if (!bin) throw new Error("Chrome not found (set CHROME_BIN)");
   const profile = mkdtempSync(join(tmpdir(), "hexfield-chrome-"));
-  const proc = spawn(bin, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
+  const args = ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
     "--no-first-run", "--no-default-browser-check", "--disable-gpu", "--hide-scrollbars", "--no-sandbox",
-    `--window-size=${width},${height}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+    `--window-size=${width},${height}`, "about:blank"];
+  const sp = findSetpriv();
+  const [cmd, ...argv] = sp ? [sp, "--pdeathsig", "KILL", bin, ...args] : [bin, ...args];
+  const proc = spawn(cmd, argv, { stdio: ["ignore", "ignore", "pipe"] });
+  const browser = { proc, profile };
+  live.add(browser);
+  proc.on("exit", () => stop(browser));
+  try {
+    return await connect(browser, url, { width, height, mobile });
+  } catch (e) {
+    stop(browser);
+    throw e;
+  }
+}
+
+async function connect(browser, url, { width, height, mobile }) {
+  const { proc } = browser;
+  let timer;
   const wsUrl = await new Promise((resolve, reject) => {
     let buf = "";
-    const timer = setTimeout(() => reject(new Error("Chrome did not start")), 20000);
-    proc.stderr.on("data", (d) => {
+    timer = setTimeout(() => reject(new Error("Chrome did not start")), 20000);
+    const onData = (d) => {
       buf += d;
       const m = buf.match(/DevTools listening on (ws:\/\/\S+)/);
-      if (m) { clearTimeout(timer); resolve(m[1]); }
-    });
+      if (!m) return;
+      proc.stderr.off("data", onData);
+      resolve(m[1]);
+    };
+    proc.stderr.on("data", onData);
+    proc.on("error", reject);
     proc.on("exit", () => reject(new Error("Chrome exited: " + buf.slice(-400))));
-  });
+  }).finally(() => clearTimeout(timer));
   const ws = new WebSocket(wsUrl);
   await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
   let next = 1;
   const waiting = new Map();
+  const closed = () => new Error("Chrome closed the DevTools connection");
+  ws.onclose = () => {
+    for (const { reject } of waiting.values()) reject(closed());
+    waiting.clear();
+  };
   const errors = [];
   const logs = [];
   ws.onmessage = (ev) => {
@@ -64,6 +123,7 @@ export async function launch(url, { width = 1440, height = 900, mobile = false }
     }
   };
   const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+    if (ws.readyState !== WebSocket.OPEN) return reject(closed()); // a closed socket drops sends silently
     const id = next++;
     waiting.set(id, { resolve, reject });
     ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
@@ -88,7 +148,7 @@ export async function launch(url, { width = 1440, height = 900, mobile = false }
       const t0 = Date.now();
       for (;;) {
         let ok = false;
-        try { ok = await page.eval(expression); } catch { /* page still loading */ }
+        try { ok = await page.eval(expression); } catch (e) { if (ws.readyState !== WebSocket.OPEN) throw e; }
         if (ok) return ok;
         if (Date.now() - t0 > ms) throw new Error(`timed out waiting for: ${what}\nerrors: ${errors.join(" | ")}`);
         await new Promise((r) => setTimeout(r, 60));
@@ -105,10 +165,10 @@ export async function launch(url, { width = 1440, height = 900, mobile = false }
       writeFileSync(path, Buffer.from(data, "base64"));
     },
     async close() {
-      try { ws.close(); } catch { /* already gone */ }
-      proc.kill();
-      await new Promise((r) => setTimeout(r, 150));
-      try { rmSync(profile, { recursive: true, force: true }); } catch { /* chrome still letting go */ }
+      ws.close();
+      const exited = proc.exitCode === null && proc.signalCode === null && once(proc, "exit");
+      stop(browser);
+      await exited;
     },
   };
   if (url) await page.goto(url);
