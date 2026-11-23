@@ -22,7 +22,7 @@ from them, it is on purpose:
 
 - The deploy is two files, `compose.yaml` and `.env`, and one command
   (`docker compose up --wait`). CI renders `.env` from the `oracle-cloud` environment, with
-  `APP_IMAGE=ghcr.io/vaari-dev/hexfield:<full sha>` first. All branching, including the
+  `APP_IMAGE=ghcr.io/pungoyal/hexfield:<full sha>` first. All branching, including the
   rollback, stays in CI. The deploy step follows the gist below word for word apart from names;
   keep it that way.
 - Keep logic off the server: no scripts, polling loops, downloads, `mkdir` or `sudo`, and no

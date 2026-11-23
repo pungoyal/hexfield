@@ -33,9 +33,9 @@ classifiers = [
 dev = ["build==1.6.1", "ruff==0.17.5", "twine==7.0.0"]
 
 [project.urls]
-Homepage = "https://github.com/vaari-dev/hexfield"
-Issues = "https://github.com/vaari-dev/hexfield/issues"
-Changelog = "https://github.com/vaari-dev/hexfield/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/pungoyal/hexfield"
+Issues = "https://github.com/pungoyal/hexfield/issues"
+Changelog = "https://github.com/pungoyal/hexfield/blob/main/CHANGELOG.md"
 
 [project.scripts]
 hexfield = "hexfield.cli:main"

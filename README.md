@@ -263,7 +263,7 @@ network. Hexfield is its own Compose project ([`compose.yaml`](compose.yaml)), p
 no ports, and only its one long-running service (also called `hexfield`) joins that network.
 
 On every push to `main`, CI runs every check, builds and smoke-tests one linux/arm64 image,
-pushes it to GHCR as `ghcr.io/vaari-dev/hexfield:<commit>` (with a build provenance
+pushes it to GHCR as `ghcr.io/pungoyal/hexfield:<commit>` (with a build provenance
 attestation), and deploys it. The deploy is two files and one command:
 
 1. CI writes `.env` from the `oracle-cloud` environment: one single-quoted line for each key
@@ -275,7 +275,7 @@ attestation), and deploys it. The deploy is two files and one command:
    whether the deploy passed.
 3. If the pull fails or the new release never turns healthy, CI puts the kept files back,
    brings the previous release up again, and fails the run.
-4. Only after a good deploy does it remove older `ghcr.io/vaari-dev/hexfield` images.
+4. Only after a good deploy does it remove older `ghcr.io/pungoyal/hexfield` images.
 
 `GET https://hex.vaari.dev/healthz` names the commit that is serving (`build`). To go back
 to an older release, re-run the `deploy` job of a good commit's run on `main`: GHCR still
@@ -285,7 +285,7 @@ The server is shared with other apps, so a deploy touches only `/opt/hexfield`, 
 `hexfield` Compose project (its containers, the `hexfield_data` volume where games live and
 `hexfield_backups`) and older Hexfield images. It joins the edge's network without creating
 or changing it. No script, registry login or other logic lives on the server: the
-package `ghcr.io/vaari-dev/hexfield` is public, so the server pulls it without a login.
+package `ghcr.io/pungoyal/hexfield` is public, so the server pulls it without a login.
 
 **Backups.** Before every start, `backup` (`python -m hexfield.backup /data /backups`)
 writes `hexfield-<UTC time>.tar.gz` to the `hexfield_backups` volume: every saved game and
@@ -315,9 +315,9 @@ new setting is one line in each of `.env.example`, `compose.yaml` and the deploy
 | `HEXFIELD_HOST_KEY`  | environment secret     | the admin key, which chooses who may host: `openssl rand -hex 32` |
 
 ```sh
-gh api -X PUT repos/vaari-dev/hexfield/environments/oracle-cloud \
+gh api -X PUT repos/pungoyal/hexfield/environments/oracle-cloud \
   -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
-gh api -X POST repos/vaari-dev/hexfield/environments/oracle-cloud/deployment-branch-policies -f name=main
+gh api -X POST repos/pungoyal/hexfield/environments/oracle-cloud/deployment-branch-policies -f name=main
 gh variable set DOCKER_NETWORK --body edge
 gh variable set HEXFIELD_DOMAIN --env oracle-cloud --body hex.vaari.dev
 gh variable set DEPLOY_HOST --env oracle-cloud --body <ip>
@@ -329,7 +329,8 @@ openssl rand -hex 32 | gh secret set HEXFIELD_HOST_KEY --env oracle-cloud
 
 Before the first deploy, once: the edge must be running (it creates the network),
 `hex.vaari.dev` needs a DNS-only `A` record pointing at the VM (edge's `scripts/dns.sh`),
-the package must be public (its *Package settings* on GitHub), and the server needs the
+the package must be public (it appears after the first push to `main`; then *Package
+settings* on GitHub, *Change visibility*), and the server needs the
 deploy directory with a first pair of files to keep:
 
 ```sh
