@@ -17,6 +17,11 @@ from them, it is on purpose:
 - The healthcheck uses Python's urllib, because the slim image has no `wget`.
 - The gist's `verify` is the `test` job, since the ruleset requires `test`, `browser` and `image`.
 - The `.env` step also refuses a host key shorter than 16 characters, as the server does.
+- Backups stay on the server's disk, kept 30 days and never fewer than 7: they guard against
+  a bad release, not against losing the VM.
+- The `image` job holds `packages`, `id-token` and `attestations` write on pull requests too:
+  job permissions can't depend on the branch, and splitting the push into its own job would
+  mean building twice. Only steps limited to `main` use them.
 
 ## Deploy
 
@@ -38,8 +43,8 @@ from them, it is on purpose:
   the release running now: the old server keeps serving while the new one starts, and a
   rolled-back image runs on whatever the new one wrote. Stop reading something in one
   release; remove it in a later one.
-- A new setting is one line in each of `.env.example`, `compose.yaml` and the deploy job's
-  `Write .env` step. Secrets use `${VAR:?}` in compose, never a default.
+- A new setting is one line in each of `.env.example`, `compose.yaml`, the `image` job's smoke
+  test and the deploy job's `Write .env` step. Secrets use `${VAR:?}` in compose, never a default.
 
 ## CI
 
@@ -69,6 +74,6 @@ from them, it is on purpose:
 - Prefer one atomic SQL statement to read-then-write (see `Accounts.used`).
 - Comment only what the code can't say: why, or what not to change back. No
   "keep in step with X": make it one source instead.
-- Update README, CONTRIBUTING, `.env.example` and this file in the same pull request as
+- Update README, CONTRIBUTING, CHANGELOG, `.env.example` and this file in the same pull request as
   the change they describe. A doc that no longer matches the code is a bug.
 - Pull request titles state the end state; commit bodies give the why.

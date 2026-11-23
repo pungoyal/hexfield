@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* Hosting: the repository moved to `pungoyal/hexfield`, so the image is now
+  `ghcr.io/pungoyal/hexfield`. `GET /healthz` names the build it runs, and
+  `python -m hexfield.backup SOURCE DEST` writes a Hexfield home to one `.tar.gz` (the
+  production stack runs it before every start).
 * Picking a spot (setup, a build mode, the bandit) starts on a raw board: every open spot
   looks the same, with no letters, pip totals or best spot. Press Space to show them for that
   decision; Space again builds on the best spot. Phones keep showing pips.

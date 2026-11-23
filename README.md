@@ -212,8 +212,10 @@ pre-deploy backup and the same health check, build it and fill in a `.env`:
 docker build -t hexfield:dev .
 cp .env.example .env              # then set HEXFIELD_HOST_KEY, and HEXFIELD_DOMAIN=localhost
 docker network create edge        # once; on the server the edge stack creates it
-docker compose up -d --wait       # http://127.0.0.1:8765
+docker compose up -d --wait       # http://localhost:8765, then /#host=<key> once
 ```
+
+Use `localhost`, not `127.0.0.1`: passkeys need a domain name.
 
 `docker compose` merges in [`compose.override.yaml`](compose.override.yaml) on its own: it
 publishes the port on 127.0.0.1 and does nothing else. It is never copied to the server.
@@ -279,7 +281,9 @@ attestation), and deploys it. The deploy is two files and one command:
 
 `GET https://hex.vaari.dev/healthz` names the commit that is serving (`build`). To go back
 to an older release, re-run the `deploy` job of a good commit's run on `main`: GHCR still
-holds its image. To deploy again without a new commit, re-run the latest one.
+holds its image. This works for commits from the switch to this deploy onwards (GitHub
+re-runs a run for 30 days); an older run deploys the older way, to the old image name, and
+fails. To deploy again without a new commit, re-run the latest one.
 
 The server is shared with other apps, so a deploy touches only `/opt/hexfield`, the
 `hexfield` Compose project (its containers, the `hexfield_data` volume where games live and
@@ -289,8 +293,9 @@ package `ghcr.io/pungoyal/hexfield` is public, so the server pulls it without a 
 
 **Backups.** Before every start, `backup` (`python -m hexfield.backup /data /backups`)
 writes `hexfield-<UTC time>.tar.gz` to the `hexfield_backups` volume: every saved game and
-a consistent copy of `accounts.db`, taken while the old server keeps running. The newest 7
-are kept. To restore one, on the server:
+a consistent copy of `accounts.db`, taken while the old server keeps running. Backups from
+the last 30 days are kept, and never fewer than the newest 7. They are on the server's own
+disk: they guard against a bad release, not against losing the VM. To restore one, on the server:
 
 ```sh
 cd /opt/hexfield
@@ -301,8 +306,8 @@ docker compose up -d --wait hexfield
 ```
 
 Settings live in the `oracle-cloud` GitHub environment, which only `main` may deploy to. A
-new setting is one line in each of `.env.example`, `compose.yaml` and the deploy job's
-`Write .env` step; a blank value stops the deploy.
+new setting is one line in each of `.env.example`, `compose.yaml`, the deploy job's
+`Write .env` step and the `image` job's smoke test; a blank value stops the deploy.
 
 | Name                 | Where                  | Value                                                   |
 | -------------------- | ---------------------- | ------------------------------------------------------- |
@@ -339,6 +344,15 @@ sudo install -d -o ubuntu -g ubuntu -m 700 /opt/hexfield && touch /opt/hexfield/
 
 The server runs with [accounts](#accounts) and `--behind-proxy`: open
 `https://hex.vaari.dev/#host=<HEXFIELD_HOST_KEY>` once to be the admin.
+
+Once, after the first good deploy of this layout, remove what the older deploy left on the
+server: its `*.prev` files (one holds a copy of the host key) and the images from before the
+repository moved from `vaari-dev`:
+
+```sh
+cd /opt/hexfield && rm -f compose.yaml.prev .env.prev
+docker image ls --format '{{.Repository}}:{{.Tag}}' ghcr.io/vaari-dev/hexfield | xargs -r docker image rm
+```
 
 ## Rules
 
@@ -515,6 +529,7 @@ The game needs nothing beyond Python; the tools for working on it are pinned in
 format check of the staged files, then the tests) once:
 
 ```
+python3 -m venv .venv && . .venv/bin/activate   # pip 25.1 or newer, for --group
 python3 -m pip install --group dev
 git config core.hooksPath .githooks
 ruff check . && ruff format .
