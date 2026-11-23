@@ -8,7 +8,9 @@ These rules follow the build, deploy and dependency principles in
 https://gist.github.com/pungoyal/85b5f6c693b98267d5939c55caa9ba04. Where Hexfield departs
 from them, it is on purpose:
 
-- No registry login or `docker logout` on the server: the GHCR package is public.
+- No registry login or `docker logout` on the server: the GHCR package is public, and the
+  pull runs with `--config /nonexistent` so that a login another app left on the shared
+  server (an expired token is refused even for a public image) can't break it.
 - Python, not Node: ruff instead of Biome, pip's `dev` group instead of pnpm and
   `packageManager`, no typecheck (the code has no annotations), and the hook is turned on with
   `git config core.hooksPath .githooks` instead of a `prepare` script.
