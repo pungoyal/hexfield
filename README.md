@@ -273,8 +273,8 @@ attestation), and deploys it. The deploy is two files and one command:
    two over, pulls the image, and runs `docker compose up --wait`. The `backup` service runs
    first and the server starts only once it has finished; the app's health check decides
    whether the deploy passed.
-3. If the new release doesn't come up healthy within 5 minutes, CI puts the kept files
-   back, brings the previous release up the same way, and fails the run.
+3. If the pull fails or the new release never turns healthy, CI puts the kept files back,
+   brings the previous release up again, and fails the run.
 4. Only after a good deploy does it remove older `ghcr.io/vaari-dev/hexfield` images.
 
 `GET https://hex.vaari.dev/healthz` names the commit that is serving (`build`). To go back

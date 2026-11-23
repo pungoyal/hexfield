@@ -4,12 +4,27 @@ Read CONTRIBUTING.md first: no runtime dependencies, seeds stay valid, bot stren
 measured. The rules below are for CI, the image, the deploy and dependencies; README's
 "Deploying hex.vaari.dev" says how they fit together.
 
+These rules follow the build, deploy and dependency principles in
+https://gist.github.com/pungoyal/85b5f6c693b98267d5939c55caa9ba04. Where Hexfield departs
+from them, it is on purpose:
+
+- No registry login or `docker logout` on the server: the GHCR package is public.
+- Python, not Node: ruff instead of Biome, pip's `dev` group instead of pnpm and
+  `packageManager`, no typecheck (the code has no annotations), and the hook is turned on with
+  `git config core.hooksPath .githooks` instead of a `prepare` script.
+- No database server and no migrations: `backup` tars the games and takes SQLite's online
+  backup of `accounts.db`.
+- The healthcheck uses Python's urllib, because the slim image has no `wget`.
+- The gist's `verify` is the `test` job, since the ruleset requires `test`, `browser` and `image`.
+- The `.env` step also refuses a host key shorter than 16 characters, as the server does.
+
 ## Deploy
 
 - The deploy is two files, `compose.yaml` and `.env`, and one command
   (`docker compose up --wait`). CI renders `.env` from the `oracle-cloud` environment, with
   `APP_IMAGE=ghcr.io/vaari-dev/hexfield:<full sha>` first. All branching, including the
-  rollback, runs in CI; each command sent to the server is one line.
+  rollback, stays in CI. The deploy step follows the gist below word for word apart from names;
+  keep it that way.
 - Keep logic off the server: no scripts, polling loops, downloads, `mkdir` or `sudo`, and no
   registry login (the package is public). If the server needs to know something, it goes
   in one of the two files.

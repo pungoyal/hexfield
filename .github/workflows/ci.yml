@@ -139,7 +139,7 @@ jobs:
       group: deploy-oracle-cloud
       cancel-in-progress: false
     runs-on: ubuntu-26.04-arm
-    timeout-minutes: 20
+    timeout-minutes: 15
     env:
       DEPLOY_DIR: /opt/hexfield
       APP_IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
@@ -192,25 +192,13 @@ jobs:
           fi
       - name: Deploy, or bring the previous release back
         run: |
-          on_server() { ssh server "cd $DEPLOY_DIR && $1"; }
-          up() {
-            local status=0
-            on_server 'chmod 600 .env && nohup timeout 420 docker compose up -d --no-build --wait --wait-timeout 300 --remove-orphans hexfield > deploy.log 2>&1 < /dev/null' || status=$?
-            case $status in
-              0) return 0 ;;
-              255) echo "::error::Lost the server mid-deploy; /opt/hexfield/deploy.log there says how it ended." >&2; exit 1 ;;
-            esac
-            on_server 'cat deploy.log; docker compose logs --tail=50 backup hexfield' >&2 || true
-            return 1
-          }
-          on_server 'cp -p compose.yaml compose.yaml.previous && cp -p .env .env.previous'
+          up='docker compose up -d --no-build --wait hexfield || { docker compose logs --tail=50; exit 1; }'
+          ssh server "cd $DEPLOY_DIR && cp compose.yaml compose.yaml.previous && cp .env .env.previous"
           scp compose.yaml .env "server:$DEPLOY_DIR/"
-          if ! on_server 'docker compose pull -q hexfield' || ! up; then
-            echo "::error::$APP_IMAGE did not come up; bringing the previous release back."
-            on_server 'mv compose.yaml.previous compose.yaml && mv .env.previous .env'
-            up
+          ssh server "cd $DEPLOY_DIR && docker compose pull -q hexfield && chmod 600 .env && $up" || {
+            ssh server "cd $DEPLOY_DIR && mv compose.yaml.previous compose.yaml && mv .env.previous .env && $up"
             exit 1
-          fi
+          }
           echo "Deployed \`$APP_IMAGE\` to https://${{ vars.HEXFIELD_DOMAIN }}" >> "$GITHUB_STEP_SUMMARY"
       # Only after a good deploy: a failed one rolls back to the previous image.
       - name: Remove older images
