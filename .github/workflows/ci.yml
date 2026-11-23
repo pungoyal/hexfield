@@ -185,7 +185,7 @@ jobs:
             fi
             printf "%s='%s'\n" "$k" "$v"
           done > .env
-          docker compose -f compose.yaml config -q
+          env -i PATH="$PATH" HOME="$HOME" docker compose -f compose.yaml config -q
           if (( ${#HEXFIELD_HOST_KEY} < 16 )); then
             echo "::error::HEXFIELD_HOST_KEY must be at least 16 characters" >&2
             exit 1
@@ -194,8 +194,7 @@ jobs:
         run: |
           up='docker compose up -d --no-build --wait hexfield || { docker compose logs --tail=50; exit 1; }'
           ssh server "cd $DEPLOY_DIR && cp compose.yaml compose.yaml.previous && cp .env .env.previous"
-          scp compose.yaml .env "server:$DEPLOY_DIR/"
-          ssh server "cd $DEPLOY_DIR && docker compose pull -q hexfield && chmod 600 .env && $up" || {
+          { scp compose.yaml .env "server:$DEPLOY_DIR/" && ssh server "cd $DEPLOY_DIR && docker compose pull -q hexfield && chmod 600 .env && $up"; } || {
             ssh server "cd $DEPLOY_DIR && mv compose.yaml.previous compose.yaml && mv .env.previous .env && $up"
             exit 1
           }
