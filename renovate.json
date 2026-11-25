@@ -4,6 +4,10 @@
   "schedule": ["before 6am on monday"],
   "osvVulnerabilityAlerts": true,
   "lockFileMaintenance": { "automerge": true },
+  "poetry": {
+    "description": "Poetry takes pyproject.toml from pep621 and then drops [build-system] unless Poetry builds it, so setuptools would never move.",
+    "enabled": false
+  },
   "packageRules": [
     { "matchPackageNames": ["*"], "minimumReleaseAge": "7 days" },
     { "matchDatasources": ["docker"], "minimumReleaseAge": null },
